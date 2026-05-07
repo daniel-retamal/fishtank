@@ -5,7 +5,20 @@ pub struct Completion {
     pub tab_result: Option<String>,
 }
 
-static COMMAND_NAMES: &[&str] = &["exit", "feed", "fps", "index", "mutate", "names", "spawn"];
+static COMMAND_NAMES: &[&str] = &[
+    "exit",
+    "feed",
+    "fish",
+    "food",
+    "fps",
+    "index",
+    "inventory",
+    "money",
+    "mutate",
+    "names",
+    "spawn",
+    "stats",
+];
 
 static MUTATION_NAMES: &[&str] = &[
     "bodycolor",
@@ -59,7 +72,9 @@ pub fn autocomplete(input: &str, fish_names: &[&str]) -> Option<Completion> {
         None => complete_command(body),
         Some((cmd, rest)) => match cmd {
             "feed" => complete_feed(rest),
+            "food" => complete_resource(rest),
             "fps" => complete_fps(rest),
+            "money" => complete_resource(rest),
             "mutate" => complete_mutate(rest, fish_names),
             "spawn" => complete_spawn(rest),
             _ => None,
@@ -135,6 +150,17 @@ fn complete_fps(rest: &str) -> Option<Completion> {
     if rest.is_empty() {
         Some(Completion {
             ghost: "<n>".to_string(),
+            tab_result: None,
+        })
+    } else {
+        None
+    }
+}
+
+fn complete_resource(rest: &str) -> Option<Completion> {
+    if rest.is_empty() {
+        Some(Completion {
+            ghost: "<amount>".to_string(),
             tab_result: None,
         })
     } else {
@@ -266,7 +292,9 @@ fn complete_species(partial: &str) -> Option<Completion> {
 fn command_args_placeholder(cmd: &str) -> &'static str {
     match cmd {
         "feed" => "<amount>",
+        "food" => "<amount>",
         "fps" => "<n>",
+        "money" => "<amount>",
         "mutate" => "\"<name>\" <mutation>",
         "spawn" => "<species> \"<name>\"",
         _ => "",
@@ -295,7 +323,12 @@ pub enum Action {
     Spawn(FishSpecies, String),
     Mutate(String, String),
     Index { all: bool },
+    Fish { no_death: bool, no_fish: bool },
+    Inventory,
     ToggleNames,
+    ToggleStats,
+    ModFood(i32),
+    ModMoney(i32),
     Exit,
     Unknown,
 }
@@ -335,10 +368,24 @@ pub fn parse(input: &str) -> Action {
     match parts.as_slice() {
         ["feed"] => Action::Feed(0),
         ["feed", n] => n.parse().map(Action::Feed).unwrap_or(Action::Unknown),
+        ["food", n] => n
+            .parse::<i32>()
+            .map(Action::ModFood)
+            .unwrap_or(Action::Unknown),
+        ["money", n] => n
+            .parse::<i32>()
+            .map(Action::ModMoney)
+            .unwrap_or(Action::Unknown),
         ["exit"] => Action::Exit,
+        ["fish", rest @ ..] => Action::Fish {
+            no_death: rest.contains(&"--no-death"),
+            no_fish: rest.contains(&"--no-fish"),
+        },
         ["index"] => Action::Index { all: false },
         ["index", "all"] => Action::Index { all: true },
+        ["inventory"] => Action::Inventory,
         ["names"] => Action::ToggleNames,
+        ["stats"] => Action::ToggleStats,
         ["fps", n] => n.parse().map(Action::SetFps).unwrap_or(Action::Unknown),
         ["spawn", species_str, name_raw] => {
             let name = name_raw.trim().trim_matches('"').to_string();

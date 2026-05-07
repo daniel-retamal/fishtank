@@ -7,8 +7,9 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthChar;
 
-use crate::entities::fish::Fish;
+use crate::entities::fish::{Direction, Fish};
 use crate::entities::species::FishSpecies;
+use crate::ui::render_fish_segs;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum FantasyKind {
@@ -144,8 +145,10 @@ pub struct IndexState {
     pub scroll: usize,
     pub col_scroll: usize,
     snapshots: Vec<FishSnapshot>,
+    fish_clones: Vec<Fish>,
     fixed_widths: [usize; 4],
     fantasy_cols: Vec<FantasyColumn>,
+    animated_fish: Option<Fish>,
 }
 
 impl IndexState {
@@ -162,6 +165,8 @@ impl IndexState {
                 food_eaten: f.food_eaten,
             })
             .collect();
+
+        let fish_clones: Vec<Fish> = fish.to_vec();
 
         let chosen_kinds: Vec<FantasyKind> = if all {
             FantasyKind::all().to_vec()
@@ -224,13 +229,23 @@ impl IndexState {
 
         let fixed_widths = [max_name_w, max_species_w, max_display_w, max_food_w];
 
+        let animated_fish = fish_clones.first().cloned().map(display_clone);
+
         Self {
             selected: 0,
             scroll: 0,
             col_scroll: 1,
             snapshots,
+            fish_clones,
             fixed_widths,
             fantasy_cols,
+            animated_fish,
+        }
+    }
+
+    pub fn tick_animation(&mut self, dt: f32) {
+        if let Some(ref mut fish) = self.animated_fish {
+            fish.tick_animation(dt);
         }
     }
 
@@ -240,6 +255,11 @@ impl IndexState {
             if self.selected < self.scroll {
                 self.scroll = self.selected;
             }
+            self.animated_fish = self
+                .fish_clones
+                .get(self.selected)
+                .cloned()
+                .map(display_clone);
         }
     }
 
@@ -249,6 +269,11 @@ impl IndexState {
             if self.selected >= self.scroll + visible_rows {
                 self.scroll = self.selected + 1 - visible_rows;
             }
+            self.animated_fish = self
+                .fish_clones
+                .get(self.selected)
+                .cloned()
+                .map(display_clone);
         }
     }
 
@@ -286,8 +311,7 @@ impl IndexState {
         let name_w = widths[0];
         let mut vis = vec![0usize];
         let mut used = name_w;
-        for i in self.col_scroll.max(1)..widths.len() {
-            let w = widths[i];
+        for (i, &w) in widths.iter().enumerate().skip(self.col_scroll.max(1)) {
             if used + 1 + w <= inner_w {
                 vis.push(i);
                 used += 1 + w;
@@ -324,7 +348,7 @@ impl Widget for IndexOverlay<'_> {
         let oy = area.y + area.height.saturating_sub(overlay_h) / 2;
         let rect = Rect::new(ox, oy, overlay_w, overlay_h);
 
-        let bg = Color::Rgb(8, 12, 20);
+        let bg = Color::Reset;
         for dy in 0..overlay_h {
             for dx in 0..overlay_w {
                 let x = ox + dx;
@@ -365,23 +389,35 @@ impl Widget for IndexOverlay<'_> {
         let scrollable = n > visible_data_rows;
         let h_scrollable = has_right_scroll || state.col_scroll > 1;
         let col_hint = format!("({}/{})", last_vis + 1, total_cols);
-        let hint = match (scrollable, h_scrollable) {
+        let left_hint = match (scrollable, h_scrollable) {
             (true, true) => format!(
-                " ↑↓ scroll ({}/{})   ←→ cols {}   ESC/q close",
+                " ↑↓ scroll ({}/{})   ←→ cols {}",
                 state.selected + 1,
                 n,
                 col_hint
             ),
-            (true, false) => format!(" ↑↓ scroll ({}/{})   ESC/q close", state.selected + 1, n),
-            (false, true) => format!(" ↑↓ navigate   ←→ cols {}   ESC/q close", col_hint),
-            (false, false) => " ↑↓ navigate   ESC/q close".to_string(),
+            (true, false) => format!(" ↑↓ scroll ({}/{})", state.selected + 1, n),
+            (false, true) => format!(" ↑↓ navigate   ←→ cols {}", col_hint),
+            (false, false) => " ↑↓ navigate".to_string(),
         };
+        let hint_style = Style::default().fg(Color::DarkGray).bg(bg);
+        let right_text = "ESC/q close";
+        let right_w = visual_width(right_text);
+        let left_w = visual_width(&left_hint);
         buf.set_string(
             inner_x,
             footer_y,
-            truncate_str(&hint, inner_w),
-            Style::default().fg(Color::DarkGray).bg(bg),
+            truncate_str(&left_hint, inner_w),
+            hint_style,
         );
+        if left_w + 2 + right_w <= inner_w {
+            buf.set_string(
+                inner_x + inner_w as u16 - right_w as u16,
+                footer_y,
+                right_text,
+                hint_style,
+            );
+        }
     }
 }
 
@@ -543,7 +579,15 @@ fn draw_data_row(
         match col_idx {
             0 => put_text(buf, &snap.name, x, row_y, w.min(avail), fg, row_bg),
             1 => put_text(buf, snap.species_name, x, row_y, w.min(avail), fg, row_bg),
-            2 => render_display_cell(buf, snap, x, row_y, w.min(avail), base_bg),
+            2 if selected => {
+                let segs = state
+                    .animated_fish
+                    .as_ref()
+                    .map(|f| f.segments())
+                    .unwrap_or_else(|| snap.segments.clone());
+                render_display_cell(buf, &segs, x, row_y, w.min(avail), base_bg);
+            }
+            2 => render_display_cell(buf, &snap.segments, x, row_y, w.min(avail), base_bg),
             3 => {
                 let s = snap.food_eaten.to_string();
                 put_text(buf, &s, x, row_y, w.min(avail), fg, row_bg);
@@ -577,7 +621,7 @@ fn draw_data_row(
 
 fn render_display_cell(
     buf: &mut Buffer,
-    snap: &FishSnapshot,
+    segs: &[(char, Color)],
     x: u16,
     y: u16,
     col_width: usize,
@@ -586,15 +630,7 @@ fn render_display_cell(
     for dx in 0..col_width as u16 {
         buf[(x + dx, y)].set_char(' ').set_bg(bg);
     }
-    let mut col = 0u16;
-    for (ch, color) in &snap.segments {
-        let cw = UnicodeWidthChar::width(*ch).unwrap_or(1) as u16;
-        if col + cw > col_width as u16 {
-            break;
-        }
-        buf[(x + col, y)].set_char(*ch).set_fg(*color).set_bg(bg);
-        col += cw;
-    }
+    render_fish_segs(buf, segs, x, y, col_width as u16, bg);
 }
 
 fn put_text(buf: &mut Buffer, text: &str, x: u16, y: u16, width: usize, fg: Color, bg: Color) {
@@ -845,9 +881,9 @@ fn gen_fantasy(
             ];
             (0..n)
                 .map(|i| match species[i] {
-                    FishSpecies::Mutantfish => plain(
-                        "The Tower (R), The Devil (R), Three of Swords (R)",
-                    ),
+                    FishSpecies::Mutantfish => {
+                        plain("The Tower (R), The Devil (R), Three of Swords (R)")
+                    }
                     FishSpecies::Goldenfish => plain("The Star, The Sun, The World"),
                     _ => {
                         let mut deck: Vec<&str> = CARDS.to_vec();
@@ -868,7 +904,7 @@ fn gen_fantasy(
 
         FantasyKind::FavoriteQuote => (0..n)
             .map(|i| match species[i] {
-                FishSpecies::Mutantfish => plain("AAHHHHHHHHHH"),
+                FishSpecies::Mutantfish => plain("OOGHHHHHHH"),
                 FishSpecies::Goldenfish => plain("Gonna be, gonna be golden"),
                 _ => {
                     let count = rng.random_range(2..=8u32);
@@ -1011,6 +1047,11 @@ fn gen_fantasy(
                 .collect()
         }
     }
+}
+
+fn display_clone(mut fish: Fish) -> Fish {
+    fish.facing = Direction::Left;
+    fish
 }
 
 fn plain(s: impl Into<String>) -> FantasyCell {

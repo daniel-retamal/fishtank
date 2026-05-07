@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use rand::RngExt;
 
@@ -65,6 +65,9 @@ pub struct Tank {
     pub width: u16,
     pub height: u16,
     pub used_names: HashSet<String>,
+    pub food_supply: u32,
+    pub money: u32,
+    pub inventory: HashMap<String, u32>,
     bubble_bottom_timer: f32,
     bubble_surface_timer: f32,
     mutation_timer: f32,
@@ -81,6 +84,9 @@ impl Tank {
             width: INITIAL_WIDTH,
             height: INITIAL_HEIGHT,
             used_names: HashSet::new(),
+            food_supply: 100,
+            money: 0,
+            inventory: HashMap::new(),
             bubble_bottom_timer: rng
                 .random_range(BUBBLE_BOTTOM_SPAWN_RATE_MIN..BUBBLE_BOTTOM_SPAWN_RATE_MAX),
             bubble_surface_timer: rng
@@ -96,15 +102,6 @@ impl Tank {
 
     pub fn is_name_available(&self, name: &str) -> bool {
         !self.used_names.contains(name)
-    }
-
-    pub fn add_fish(&mut self, fish: Fish) -> bool {
-        if !self.is_name_available(&fish.name) {
-            return false;
-        }
-        self.used_names.insert(fish.name.clone());
-        self.fish.push(fish);
-        true
     }
 
     pub fn spawn_fish(
@@ -124,6 +121,21 @@ impl Tank {
         true
     }
 
+    pub fn add_to_inventory(&mut self, item: &str) {
+        *self.inventory.entry(item.to_string()).or_insert(0) += 1;
+    }
+
+    pub fn place_fish(&mut self, mut fish: Fish, name: String, rng: &mut impl RngExt) {
+        let actual_name = self.unique_name(&name);
+        let x_max = (self.width as f32 - 15.0).max(6.0);
+        let y_max = (self.height as f32 - 5.0).max(3.0);
+        fish.position.x = rng.random_range(5.0..x_max);
+        fish.position.y = rng.random_range(2.0..y_max);
+        fish.name = actual_name.clone();
+        self.used_names.insert(actual_name);
+        self.fish.push(fish);
+    }
+
     fn generate_plants() -> Vec<Plant> {
         let mut rng = rand::rng();
         let mut plants = Vec::new();
@@ -140,12 +152,17 @@ impl Tank {
         if self.width == 0 {
             return;
         }
+        let actual = count.min(self.food_supply as usize);
+        if actual == 0 {
+            return;
+        }
+        self.food_supply -= actual as u32;
         let mut rng = rand::rng();
         let spread = FOOD_SPAWN_SPREAD;
         let min_center = spread;
         let max_center = (self.width as f32 - 1.0 - spread).max(spread + 1.0);
         let center_x = rng.random_range(min_center..max_center);
-        for _ in 0..count {
+        for _ in 0..actual {
             let offset = rng.random_range(-spread..spread);
             let x = (center_x + offset).clamp(0.0, self.width as f32 - 1.0);
             self.food.push(Food::new(x));

@@ -6,6 +6,7 @@ pub struct Settings {
     pub fps: f32,
     pub cursor_blink: bool,
     pub show_names: bool,
+    pub show_stats: bool,
 }
 
 impl Default for Settings {
@@ -14,6 +15,7 @@ impl Default for Settings {
             fps: DEFAULT_FPS,
             cursor_blink: true,
             show_names: false,
+            show_stats: true,
         }
     }
 }

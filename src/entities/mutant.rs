@@ -102,6 +102,7 @@ impl MutantTail {
     }
 }
 
+#[derive(Clone)]
 pub struct EyeState {
     pub closed: bool,
     timer: f32,
@@ -137,6 +138,7 @@ impl EyeState {
     }
 }
 
+#[derive(Clone)]
 pub struct MutantState {
     pub left_eyes: Vec<EyeState>,
     pub right_eyes: Vec<EyeState>,

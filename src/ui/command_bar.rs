@@ -5,24 +5,19 @@ use ratatui::{
     widgets::Widget,
 };
 
-pub const HEIGHT: u16 = 3;
-
-pub struct CommandBar<'a> {
-    input: &'a str,
-    cursor_pos: usize,
-    cursor_visible: bool,
-    ghost: &'a str,
+pub fn height(show_stats: bool) -> u16 {
+    if show_stats { 4 } else { 3 }
 }
 
-impl<'a> CommandBar<'a> {
-    pub fn new(input: &'a str, cursor_pos: usize, cursor_visible: bool, ghost: &'a str) -> Self {
-        Self {
-            input,
-            cursor_pos,
-            cursor_visible,
-            ghost,
-        }
-    }
+pub struct CommandBar<'a> {
+    pub input: &'a str,
+    pub cursor_pos: usize,
+    pub cursor_visible: bool,
+    pub ghost: &'a str,
+    pub fish_count: usize,
+    pub food_supply: u32,
+    pub money: u32,
+    pub show_stats: bool,
 }
 
 impl Widget for CommandBar<'_> {
@@ -102,5 +97,20 @@ impl Widget for CommandBar<'_> {
         }
 
         buf.set_string(area.x, area.y + 2, &sep, sep_style);
+
+        if self.show_stats {
+            let stats_row = area.y + 3;
+            buf.set_string(area.x, stats_row, "Fishtank I", white);
+
+            let stats = format!(
+                "cash: {}  food: {}  fishes: {}/∞",
+                self.money, self.food_supply, self.fish_count
+            );
+            let stats_width = stats.chars().count() as u16;
+            if stats_width <= area.width {
+                let stats_x = area.right().saturating_sub(stats_width);
+                buf.set_string(stats_x, stats_row, &stats, white);
+            }
+        }
     }
 }

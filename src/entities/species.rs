@@ -22,6 +22,31 @@ pub enum FishSpecies {
     Kuro,
 }
 
+impl FishSpecies {
+    pub fn display_name(self) -> &'static str {
+        match self {
+            FishSpecies::Merluza => "Merluza",
+            FishSpecies::Betta => "Betta",
+            FishSpecies::Salmon => "Salmon",
+            FishSpecies::Chromis => "Chromis",
+            FishSpecies::Tang => "Tang",
+            FishSpecies::Koi => "Koi",
+            FishSpecies::Carpin => "Carpin",
+            FishSpecies::Turbofish => "Turbofish",
+            FishSpecies::Deadfish => "Deadfish",
+            FishSpecies::Anchoveta => "Anchoveta",
+            FishSpecies::Jellyfish => "Jellyfish",
+            FishSpecies::Goldenfish => "Goldenfish",
+            FishSpecies::Goldfish => "Goldfish",
+            FishSpecies::Snapper => "Snapper",
+            FishSpecies::Mutantfish => "Mutantfish",
+            FishSpecies::Nishiki => "Nishiki",
+            FishSpecies::Aka => "Aka",
+            FishSpecies::Kuro => "Kuro",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct SpeciesConfig {
     pub body: BodyTemplate,

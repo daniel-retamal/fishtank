@@ -62,6 +62,7 @@ pub enum FishState {
     },
 }
 
+#[derive(Clone)]
 pub struct Fish {
     pub name: String,
     pub position: Position,
@@ -108,7 +109,7 @@ impl Fish {
         };
 
         let body_chars_override = if species == FishSpecies::Deadfish {
-            Some(if pattern_seed % 2 == 0 {
+            Some(if pattern_seed.is_multiple_of(2) {
                 DEADFISH_BC_SEMI
             } else {
                 DEADFISH_BC_PLUS
@@ -504,6 +505,13 @@ impl Fish {
         self.direction_timer =
             rng.random_range(DIRECTION_TIMER_POST_EVENT_MIN..DIRECTION_TIMER_POST_EVENT_MAX);
         self.state = FishState::Idle;
+    }
+
+    pub fn tick_animation(&mut self, dt: f32) {
+        tick_sway(&mut self.sway, self.sway_speed);
+        if let Some(ref mut m) = self.mutant {
+            m.tick_eyes(dt);
+        }
     }
 
     pub fn static_left_segments(&self) -> Vec<(char, Color)> {
