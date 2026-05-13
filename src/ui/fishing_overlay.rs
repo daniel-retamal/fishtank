@@ -486,8 +486,8 @@ fn draw_footer(buf: &mut Buffer, x: u16, y: u16, inner_w: u16) {
     buf.set_string(x, y, truncate_to_width(left, total), style);
     let left_w = visual_width(left);
     let right_w = visual_width(right);
-    if left_w + 2 + right_w <= total {
-        buf.set_string(x + total as u16 - right_w as u16, y, right, style);
+    if left_w + 4 + right_w <= total {
+        buf.set_string(x + total as u16 - right_w as u16 - 1, y, right, style);
     }
 }
 

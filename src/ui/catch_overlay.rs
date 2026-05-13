@@ -243,11 +243,7 @@ fn draw_fish_panel(buf: &mut Buffer, fish: &Fish, x: u16, y: u16, w: u16, h: u16
     let fish_x = x + 1;
     let hook_x = fish_x + fish_dw;
 
-    let row_offset = if h <= 1 {
-        0
-    } else {
-        (h * 2 / 3).min(h - 1).max(1)
-    };
+    let row_offset = if h <= 1 { 0 } else { (h / 2).max(1) };
     let fish_y = y + row_offset;
 
     for i in 0..row_offset {
@@ -483,21 +479,21 @@ fn draw_fish_right_panel(
     let white = Style::default().fg(Color::White).bg(BG);
 
     if h > 0 {
-        buf.set_string(
-            x,
-            y,
-            truncate_to_width("Congratulations!", w as usize),
-            white_bold,
-        );
+        buf.set_string(x, y, truncate_to_width(&caught_line, w as usize), white_bold);
     }
-    if h > 1 {
-        buf.set_string(x, y + 1, truncate_to_width(&caught_line, w as usize), white);
+    if h > 2 {
+        buf.set_string(x, y + 2, truncate_to_width("Name it", w as usize), white);
     }
     if h > 3 {
-        buf.set_string(x, y + 3, truncate_to_width("Name it", w as usize), white);
+        draw_name_input(buf, state, x, y + 3, w);
     }
     if h > 4 {
-        draw_name_input(buf, state, x, y + 4, w);
+        let hint = Style::default().fg(Color::DarkGray).bg(BG);
+        let right_hint = "ENTER capture";
+        let rw = right_hint.len() as u16;
+        if rw < w {
+            buf.set_string(x + w - rw - 1, y + 4, right_hint, hint);
+        }
     }
 }
 
@@ -523,12 +519,12 @@ fn draw_cash_right_panel(buf: &mut Buffer, cv: CashValue, x: u16, y: u16, w: u16
     }
     if h > 3 {
         let text = "Chasing cash, making money.";
-        let tx = x + w - (text.len() as u16).min(w);
+        let tx = x + w - 1 - (text.len() as u16).min(w - 1);
         buf.set_string(tx, y + 3, text, hint);
     }
     if h > 4 {
         let text = "ESC/q to close";
-        let tx = x + w - (text.len() as u16).min(w);
+        let tx = x + w - 1 - (text.len() as u16).min(w - 1);
         buf.set_string(tx, y + 4, text, hint);
     }
 }
@@ -555,7 +551,7 @@ fn draw_food_right_panel(buf: &mut Buffer, amount: u32, x: u16, y: u16, w: u16, 
     }
     if h > 4 {
         let text = "ESC/q to close";
-        let tx = x + w - (text.len() as u16).min(w);
+        let tx = x + w - 1 - (text.len() as u16).min(w - 1);
         buf.set_string(tx, y + 4, text, hint);
     }
 }
@@ -577,18 +573,16 @@ fn draw_junk_right_panel(buf: &mut Buffer, qty: u32, x: u16, y: u16, w: u16, h: 
     }
     if h > 3 {
         let qty_msg = format!("You now have {} of Junk.", qty);
-        let qty_msg = truncate_to_width(&qty_msg, w as usize);
-        let tx = x + w - (qty_msg.len() as u16).min(w);
+        let qty_msg = truncate_to_width(&qty_msg, (w - 1) as usize);
+        let tx = x + w - 1 - (qty_msg.len() as u16).min(w - 1);
         buf.set_string(tx, y + 3, qty_msg, hint);
     }
     if h > 4 {
         let text = "ESC/q to close";
-        let tx = x + w - (text.len() as u16).min(w);
+        let tx = x + w - 1 - (text.len() as u16).min(w - 1);
         buf.set_string(tx, y + 4, text, hint);
     }
 }
-
-const ENTER_HINT: &str = "(ENTER)";
 
 fn draw_name_input(buf: &mut Buffer, state: &CatchState, x: u16, y: u16, w: u16) {
     if w < 3 {
@@ -596,7 +590,6 @@ fn draw_name_input(buf: &mut Buffer, state: &CatchState, x: u16, y: u16, w: u16)
     }
 
     let white = Style::default().fg(Color::White).bg(BG);
-    let hint_style = Style::default().fg(Color::DarkGray).bg(BG);
 
     buf[(x, y)].set_char('>').set_style(white);
     buf[(x + 1, y)].set_char(' ').set_style(white);
@@ -647,12 +640,6 @@ fn draw_name_input(buf: &mut Buffer, state: &CatchState, x: u16, y: u16, w: u16)
         }
     }
 
-    let hint_w = ENTER_HINT.len() as u16;
-    let needed = 2 + input.len() as u16 + 1 + hint_w;
-    if !input.is_empty() && needed <= w {
-        let hint_x = x + w - hint_w;
-        buf.set_string(hint_x, y, ENTER_HINT, hint_style);
-    }
 }
 
 fn truncate_to_width(s: &str, max_w: usize) -> String {

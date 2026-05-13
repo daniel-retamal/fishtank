@@ -6,19 +6,22 @@ pub struct Completion {
 }
 
 static COMMAND_NAMES: &[&str] = &[
+    "add",
     "exit",
     "feed",
     "fish",
-    "food",
     "fps",
     "index",
     "inventory",
-    "money",
     "mutate",
     "names",
+    "shop",
     "spawn",
     "stats",
+    "subtract",
 ];
+
+static RESOURCE_NAMES: &[&str] = &["food", "junk", "money"];
 
 static MUTATION_NAMES: &[&str] = &[
     "bodycolor",
@@ -71,12 +74,12 @@ pub fn autocomplete(input: &str, fish_names: &[&str]) -> Option<Completion> {
     match body.split_once(' ') {
         None => complete_command(body),
         Some((cmd, rest)) => match cmd {
+            "add" => complete_add_subtract("add", rest),
             "feed" => complete_feed(rest),
-            "food" => complete_resource(rest),
             "fps" => complete_fps(rest),
-            "money" => complete_resource(rest),
             "mutate" => complete_mutate(rest, fish_names),
             "spawn" => complete_spawn(rest),
+            "subtract" => complete_add_subtract("subtract", rest),
             _ => None,
         },
     }
@@ -157,14 +160,47 @@ fn complete_fps(rest: &str) -> Option<Completion> {
     }
 }
 
-fn complete_resource(rest: &str) -> Option<Completion> {
-    if rest.is_empty() {
-        Some(Completion {
-            ghost: "<amount>".to_string(),
-            tab_result: None,
-        })
-    } else {
-        None
+fn complete_add_subtract(cmd: &str, rest: &str) -> Option<Completion> {
+    match rest.split_once(' ') {
+        None => {
+            if rest.is_empty() {
+                return Some(Completion {
+                    ghost: "<resource> <amount>".to_string(),
+                    tab_result: None,
+                });
+            }
+            let matches: Vec<&str> = RESOURCE_NAMES
+                .iter()
+                .copied()
+                .filter(|&r| r.starts_with(rest))
+                .collect();
+            if matches.is_empty() {
+                return None;
+            }
+            let first = matches[0];
+            let ghost = format!("{} <amount>", &first[rest.len()..]);
+            let tab_result = if matches.len() == 1 {
+                Some(format!("/{} {} ", cmd, first))
+            } else {
+                let cp = longest_common_prefix(&matches);
+                if cp.len() > rest.len() {
+                    Some(format!("/{} {}", cmd, cp))
+                } else {
+                    Some(format!("/{} {} ", cmd, first))
+                }
+            };
+            Some(Completion { ghost, tab_result })
+        }
+        Some((_, amount_rest)) => {
+            if amount_rest.is_empty() {
+                Some(Completion {
+                    ghost: "<amount>".to_string(),
+                    tab_result: None,
+                })
+            } else {
+                None
+            }
+        }
     }
 }
 
@@ -291,13 +327,20 @@ fn complete_species(partial: &str) -> Option<Completion> {
 
 fn command_args_placeholder(cmd: &str) -> &'static str {
     match cmd {
+        "add" | "subtract" => "<resource> <amount>",
         "feed" => "<amount>",
-        "food" => "<amount>",
         "fps" => "<n>",
-        "money" => "<amount>",
         "mutate" => "\"<name>\" <mutation>",
         "spawn" => "<species> \"<name>\"",
         _ => "",
+    }
+}
+
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
     }
 }
 
@@ -325,10 +368,10 @@ pub enum Action {
     Index { all: bool },
     Fish { no_death: bool, no_fish: bool },
     Inventory,
+    Shop,
     ToggleNames,
     ToggleStats,
-    ModFood(i32),
-    ModMoney(i32),
+    ModResource { name: String, delta: i32 },
     Exit,
     Unknown,
 }
@@ -368,14 +411,14 @@ pub fn parse(input: &str) -> Action {
     match parts.as_slice() {
         ["feed"] => Action::Feed(0),
         ["feed", n] => n.parse().map(Action::Feed).unwrap_or(Action::Unknown),
-        ["food", n] => n
-            .parse::<i32>()
-            .map(Action::ModFood)
-            .unwrap_or(Action::Unknown),
-        ["money", n] => n
-            .parse::<i32>()
-            .map(Action::ModMoney)
-            .unwrap_or(Action::Unknown),
+        ["add", resource, n] | ["subtract", resource, n] => {
+            let Ok(qty) = n.parse::<u32>() else {
+                return Action::Unknown;
+            };
+            let delta = if parts[0] == "add" { qty as i32 } else { -(qty as i32) };
+            let name = capitalize(resource);
+            Action::ModResource { name, delta }
+        }
         ["exit"] => Action::Exit,
         ["fish", rest @ ..] => Action::Fish {
             no_death: rest.contains(&"--no-death"),
@@ -384,6 +427,7 @@ pub fn parse(input: &str) -> Action {
         ["index"] => Action::Index { all: false },
         ["index", "all"] => Action::Index { all: true },
         ["inventory"] => Action::Inventory,
+        ["shop"] => Action::Shop,
         ["names"] => Action::ToggleNames,
         ["stats"] => Action::ToggleStats,
         ["fps", n] => n.parse().map(Action::SetFps).unwrap_or(Action::Unknown),

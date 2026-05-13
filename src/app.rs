@@ -17,6 +17,10 @@ use crate::{
         fishing_overlay::{FishingOverlay, FishingState},
         index_overlay::{IndexOverlay, IndexState},
         inventory_overlay::{InventoryOverlay, InventoryState},
+        shop_overlay::{
+            FISH_CATALOG, FOOD_BUY_PRICE, FishListState, FishNamePopup, FoodQtyPopup, SellConfirm,
+            SellEntry, SellMenuState, ShopOverlay, ShopPage, ShopState, list_visible_rows,
+        },
         tank_view::TankView,
     },
 };
@@ -36,6 +40,7 @@ pub struct App {
     inventory_state: Option<InventoryState>,
     fishing_state: Option<FishingState>,
     catch_state: Option<CatchState>,
+    shop_state: Option<ShopState>,
     terminal_height: u16,
     terminal_width: u16,
 }
@@ -75,6 +80,7 @@ impl App {
             inventory_state: None,
             fishing_state: None,
             catch_state: None,
+            shop_state: None,
             terminal_height: 24,
             terminal_width: 80,
         }
@@ -116,6 +122,10 @@ impl App {
         if self.inventory_state.is_some() {
             return;
         }
+        if let Some(ref mut shop) = self.shop_state {
+            shop.tick(self.settings.fps);
+            return;
+        }
         self.tank.tick(&self.settings);
         self.tick_blink();
     }
@@ -135,6 +145,10 @@ impl App {
         }
         if self.inventory_state.is_some() {
             self.handle_inventory_input(event);
+            return;
+        }
+        if self.shop_state.is_some() {
+            self.handle_shop_input(event);
             return;
         }
         match event {
@@ -452,6 +466,329 @@ impl App {
         }
     }
 
+    fn handle_shop_input(&mut self, event: Event) {
+        let Event::Key(key) = event else { return };
+        if key.kind != KeyEventKind::Press {
+            return;
+        }
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.running = false;
+            return;
+        }
+
+        let mut shop = match self.shop_state.take() {
+            Some(s) => s,
+            None => return,
+        };
+
+        let money = self.tank.money;
+        let visible = list_visible_rows(&shop, self.tank_height());
+
+        match shop.page {
+            ShopPage::Main { ref mut selected } => match key.code {
+                KeyCode::Esc | KeyCode::Char('q') => {
+                    return;
+                }
+                KeyCode::Up => {
+                    if *selected > 0 {
+                        let new_sel = selected.saturating_sub(1);
+                        if new_sel == 0 && money == 0 {
+                            // Can't navigate to Buy with no money
+                        } else {
+                            *selected = new_sel;
+                        }
+                    }
+                    shop.reset_blink();
+                }
+                KeyCode::Down => {
+                    if *selected < 1 {
+                        *selected += 1;
+                    }
+                    shop.reset_blink();
+                }
+                KeyCode::Enter => {
+                    match *selected {
+                        0 => {
+                            let can_buy_fish = FISH_CATALOG.iter().any(|e| e.price <= money);
+                            let init_sel = if can_buy_fish { 0 } else { 1 };
+                            shop.page = ShopPage::BuyCategory {
+                                selected: init_sel,
+                                food_popup: None,
+                            }
+                        }
+                        _ => {
+                            let fish: Vec<(String, FishSpecies)> = self
+                                .tank
+                                .fish
+                                .iter()
+                                .map(|f| (f.name.clone(), f.species))
+                                .collect();
+                            if let Some(sm) = SellMenuState::new(&fish, &self.tank.inventory) {
+                                shop.page = ShopPage::Sell(sm);
+                            }
+                        }
+                    }
+                    shop.reset_blink();
+                }
+                _ => {}
+            },
+
+            ShopPage::BuyCategory {
+                ref mut selected,
+                ref mut food_popup,
+            } => {
+                if let Some(popup) = food_popup {
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('q') => {
+                            *food_popup = None;
+                        }
+                        KeyCode::Left if popup.qty > 1 => {
+                            popup.qty -= 1;
+                        }
+                        KeyCode::Right if popup.qty < popup.max_qty => {
+                            popup.qty += 1;
+                        }
+                        KeyCode::Enter => {
+                            let qty = popup.qty;
+                            let cost = qty * FOOD_BUY_PRICE;
+                            if money >= cost {
+                                self.tank.food_supply += qty;
+                                self.tank.money = self.tank.money.saturating_sub(cost);
+                            }
+                            *food_popup = None;
+                        }
+                        _ => {}
+                    }
+                    shop.reset_blink();
+                } else {
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('q') => {
+                            shop.page = ShopPage::Main { selected: 0 };
+                        }
+                        KeyCode::Up => {
+                            if *selected > 0 {
+                                let new_sel = selected.saturating_sub(1);
+                                let can_buy_fish = FISH_CATALOG.iter().any(|e| e.price <= money);
+                                if new_sel == 0 && !can_buy_fish {
+                                    // Can't navigate to Fishes — nothing affordable
+                                } else {
+                                    *selected = new_sel;
+                                }
+                            }
+                            shop.reset_blink();
+                        }
+                        KeyCode::Down => {
+                            if *selected < 1 {
+                                *selected += 1;
+                            }
+                            shop.reset_blink();
+                        }
+                        KeyCode::Enter => {
+                            if *selected == 0 {
+                                shop.page = ShopPage::BuyFishList(FishListState::new(money));
+                            } else {
+                                let max_qty = if money >= FOOD_BUY_PRICE {
+                                    money / FOOD_BUY_PRICE
+                                } else {
+                                    0
+                                };
+                                if max_qty > 0 {
+                                    *food_popup = Some(FoodQtyPopup { qty: 1, max_qty });
+                                }
+                            }
+                            shop.reset_blink();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            ShopPage::BuyFishList(ref mut fl) => {
+                let should_commit = fl
+                    .popup
+                    .as_ref()
+                    .is_some_and(|p| key.code == KeyCode::Enter && !p.name_input.is_empty());
+
+                if should_commit {
+                    if let Some(FishNamePopup {
+                        fish,
+                        name_input,
+                        catalog_idx,
+                        ..
+                    }) = fl.popup.take()
+                    {
+                        let price = FISH_CATALOG[catalog_idx].price;
+                        if money >= price {
+                            let name = title_case(&name_input);
+                            self.tank.money = self.tank.money.saturating_sub(price);
+                            let mut rng = rand::rng();
+                            self.tank.place_fish(fish, name, &mut rng);
+                        }
+                    }
+                    self.shop_state = Some(shop);
+                    return;
+                }
+
+                if let Some(ref mut popup) = fl.popup {
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('q') => {
+                            fl.popup = None;
+                        }
+                        KeyCode::Left => {
+                            popup.cursor_pos =
+                                prev_char_boundary(&popup.name_input, popup.cursor_pos);
+                        }
+                        KeyCode::Right => {
+                            popup.cursor_pos =
+                                next_char_boundary(&popup.name_input, popup.cursor_pos);
+                        }
+                        KeyCode::Home => popup.cursor_pos = 0,
+                        KeyCode::End => popup.cursor_pos = popup.name_input.len(),
+                        KeyCode::Backspace if popup.cursor_pos > 0 => {
+                            let prev = prev_char_boundary(&popup.name_input, popup.cursor_pos);
+                            popup.name_input.drain(prev..popup.cursor_pos);
+                            popup.cursor_pos = prev;
+                        }
+                        KeyCode::Delete if popup.cursor_pos < popup.name_input.len() => {
+                            let next = next_char_boundary(&popup.name_input, popup.cursor_pos);
+                            popup.name_input.drain(popup.cursor_pos..next);
+                        }
+                        KeyCode::Char(c) => {
+                            popup.name_input.insert(popup.cursor_pos, c);
+                            popup.cursor_pos += c.len_utf8();
+                        }
+                        _ => {}
+                    }
+                    shop.reset_blink();
+                    self.shop_state = Some(shop);
+                    return;
+                }
+
+                match key.code {
+                    KeyCode::Esc | KeyCode::Char('q') => {
+                        shop.page = ShopPage::BuyCategory {
+                            selected: 0,
+                            food_popup: None,
+                        };
+                    }
+                    KeyCode::Up => {
+                        fl.scroll_up(money);
+                        shop.reset_blink();
+                    }
+                    KeyCode::Down => {
+                        fl.scroll_down(money, visible);
+                        shop.reset_blink();
+                    }
+                    KeyCode::Enter => {
+                        let idx = fl.selected;
+                        let entry = &FISH_CATALOG[idx];
+                        if entry.price <= money {
+                            let species = entry.species;
+                            {
+                                let mut rng = rand::rng();
+                                use crate::entities::fish::Direction;
+                                let mut fish = crate::entities::fish::Fish::new(
+                                    species,
+                                    String::new(),
+                                    0.0,
+                                    0.0,
+                                    &mut rng,
+                                );
+                                fish.facing = Direction::Right;
+                                fish.velocity.dx = fish.velocity.dx.abs();
+                                fl.popup = Some(FishNamePopup {
+                                    catalog_idx: idx,
+                                    fish,
+                                    name_input: String::new(),
+                                    cursor_pos: 0,
+                                });
+                            }
+                        }
+                        shop.reset_blink();
+                    }
+                    _ => {}
+                }
+            }
+
+            ShopPage::Sell(ref mut sm) => {
+                if sm.confirm.is_some() {
+                    let max_qty = sm.items[sm.confirm.as_ref().unwrap().item_idx].max_qty();
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('q') => {
+                            sm.confirm = None;
+                        }
+                        KeyCode::Left => {
+                            sm.confirm.as_mut().unwrap().qty_down();
+                        }
+                        KeyCode::Right => {
+                            sm.confirm.as_mut().unwrap().qty_up(max_qty);
+                        }
+                        KeyCode::Enter => {
+                            let confirm = sm.confirm.take().unwrap();
+                            let item = &sm.items[confirm.item_idx];
+                            let earned = confirm.sell_qty * item.unit_price();
+                            match item {
+                                SellEntry::Fish { name, .. } => {
+                                    let fish_name = name.clone();
+                                    if let Some(pos) =
+                                        self.tank.fish.iter().position(|f| f.name == fish_name)
+                                    {
+                                        self.tank.used_names.remove(&fish_name);
+                                        self.tank.fish.remove(pos);
+                                    }
+                                }
+                                SellEntry::Junk { .. } => {
+                                    let sell_qty = confirm.sell_qty;
+                                    let qty =
+                                        self.tank.inventory.entry("Junk".to_string()).or_insert(0);
+                                    *qty = qty.saturating_sub(sell_qty);
+                                }
+                            }
+                            self.tank.money += earned;
+
+                            let fish: Vec<(String, FishSpecies)> = self
+                                .tank
+                                .fish
+                                .iter()
+                                .map(|f| (f.name.clone(), f.species))
+                                .collect();
+                            match SellMenuState::new(&fish, &self.tank.inventory) {
+                                Some(new_sm) => shop.page = ShopPage::Sell(new_sm),
+                                None => shop.page = ShopPage::Main { selected: 1 },
+                            }
+                        }
+                        _ => {}
+                    }
+                    shop.reset_blink();
+                } else {
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('q') => {
+                            shop.page = ShopPage::Main { selected: 1 };
+                        }
+                        KeyCode::Up => {
+                            sm.scroll_up();
+                            shop.reset_blink();
+                        }
+                        KeyCode::Down => {
+                            sm.scroll_down(visible);
+                            shop.reset_blink();
+                        }
+                        KeyCode::Enter => {
+                            sm.confirm = Some(SellConfirm {
+                                item_idx: sm.selected,
+                                sell_qty: 1,
+                            });
+                            shop.reset_blink();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        self.shop_state = Some(shop);
+    }
+
     fn tank_height(&self) -> u16 {
         self.terminal_height
             .saturating_sub(command_bar::height(self.settings.show_stats))
@@ -516,6 +853,10 @@ impl App {
         if let Some(ref state) = self.catch_state {
             frame.render_widget(CatchOverlay::new(state), tank_area);
         }
+
+        if let Some(ref state) = self.shop_state {
+            frame.render_widget(ShopOverlay::new(state, self.tank.money), tank_area);
+        }
     }
 
     fn apply(&mut self, action: commands::Action) {
@@ -531,11 +872,26 @@ impl App {
             commands::Action::SetFps(fps) => self.settings.fps = fps.clamp(FPS_MIN, FPS_MAX),
             commands::Action::ToggleNames => self.settings.show_names = !self.settings.show_names,
             commands::Action::ToggleStats => self.settings.show_stats = !self.settings.show_stats,
-            commands::Action::ModFood(delta) => {
-                self.tank.food_supply = (self.tank.food_supply as i64 + delta as i64).max(0) as u32;
-            }
-            commands::Action::ModMoney(delta) => {
-                self.tank.money = (self.tank.money as i64 + delta as i64).max(0) as u32;
+            commands::Action::ModResource { name, delta } => {
+                match name.to_lowercase().as_str() {
+                    "money" => {
+                        self.tank.money =
+                            (self.tank.money as i64 + delta as i64).max(0) as u32;
+                    }
+                    "food" => {
+                        self.tank.food_supply =
+                            (self.tank.food_supply as i64 + delta as i64).max(0) as u32;
+                    }
+                    _ => {
+                        let current = self.tank.inventory.get(&name).copied().unwrap_or(0);
+                        let new_val = (current as i64 + delta as i64).max(0) as u32;
+                        if new_val == 0 {
+                            self.tank.inventory.remove(&name);
+                        } else {
+                            self.tank.inventory.insert(name, new_val);
+                        }
+                    }
+                }
             }
             commands::Action::Spawn(species, name) => {
                 let mut rng = rand::rng();
@@ -551,6 +907,16 @@ impl App {
                 if let Some(state) = InventoryState::new(&self.tank.inventory) {
                     self.inventory_state = Some(state);
                 }
+            }
+            commands::Action::Shop => {
+                let money = self.tank.money;
+                let mut state = ShopState::new();
+                if money == 0
+                    && let ShopPage::Main { ref mut selected } = state.page
+                {
+                    *selected = 1;
+                }
+                self.shop_state = Some(state);
             }
             commands::Action::Fish { no_death, no_fish } => {
                 let mut state = FishingState::new();

@@ -3,6 +3,7 @@ pub mod command_bar;
 pub mod fishing_overlay;
 pub mod index_overlay;
 pub mod inventory_overlay;
+pub mod shop_overlay;
 pub mod tank_view;
 
 use ratatui::{buffer::Buffer, style::Color};

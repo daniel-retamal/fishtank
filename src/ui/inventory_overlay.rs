@@ -154,9 +154,9 @@ impl Widget for InventoryOverlay<'_> {
             truncate_str(&left_hint, inner_w),
             hint_style,
         );
-        if left_w + 2 + right_w <= inner_w {
+        if left_w + 4 + right_w <= inner_w {
             buf.set_string(
-                inner_x + (inner_w - right_w) as u16,
+                inner_x + (inner_w - right_w) as u16 - 1,
                 footer_y,
                 right_text,
                 hint_style,
@@ -205,7 +205,7 @@ fn draw_header(buf: &mut Buffer, x: u16, y: u16, item_w: usize, qty_w: usize, bg
     buf[(x + item_w as u16, y)]
         .set_char('│')
         .set_style(sep_style);
-    buf.set_string(x + item_w as u16 + 1, y, pad_right("Qty", qty_w), style);
+    buf.set_string(x + item_w as u16 + 1, y, pad_right("Quantity", qty_w), style);
 }
 
 fn draw_separator(buf: &mut Buffer, ox: u16, sep_y: u16, w: u16, item_w: usize, bg: Color) {

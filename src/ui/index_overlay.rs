@@ -410,9 +410,9 @@ impl Widget for IndexOverlay<'_> {
             truncate_str(&left_hint, inner_w),
             hint_style,
         );
-        if left_w + 2 + right_w <= inner_w {
+        if left_w + 4 + right_w <= inner_w {
             buf.set_string(
-                inner_x + inner_w as u16 - right_w as u16,
+                inner_x + inner_w as u16 - right_w as u16 - 1,
                 footer_y,
                 right_text,
                 hint_style,
