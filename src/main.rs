@@ -5,6 +5,7 @@ use crossterm::event;
 
 mod app;
 mod commands;
+mod consumable;
 mod entities;
 mod loot;
 mod settings;

@@ -11,7 +11,9 @@ use crate::entities::{
     fish::{Direction, Fish},
     species::FishSpecies,
 };
-use crate::loot::{CashValue, JunkSprite, LootKind};
+use crate::loot::{
+    CashValue, ConsumableKind, JunkSprite, LootKind, bait_sprite_rows, coffee_sprite_rows,
+};
 use crate::ui::render_fish_segs;
 
 const BG: Color = Color::Reset;
@@ -45,8 +47,10 @@ pub struct CatchState {
     pub name_input: String,
     pub cursor_pos: usize,
     pub cursor_visible: bool,
-    pub junk_qty: u32,
+    pub item_qty: u32,
+    pub anim_phase: bool,
     blink_timer: f32,
+    anim_tick: f32,
 }
 
 impl CatchState {
@@ -65,8 +69,10 @@ impl CatchState {
             name_input: String::new(),
             cursor_pos: 0,
             cursor_visible: true,
-            junk_qty: 0,
+            item_qty: 0,
+            anim_phase: false,
             blink_timer: 0.0,
+            anim_tick: 0.0,
         }
     }
 
@@ -84,6 +90,14 @@ impl CatchState {
             if self.blink_timer >= half_period {
                 self.blink_timer = 0.0;
                 self.cursor_visible = !self.cursor_visible;
+            }
+        }
+        if matches!(self.loot, LootKind::Consumable(ConsumableKind::Coffee)) {
+            self.anim_tick += 1.0;
+            let half = (fps * 0.3).max(1.0);
+            if self.anim_tick >= half {
+                self.anim_tick = 0.0;
+                self.anim_phase = !self.anim_phase;
             }
         }
     }
@@ -167,6 +181,7 @@ fn left_panel_inner_w(loot: &LootKind, fish: Option<&Fish>) -> u16 {
         LootKind::Cash(_) => 5 + 3,
         LootKind::Food(_) => 11 + 3,
         LootKind::Junk(_) => JunkSprite::hook_col() + 3,
+        LootKind::Consumable(kind) => kind.panel_inner_w(),
     }
 }
 
@@ -176,6 +191,7 @@ fn overlay_title(loot: &LootKind) -> &'static str {
         LootKind::Cash(_) => " Cash to the Fishtank! ",
         LootKind::Food(_) => " Food to the Fishtank! ",
         LootKind::Junk(_) => " Junk to the Fishtank! ",
+        LootKind::Consumable(_) => " Item to the Fishtank! ",
     }
 }
 
@@ -223,6 +239,9 @@ fn draw_left_panel(buf: &mut Buffer, state: &CatchState, x: u16, y: u16, w: u16,
         LootKind::Cash(cv) => draw_cash_panel(buf, *cv, x, y, w, h),
         LootKind::Food(_) => draw_food_panel(buf, x, y, w, h),
         LootKind::Junk(sprite) => draw_junk_panel(buf, sprite, x, y, w, h),
+        LootKind::Consumable(kind) => {
+            draw_consumable_panel(buf, *kind, state.anim_phase, x, y, w, h)
+        }
     }
 }
 
@@ -234,7 +253,12 @@ fn draw_right_panel(buf: &mut Buffer, state: &CatchState, x: u16, y: u16, w: u16
         LootKind::Fish(species) => draw_fish_right_panel(buf, state, *species, x, y, w, h),
         LootKind::Cash(cv) => draw_cash_right_panel(buf, *cv, x, y, w, h),
         LootKind::Food(amount) => draw_food_right_panel(buf, *amount, x, y, w, h),
-        LootKind::Junk(_) => draw_junk_right_panel(buf, state.junk_qty, x, y, w, h),
+        LootKind::Junk(_) => {
+            draw_consumable_item_right_panel(buf, "Junk", state.item_qty, x, y, w, h)
+        }
+        LootKind::Consumable(kind) => {
+            draw_consumable_item_right_panel(buf, kind.display_name(), state.item_qty, x, y, w, h)
+        }
     }
 }
 
@@ -415,6 +439,62 @@ fn draw_food_panel(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
     }
 }
 
+fn draw_consumable_panel(
+    buf: &mut Buffer,
+    kind: ConsumableKind,
+    anim_phase: bool,
+    x: u16,
+    y: u16,
+    w: u16,
+    h: u16,
+) {
+    let rows = match kind {
+        ConsumableKind::Coffee => coffee_sprite_rows(anim_phase),
+        ConsumableKind::Bait => bait_sprite_rows(),
+    };
+    let sprite_h = rows.len() as u16;
+    let sprite_x = x + 1;
+    let vert_pad = (h.saturating_sub(sprite_h)) / 2;
+    let sprite_y = y + vert_pad;
+    let hook_col = kind.hook_col();
+    let hook_row = kind.hook_row();
+    let hook_x = sprite_x + hook_col;
+    let hook_y = sprite_y + hook_row;
+    let lines_above = vert_pad + hook_row;
+
+    for i in 0..lines_above {
+        if hook_x < x + w {
+            buf[(hook_x, y + i)]
+                .set_char('⎹')
+                .set_fg(Color::DarkGray)
+                .set_bg(BG);
+        }
+    }
+
+    for (row_idx, row) in rows.iter().enumerate() {
+        let row_y = sprite_y + row_idx as u16;
+        if row_y >= y + h {
+            break;
+        }
+        for (col, (ch, color)) in row.iter().enumerate() {
+            if sprite_x + col as u16 >= x + w {
+                break;
+            }
+            buf[(sprite_x + col as u16, row_y)]
+                .set_char(*ch)
+                .set_fg(*color)
+                .set_bg(BG);
+        }
+    }
+
+    if hook_x < x + w && hook_y < y + h {
+        buf[(hook_x, hook_y)]
+            .set_char('J')
+            .set_fg(Color::DarkGray)
+            .set_bg(BG);
+    }
+}
+
 fn draw_junk_panel(buf: &mut Buffer, sprite: &JunkSprite, x: u16, y: u16, w: u16, h: u16) {
     let sprite_x = x + 1;
     let sprite_h = JunkSprite::sprite_height();
@@ -479,7 +559,12 @@ fn draw_fish_right_panel(
     let white = Style::default().fg(Color::White).bg(BG);
 
     if h > 0 {
-        buf.set_string(x, y, truncate_to_width(&caught_line, w as usize), white_bold);
+        buf.set_string(
+            x,
+            y,
+            truncate_to_width(&caught_line, w as usize),
+            white_bold,
+        );
     }
     if h > 2 {
         buf.set_string(x, y + 2, truncate_to_width("Name it", w as usize), white);
@@ -556,23 +641,28 @@ fn draw_food_right_panel(buf: &mut Buffer, amount: u32, x: u16, y: u16, w: u16, 
     }
 }
 
-fn draw_junk_right_panel(buf: &mut Buffer, qty: u32, x: u16, y: u16, w: u16, h: u16) {
+fn draw_consumable_item_right_panel(
+    buf: &mut Buffer,
+    item_name: &str,
+    qty: u32,
+    x: u16,
+    y: u16,
+    w: u16,
+    h: u16,
+) {
     let white = Style::default().fg(Color::White).bg(BG);
     let hint = Style::default().fg(Color::DarkGray).bg(BG);
 
+    let line0 = format!("{}!", item_name);
+    let line1 = "Added to inventory.";
     if h > 0 {
-        buf.set_string(x, y, truncate_to_width("It's junk...", w as usize), white);
+        buf.set_string(x, y, truncate_to_width(&line0, w as usize), white);
     }
     if h > 1 {
-        buf.set_string(
-            x,
-            y + 1,
-            truncate_to_width("Added to inventory.", w as usize),
-            white,
-        );
+        buf.set_string(x, y + 1, truncate_to_width(line1, w as usize), white);
     }
     if h > 3 {
-        let qty_msg = format!("You now have {} of Junk.", qty);
+        let qty_msg = format!("You now have {} of {}.", qty, item_name);
         let qty_msg = truncate_to_width(&qty_msg, (w - 1) as usize);
         let tx = x + w - 1 - (qty_msg.len() as u16).min(w - 1);
         buf.set_string(tx, y + 3, qty_msg, hint);
@@ -639,7 +729,6 @@ fn draw_name_input(buf: &mut Buffer, state: &CatchState, x: u16, y: u16, w: u16)
             buf.set_string(after_col, y, truncate_to_width(after, avail), white);
         }
     }
-
 }
 
 fn truncate_to_width(s: &str, max_w: usize) -> String {

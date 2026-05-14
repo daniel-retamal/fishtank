@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use rand::RngExt;
 
+use crate::consumable::{BAIT_DURATION, COFFEE_DURATION, CONSUMABLE_STACK_BONUS};
 use crate::entities::bubble::Bubble;
 use crate::entities::fish::{Direction, EATING_DURATION, Fish, FishState};
 use crate::entities::food::Food;
@@ -10,7 +11,14 @@ use crate::entities::mutant::{
 };
 use crate::entities::plant::Plant;
 use crate::entities::species::FishSpecies;
+use crate::loot::ConsumableKind;
 use crate::settings::Settings;
+
+pub struct ActiveConsumable {
+    pub kind: ConsumableKind,
+    pub stacks: u32,
+    pub time_remaining: f32,
+}
 
 const PLANT_FIELD_WIDTH: i32 = 600;
 const PLANT_SPACING_MIN: i32 = 3;
@@ -68,6 +76,7 @@ pub struct Tank {
     pub food_supply: u32,
     pub money: u32,
     pub inventory: HashMap<String, u32>,
+    pub active_consumables: Vec<ActiveConsumable>,
     bubble_bottom_timer: f32,
     bubble_surface_timer: f32,
     mutation_timer: f32,
@@ -87,6 +96,7 @@ impl Tank {
             food_supply: 100,
             money: 0,
             inventory: HashMap::new(),
+            active_consumables: Vec::new(),
             bubble_bottom_timer: rng
                 .random_range(BUBBLE_BOTTOM_SPAWN_RATE_MIN..BUBBLE_BOTTOM_SPAWN_RATE_MAX),
             bubble_surface_timer: rng
@@ -95,9 +105,60 @@ impl Tank {
         }
     }
 
+    pub fn consume(&mut self, kind: ConsumableKind) {
+        let duration = match kind {
+            ConsumableKind::Coffee => COFFEE_DURATION,
+            ConsumableKind::Bait => BAIT_DURATION,
+        };
+        if let Some(ac) = self
+            .active_consumables
+            .iter_mut()
+            .find(|ac| ac.kind == kind)
+        {
+            ac.stacks += 1;
+            ac.time_remaining += CONSUMABLE_STACK_BONUS;
+        } else {
+            self.active_consumables.push(ActiveConsumable {
+                kind,
+                stacks: 1,
+                time_remaining: duration,
+            });
+        }
+    }
+
+    pub fn coffee_stacks(&self) -> u32 {
+        self.active_consumables
+            .iter()
+            .find(|ac| ac.kind == ConsumableKind::Coffee)
+            .map(|ac| ac.stacks)
+            .unwrap_or(0)
+    }
+
+    pub fn bait_stacks(&self) -> u32 {
+        self.active_consumables
+            .iter()
+            .find(|ac| ac.kind == ConsumableKind::Bait)
+            .map(|ac| ac.stacks)
+            .unwrap_or(0)
+    }
+
     pub fn resize(&mut self, width: u16, height: u16) {
         self.width = width;
         self.height = height;
+        let max_y = height as f32 - 1.0;
+        for fish in &mut self.fish {
+            if fish.position.y > max_y {
+                fish.position.y = max_y;
+                if fish.velocity.dy > 0.0 {
+                    fish.velocity.dy = -fish.velocity.dy;
+                }
+            }
+        }
+        for food in &mut self.food {
+            if food.position.y > max_y {
+                food.position.y = max_y;
+            }
+        }
     }
 
     pub fn is_name_available(&self, name: &str) -> bool {
@@ -171,6 +232,11 @@ impl Tank {
 
     pub fn tick(&mut self, settings: &Settings) {
         let dt = 1.0 / settings.fps;
+
+        for ac in &mut self.active_consumables {
+            ac.time_remaining -= dt;
+        }
+        self.active_consumables.retain(|ac| ac.time_remaining > 0.0);
 
         for plant in &mut self.plants {
             plant.tick();
@@ -508,7 +574,12 @@ impl Tank {
             } else {
                 raw_dx
             };
-            let dy = food_y - fish_y;
+            let raw_dy = food_y - fish_y;
+            let dy = if self.food[idx].settled && fish_y as i32 >= food_y as i32 {
+                0.0
+            } else {
+                raw_dy
+            };
             let norm = (dx * dx + dy * dy).sqrt().max(SEEK_NORM_MIN);
             let seek_speed = self.fish[i].speed + self.fish[i].seek_boost;
             self.fish[i].velocity.dx = (dx / norm) * seek_speed;
@@ -522,8 +593,9 @@ impl Tank {
     }
 
     fn tick_fish(&mut self, settings: &Settings) {
+        let coffee = self.coffee_stacks();
         for fish in &mut self.fish {
-            fish.tick(settings, self.width, self.height);
+            fish.tick(settings, self.width, self.height, coffee);
         }
     }
 
@@ -729,7 +801,7 @@ fn parse_name_numeral(name: &str) -> (&str, u32) {
     (name, 1)
 }
 
-fn to_roman(mut n: u32) -> String {
+pub fn to_roman(mut n: u32) -> String {
     const VALS: &[(u32, &str)] = &[
         (1000, "M"),
         (900, "CM"),

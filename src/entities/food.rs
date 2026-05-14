@@ -40,7 +40,11 @@ impl Food {
     }
 
     pub fn tick(&mut self, settings: &Settings, tank_width: u16, tank_height: u16) {
+        let max_y = (tank_height as f32 - 1.0).max(0.0);
         if self.settled {
+            if self.position.y > max_y {
+                self.position.y = max_y;
+            }
             return;
         }
         let dt = 1.0 / settings.fps;
@@ -50,7 +54,6 @@ impl Food {
         self.position.x = (self.base_x + SWAY_AMOUNT * self.sway.phase.sin())
             .clamp(0.0, (tank_width as f32 - 1.0).max(0.0));
 
-        let max_y = (tank_height as f32 - 1.0).max(0.0);
         if self.position.y >= max_y {
             self.position.y = max_y;
             self.settled = true;

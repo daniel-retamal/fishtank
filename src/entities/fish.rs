@@ -9,6 +9,7 @@ use super::mutant::{EXTRA_BODY_FOR_DOUBLE, MutantState, derive_glistening_palett
 use super::species::{
     BodyChars, BodyTemplate, DEADFISH_BC_PLUS, DEADFISH_BC_SEMI, FishSpecies, PatternKind, TailKind,
 };
+use crate::consumable::{COFFEE_SPEED_MULT, COFFEE_SWAY_MULT, COFFEE_ZOOMIE_DT_MULT};
 use crate::settings::Settings;
 
 const CHAR_SPREAD: f32 = 1.0;
@@ -364,12 +365,19 @@ impl Fish {
         }
     }
 
-    pub fn tick(&mut self, settings: &Settings, tank_width: u16, tank_height: u16) {
+    pub fn tick(
+        &mut self,
+        settings: &Settings,
+        tank_width: u16,
+        tank_height: u16,
+        coffee_stacks: u32,
+    ) {
         let dt = 1.0 / settings.fps;
 
         match self.state {
             FishState::Idle => {
-                self.zoomie_timer -= dt;
+                let zoomie_dt = dt * (1.0 + COFFEE_ZOOMIE_DT_MULT * coffee_stacks as f32);
+                self.zoomie_timer -= zoomie_dt;
                 if self.zoomie_timer <= 0.0 {
                     self.start_zoomie();
                 } else {
@@ -419,15 +427,17 @@ impl Fish {
         }
 
         if !matches!(self.state, FishState::Eating { .. }) {
-            self.position.x += self.velocity.dx * dt;
-            self.position.y += self.velocity.dy * dt;
+            let speed_mult = 1.0 + COFFEE_SPEED_MULT * coffee_stacks as f32;
+            self.position.x += self.velocity.dx * dt * speed_mult;
+            self.position.y += self.velocity.dy * dt * speed_mult;
             self.bounce_walls(tank_width, tank_height);
         }
 
+        let sway_mult = 1.0 + COFFEE_SWAY_MULT * coffee_stacks as f32;
         let effective_sway_speed = if matches!(self.state, FishState::Zoomie { .. }) {
-            self.sway_speed * ZOOMIE_SWAY_MULTIPLIER
+            self.sway_speed * ZOOMIE_SWAY_MULTIPLIER * sway_mult
         } else {
-            self.sway_speed
+            self.sway_speed * sway_mult
         };
         tick_sway(&mut self.sway, effective_sway_speed);
 

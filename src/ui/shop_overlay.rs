@@ -25,6 +25,10 @@ const PENGUIN_LINES: &[&str] = &["  __   ", " ( o>  ", " ///\\  ", " \\V_/_ "];
 
 pub const FOOD_BUY_PRICE: u32 = 1;
 pub const JUNK_SELL_PRICE: u32 = 5;
+pub const COFFEE_BUY_PRICE: u32 = 10;
+pub const COFFEE_SELL_PRICE: u32 = 5;
+pub const BAIT_BUY_PRICE: u32 = 15;
+pub const BAIT_SELL_PRICE: u32 = 7;
 
 pub struct BuyEntry {
     pub species: FishSpecies,
@@ -133,9 +137,36 @@ pub fn fish_sell_price(species: FishSpecies) -> u32 {
         .unwrap_or(25)
 }
 
-pub struct FoodQtyPopup {
+pub struct BuyCategoryPopup {
+    pub option_idx: usize,
     pub qty: u32,
     pub max_qty: u32,
+}
+
+pub fn buy_cat_available(idx: usize, money: u32) -> bool {
+    match idx {
+        0 => FISH_CATALOG.iter().any(|e| e.price <= money),
+        1 => money >= COFFEE_BUY_PRICE,
+        2 => money >= BAIT_BUY_PRICE,
+        3 => money >= FOOD_BUY_PRICE,
+        _ => false,
+    }
+}
+
+pub fn buy_cat_first_available(money: u32) -> usize {
+    (0..4).find(|&i| buy_cat_available(i, money)).unwrap_or(0)
+}
+
+pub fn buy_cat_next(current: usize, down: bool, money: u32) -> usize {
+    let step: i32 = if down { 1 } else { -1 };
+    let mut idx = current as i32 + step;
+    while (0..4).contains(&idx) {
+        if buy_cat_available(idx as usize, money) {
+            return idx as usize;
+        }
+        idx += step;
+    }
+    current
 }
 
 pub struct FishNamePopup {
@@ -148,6 +179,8 @@ pub struct FishNamePopup {
 pub enum SellEntry {
     Fish { name: String, species: FishSpecies },
     Junk { qty: u32 },
+    Coffee { qty: u32 },
+    Bait { qty: u32 },
 }
 
 impl SellEntry {
@@ -155,6 +188,8 @@ impl SellEntry {
         match self {
             SellEntry::Fish { name, species } => format!("{} ({})", name, species.display_name()),
             SellEntry::Junk { qty } => format!("Junk ({})", qty),
+            SellEntry::Coffee { qty } => format!("Coffee ({})", qty),
+            SellEntry::Bait { qty } => format!("Bait ({})", qty),
         }
     }
 
@@ -162,6 +197,8 @@ impl SellEntry {
         match self {
             SellEntry::Fish { species, .. } => format!("${}", fish_sell_price(*species)),
             SellEntry::Junk { .. } => format!("${}", JUNK_SELL_PRICE),
+            SellEntry::Coffee { .. } => format!("${}", COFFEE_SELL_PRICE),
+            SellEntry::Bait { .. } => format!("${}", BAIT_SELL_PRICE),
         }
     }
 
@@ -169,6 +206,8 @@ impl SellEntry {
         match self {
             SellEntry::Fish { species, .. } => fish_sell_price(*species),
             SellEntry::Junk { .. } => JUNK_SELL_PRICE,
+            SellEntry::Coffee { .. } => COFFEE_SELL_PRICE,
+            SellEntry::Bait { .. } => BAIT_SELL_PRICE,
         }
     }
 
@@ -176,6 +215,8 @@ impl SellEntry {
         match self {
             SellEntry::Fish { .. } => 1,
             SellEntry::Junk { qty } => *qty,
+            SellEntry::Coffee { qty } => *qty,
+            SellEntry::Bait { qty } => *qty,
         }
     }
 }
@@ -216,6 +257,14 @@ impl SellMenuState {
         if junk > 0 {
             items.push(SellEntry::Junk { qty: junk });
         }
+        let coffee = inventory.get("Coffee").copied().unwrap_or(0);
+        if coffee > 0 {
+            items.push(SellEntry::Coffee { qty: coffee });
+        }
+        let bait = inventory.get("Bait").copied().unwrap_or(0);
+        if bait > 0 {
+            items.push(SellEntry::Bait { qty: bait });
+        }
         let mut fish_entries: Vec<SellEntry> = tank_fish
             .iter()
             .map(|(n, s)| SellEntry::Fish {
@@ -226,20 +275,20 @@ impl SellMenuState {
         fish_entries.sort_by(|a, b| {
             let pa = match a {
                 SellEntry::Fish { species, .. } => fish_sell_price(*species),
-                SellEntry::Junk { .. } => 0,
+                _ => 0,
             };
             let pb = match b {
                 SellEntry::Fish { species, .. } => fish_sell_price(*species),
-                SellEntry::Junk { .. } => 0,
+                _ => 0,
             };
             pa.cmp(&pb).then_with(|| {
                 let na = match a {
                     SellEntry::Fish { name, .. } => name.as_str(),
-                    SellEntry::Junk { .. } => "",
+                    _ => "",
                 };
                 let nb = match b {
                     SellEntry::Fish { name, .. } => name.as_str(),
-                    SellEntry::Junk { .. } => "",
+                    _ => "",
                 };
                 na.cmp(nb)
             })
@@ -333,7 +382,7 @@ pub enum ShopPage {
     },
     BuyCategory {
         selected: usize,
-        food_popup: Option<FoodQtyPopup>,
+        buy_popup: Option<BuyCategoryPopup>,
     },
     BuyFishList(FishListState),
     Sell(SellMenuState),
@@ -420,8 +469,7 @@ impl Widget for ShopOverlay<'_> {
 
         let has_popup = match &state.page {
             ShopPage::BuyCategory {
-                food_popup: Some(_),
-                ..
+                buy_popup: Some(_), ..
             } => true,
             ShopPage::BuyFishList(fl) => fl.popup.is_some(),
             ShopPage::Sell(sm) => sm.confirm.is_some(),
@@ -435,7 +483,11 @@ impl Widget for ShopOverlay<'_> {
             }
         }
 
-        let fg = if has_popup { Color::DarkGray } else { Color::White };
+        let fg = if has_popup {
+            Color::DarkGray
+        } else {
+            Color::White
+        };
         let s = Style::default().fg(fg).bg(BG);
         let s_title = Style::default().fg(fg).add_modifier(Modifier::BOLD).bg(BG);
         let sep_x = ox + 1 + PENGUIN_W;
@@ -472,7 +524,9 @@ impl Widget for ShopOverlay<'_> {
 
         buf[(ox, oy + PENGUIN_BOX_ROW)].set_char('└').set_style(s);
         for dx in 1..=PENGUIN_W {
-            buf[(ox + dx, oy + PENGUIN_BOX_ROW)].set_char('─').set_style(s);
+            buf[(ox + dx, oy + PENGUIN_BOX_ROW)]
+                .set_char('─')
+                .set_style(s);
         }
 
         buf[(sep_x, oy + oh - 1)].set_char('└').set_style(s);
@@ -512,16 +566,20 @@ impl Widget for ShopOverlay<'_> {
             }
             ShopPage::BuyCategory {
                 selected,
-                food_popup,
+                buy_popup,
             } => {
                 let content_h = oh.saturating_sub(3);
-                let can_buy_fish = FISH_CATALOG.iter().any(|e| e.price <= self.money);
-                let can_buy_food = self.money >= FOOD_BUY_PRICE;
+                let available = [
+                    buy_cat_available(0, self.money),
+                    buy_cat_available(1, self.money),
+                    buy_cat_available(2, self.money),
+                    buy_cat_available(3, self.money),
+                ];
                 draw_buy_category_right(
                     buf,
                     *selected,
                     state.cursor_visible,
-                    &[can_buy_fish, can_buy_food],
+                    &available,
                     rx,
                     content_y,
                     RIGHT_INNER_W,
@@ -536,8 +594,8 @@ impl Widget for ShopOverlay<'_> {
                     " \u{2191}\u{2193} navigate",
                     "ESC/q back",
                 );
-                if let Some(popup) = food_popup {
-                    draw_food_popup(buf, popup, area);
+                if let Some(popup) = buy_popup {
+                    draw_category_buy_popup(buf, popup, area);
                 }
             }
             ShopPage::BuyFishList(fl) => {
@@ -555,9 +613,18 @@ impl Widget for ShopOverlay<'_> {
                     visible,
                     has_popup,
                 );
-                let affordable_count = FISH_CATALOG.iter().filter(|e| e.price <= self.money).count();
-                let affordable_pos = FISH_CATALOG[..=fl.selected].iter().filter(|e| e.price <= self.money).count();
-                let footer_left = format!(" \u{2191}\u{2193} scroll ({}/{})", affordable_pos, affordable_count);
+                let affordable_count = FISH_CATALOG
+                    .iter()
+                    .filter(|e| e.price <= self.money)
+                    .count();
+                let affordable_pos = FISH_CATALOG[..=fl.selected]
+                    .iter()
+                    .filter(|e| e.price <= self.money)
+                    .count();
+                let footer_left = format!(
+                    " \u{2191}\u{2193} scroll ({}/{})",
+                    affordable_pos, affordable_count
+                );
                 draw_footer_text(buf, rx, footer_y, footer_w, &footer_left, "ESC/q back");
                 if let Some(ref popup) = fl.popup {
                     draw_fish_name_popup(buf, popup, state.cursor_visible, area);
@@ -655,20 +722,23 @@ fn draw_buy_category_right(
     buf: &mut Buffer,
     selected: usize,
     cursor_vis: bool,
-    available: &[bool; 2],
+    available: &[bool],
     x: u16,
     y: u16,
     w: u16,
     content_h: u16,
     dim: bool,
 ) {
-    const ITEMS: &[&str] = &["Fishes", "Food"];
+    const ITEMS: &[&str] = &["Fishes", "Coffee", "Bait", "Food"];
     let start_y = y + (content_h.saturating_sub(ITEMS.len() as u16)) / 2;
     let eff_cursor_vis = dim || cursor_vis;
     for (i, &label) in ITEMS.iter().enumerate() {
         let row_y = start_y + i as u16;
+        if row_y >= y + content_h {
+            break;
+        }
         let is_sel = i == selected;
-        let is_avail = available[i];
+        let is_avail = available.get(i).copied().unwrap_or(false);
         let cursor = if is_sel && eff_cursor_vis { ">" } else { " " };
         let line = format!("{} {}", cursor, label);
         let fg = if dim || !is_avail || !is_sel {
@@ -837,7 +907,13 @@ fn draw_qty_row(
     let mut col = x;
     let qty_len = qty_str.len();
     for (i, c) in qty_str.chars().enumerate() {
-        let s = if i == 0 { l_s } else if i == qty_len - 1 { r_s } else { mid_s };
+        let s = if i == 0 {
+            l_s
+        } else if i == qty_len - 1 {
+            r_s
+        } else {
+            mid_s
+        };
         buf[(col, y)].set_char(c).set_style(s);
         col += 1;
     }
@@ -880,18 +956,46 @@ fn draw_qty_popup(
     let r_s = if qty >= max_qty { s_dim } else { s_white };
     let qty_str = format!("< {} >", qty);
     let total_str = format!("  Total: ${}", total);
-    draw_qty_row(buf, inner_x, oy + 1, inner_w, &qty_str, &total_str, l_s, r_s, s_white);
+    draw_qty_row(
+        buf,
+        inner_x,
+        oy + 1,
+        inner_w,
+        &qty_str,
+        &total_str,
+        l_s,
+        r_s,
+        s_white,
+    );
 
     let left_hint = "ESC/q cancel";
     buf.set_string(inner_x, oy + POP_H - 2, trunc(left_hint, inner_w), s_dim);
     let rw = confirm_hint.len() as u16;
     if (left_hint.len() as u16 + rw + 2) <= inner_w as u16 {
-        buf.set_string(inner_x + inner_w as u16 - rw, oy + POP_H - 2, confirm_hint, s_dim);
+        buf.set_string(
+            inner_x + inner_w as u16 - rw,
+            oy + POP_H - 2,
+            confirm_hint,
+            s_dim,
+        );
     }
 }
 
-fn draw_food_popup(buf: &mut Buffer, popup: &FoodQtyPopup, area: Rect) {
-    draw_qty_popup(buf, " Buy Food ", popup.qty, popup.max_qty, FOOD_BUY_PRICE, "ENTER buy", area);
+fn draw_category_buy_popup(buf: &mut Buffer, popup: &BuyCategoryPopup, area: Rect) {
+    let (title, unit_price) = match popup.option_idx {
+        1 => (" Buy Coffee ", COFFEE_BUY_PRICE),
+        2 => (" Buy Bait ", BAIT_BUY_PRICE),
+        _ => (" Buy Food ", FOOD_BUY_PRICE),
+    };
+    draw_qty_popup(
+        buf,
+        title,
+        popup.qty,
+        popup.max_qty,
+        unit_price,
+        "ENTER buy",
+        area,
+    );
 }
 
 fn draw_fish_name_popup(buf: &mut Buffer, popup: &FishNamePopup, cursor_vis: bool, area: Rect) {
@@ -1026,13 +1130,43 @@ fn draw_name_input(
             );
         }
     }
-
 }
 
 fn draw_sell_confirm_popup(buf: &mut Buffer, confirm: &SellConfirm, entry: &SellEntry, area: Rect) {
     if let SellEntry::Junk { qty } = entry {
-        let title = " Sell Junk ";
-        draw_qty_popup(buf, title, confirm.sell_qty, *qty, JUNK_SELL_PRICE, "ENTER sell", area);
+        draw_qty_popup(
+            buf,
+            " Sell Junk ",
+            confirm.sell_qty,
+            *qty,
+            JUNK_SELL_PRICE,
+            "ENTER sell",
+            area,
+        );
+        return;
+    }
+    if let SellEntry::Coffee { qty } = entry {
+        draw_qty_popup(
+            buf,
+            " Sell Coffee ",
+            confirm.sell_qty,
+            *qty,
+            COFFEE_SELL_PRICE,
+            "ENTER sell",
+            area,
+        );
+        return;
+    }
+    if let SellEntry::Bait { qty } = entry {
+        draw_qty_popup(
+            buf,
+            " Sell Bait ",
+            confirm.sell_qty,
+            *qty,
+            BAIT_SELL_PRICE,
+            "ENTER sell",
+            area,
+        );
         return;
     }
 
@@ -1054,7 +1188,9 @@ fn draw_sell_confirm_popup(buf: &mut Buffer, confirm: &SellConfirm, entry: &Sell
 
     let title = match entry {
         SellEntry::Fish { species, .. } => format!(" Sell {} ", species.display_name()),
-        SellEntry::Junk { .. } => unreachable!(),
+        SellEntry::Junk { .. } | SellEntry::Coffee { .. } | SellEntry::Bait { .. } => {
+            unreachable!()
+        }
     };
     draw_border(buf, ox, oy, pop_w, pop_h, &title, false);
 
@@ -1065,7 +1201,11 @@ fn draw_sell_confirm_popup(buf: &mut Buffer, confirm: &SellConfirm, entry: &Sell
 
     if let SellEntry::Fish { name, .. } = entry {
         let total = confirm.sell_qty * entry.unit_price();
-        let msg = format!("Sell {} for ${}?", trunc(name, inner_w.saturating_sub(16)), total);
+        let msg = format!(
+            "Sell {} for ${}?",
+            trunc(name, inner_w.saturating_sub(16)),
+            total
+        );
         buf.set_string(inner_x, oy + 1, trunc(&msg, inner_w), s_white);
     }
 

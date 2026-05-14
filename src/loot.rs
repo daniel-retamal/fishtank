@@ -80,6 +80,110 @@ impl JunkSprite {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ConsumableKind {
+    Coffee,
+    Bait,
+}
+
+impl ConsumableKind {
+    pub fn panel_inner_w(self) -> u16 {
+        match self {
+            ConsumableKind::Coffee => 8,
+            ConsumableKind::Bait => 9,
+        }
+    }
+
+    pub fn hook_col(self) -> u16 {
+        match self {
+            ConsumableKind::Coffee => 4,
+            ConsumableKind::Bait => 3,
+        }
+    }
+
+    pub fn hook_row(self) -> u16 {
+        match self {
+            ConsumableKind::Coffee => 2,
+            ConsumableKind::Bait => 0,
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            ConsumableKind::Coffee => "Coffee",
+            ConsumableKind::Bait => "Bait",
+        }
+    }
+}
+
+pub fn coffee_sprite_rows(anim_phase: bool) -> Vec<Vec<(char, Color)>> {
+    let steam = Color::Rgb(200, 200, 200);
+    let cup = Color::Rgb(180, 180, 180);
+    let liquid = Color::Rgb(140, 80, 20);
+    let label = Color::White;
+
+    let (top_open, top_close, bot_open, bot_close) = if anim_phase {
+        (')', ')', '(', '(')
+    } else {
+        ('(', '(', ')', ')')
+    };
+
+    vec![
+        vec![
+            (' ', steam),
+            (' ', steam),
+            (top_open, steam),
+            (top_close, steam),
+        ],
+        vec![
+            (' ', steam),
+            (' ', steam),
+            (bot_open, steam),
+            (bot_close, steam),
+        ],
+        vec![
+            (' ', cup),
+            ('|', cup),
+            ('~', liquid),
+            ('~', liquid),
+            ('|', cup),
+        ],
+        vec![('C', label), ('|', cup), ('_', cup), ('_', cup), ('|', cup)],
+    ]
+}
+
+pub fn bait_sprite_rows() -> Vec<Vec<(char, Color)>> {
+    let dirt = Color::Rgb(120, 80, 40);
+    let body = Color::Rgb(220, 100, 80);
+    let eye = Color::Rgb(200, 160, 120);
+
+    vec![
+        vec![(' ', dirt), (' ', dirt), (' ', dirt), ('_', dirt)],
+        vec![
+            (' ', body),
+            (' ', body),
+            ('(', body),
+            ('º', eye),
+            ('\\', body),
+        ],
+        vec![
+            (' ', body),
+            ('_', body),
+            ('_', body),
+            (')', body),
+            (' ', body),
+            (')', body),
+        ],
+        vec![
+            ('(', body),
+            ('_', body),
+            ('_', body),
+            ('_', body),
+            ('/', body),
+        ],
+    ]
+}
+
+#[derive(Clone, Copy)]
 pub enum CashValue {
     One,
     Two,
@@ -135,6 +239,7 @@ pub enum LootKind {
     Cash(CashValue),
     Food(u32),
     Junk(JunkSprite),
+    Consumable(ConsumableKind),
 }
 
 #[derive(Clone, Copy)]
@@ -142,7 +247,7 @@ enum LootEntry {
     Fish(FishSpecies),
     Cash,
     Food,
-    Junk,
+    JunkSlot,
 }
 
 const LEGENDARY: u32 = 3;
@@ -170,7 +275,7 @@ const LOOT_TABLE: &[(u32, LootEntry)] = &[
     (COMMON, LootEntry::Fish(FishSpecies::Aka)),
     (COMMON, LootEntry::Fish(FishSpecies::Kuro)),
     (COMMON, LootEntry::Food),
-    (COMMON, LootEntry::Junk),
+    (COMMON, LootEntry::JunkSlot),
 ];
 
 fn roll_weighted<T: Copy>(table: &[(u32, T)], rng: &mut impl RngExt) -> T {
@@ -185,11 +290,36 @@ fn roll_weighted<T: Copy>(table: &[(u32, T)], rng: &mut impl RngExt) -> T {
     table.last().unwrap().1
 }
 
-pub fn roll_loot(rng: &mut impl RngExt) -> LootKind {
-    match roll_weighted(LOOT_TABLE, rng) {
-        LootEntry::Fish(s) => LootKind::Fish(s),
-        LootEntry::Cash => LootKind::Cash(CashValue::roll(rng)),
-        LootEntry::Food => LootKind::Food(rng.random_range(50..=250u32)),
-        LootEntry::Junk => LootKind::Junk(JunkSprite::new(rng)),
+fn roll_junk_slot(rng: &mut impl RngExt) -> LootKind {
+    match rng.random_range(0..3u32) {
+        0 => LootKind::Junk(JunkSprite::new(rng)),
+        1 => LootKind::Consumable(ConsumableKind::Coffee),
+        _ => LootKind::Consumable(ConsumableKind::Bait),
     }
+}
+
+pub fn roll_loot(rng: &mut impl RngExt, bait_stacks: u32) -> LootKind {
+    let bait_mult = 1u32 + bait_stacks;
+    let total: u32 = LOOT_TABLE
+        .iter()
+        .map(|(w, _)| if *w < COMMON { w * bait_mult } else { *w })
+        .sum();
+    let mut v = rng.random_range(0..total);
+    for (weight, entry) in LOOT_TABLE {
+        let eff_weight = if *weight < COMMON {
+            weight * bait_mult
+        } else {
+            *weight
+        };
+        if v < eff_weight {
+            return match entry {
+                LootEntry::Fish(s) => LootKind::Fish(*s),
+                LootEntry::Cash => LootKind::Cash(CashValue::roll(rng)),
+                LootEntry::Food => LootKind::Food(rng.random_range(50..=250u32)),
+                LootEntry::JunkSlot => roll_junk_slot(rng),
+            };
+        }
+        v -= eff_weight;
+    }
+    roll_junk_slot(rng)
 }

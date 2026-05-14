@@ -114,7 +114,7 @@ impl FishingState {
         }
     }
 
-    pub fn tick(&mut self, fps: f32) {
+    pub fn tick(&mut self, fps: f32, coffee_stacks: u32) {
         if self.game_over || self.captured {
             return;
         }
@@ -157,11 +157,12 @@ impl FishingState {
 
         let reel_punish = self.is_reeling && abs_offset > REEL_PENALTY_THRESHOLD;
 
+        let reel_rate = REEL_RATE + 0.002 * coffee_stacks as f32;
         if self.is_reeling {
             if reel_punish {
                 self.completion -= drain * BAD_REEL_PENALTY;
             } else {
-                self.completion += REEL_RATE;
+                self.completion += reel_rate;
             }
         } else {
             self.completion -= drain;

@@ -7,6 +7,7 @@ pub struct Completion {
 
 static COMMAND_NAMES: &[&str] = &[
     "add",
+    "consume",
     "exit",
     "feed",
     "fish",
@@ -65,7 +66,11 @@ static SPECIES_NAMES: &[&str] = &[
     "turbofish",
 ];
 
-pub fn autocomplete(input: &str, fish_names: &[&str]) -> Option<Completion> {
+pub fn autocomplete(
+    input: &str,
+    fish_names: &[&str],
+    consumable_names: &[&str],
+) -> Option<Completion> {
     if !input.starts_with('/') {
         return None;
     }
@@ -75,6 +80,7 @@ pub fn autocomplete(input: &str, fish_names: &[&str]) -> Option<Completion> {
         None => complete_command(body),
         Some((cmd, rest)) => match cmd {
             "add" => complete_add_subtract("add", rest),
+            "consume" => complete_consume(rest, consumable_names),
             "feed" => complete_feed(rest),
             "fps" => complete_fps(rest),
             "mutate" => complete_mutate(rest, fish_names),
@@ -85,8 +91,8 @@ pub fn autocomplete(input: &str, fish_names: &[&str]) -> Option<Completion> {
     }
 }
 
-pub fn tab_complete(input: &str, fish_names: &[&str]) -> Option<String> {
-    autocomplete(input, fish_names).and_then(|c| c.tab_result)
+pub fn tab_complete(input: &str, fish_names: &[&str], consumable_names: &[&str]) -> Option<String> {
+    autocomplete(input, fish_names, consumable_names).and_then(|c| c.tab_result)
 }
 
 fn complete_command(partial: &str) -> Option<Completion> {
@@ -325,9 +331,46 @@ fn complete_species(partial: &str) -> Option<Completion> {
     Some(Completion { ghost, tab_result })
 }
 
+fn complete_consume(rest: &str, consumable_names: &[&str]) -> Option<Completion> {
+    if rest.contains(' ') {
+        return None;
+    }
+    if rest.is_empty() {
+        if consumable_names.is_empty() {
+            return None;
+        }
+        return Some(Completion {
+            ghost: "<consumable>".to_string(),
+            tab_result: None,
+        });
+    }
+    let matches: Vec<&str> = consumable_names
+        .iter()
+        .copied()
+        .filter(|&n| n.starts_with(rest))
+        .collect();
+    if matches.is_empty() {
+        return None;
+    }
+    let first = matches[0];
+    let ghost = first[rest.len()..].to_string();
+    let tab_result = if matches.len() == 1 {
+        Some(format!("/consume {}", first))
+    } else {
+        let cp = longest_common_prefix(&matches);
+        if cp.len() > rest.len() {
+            Some(format!("/consume {}", cp))
+        } else {
+            Some(format!("/consume {}", first))
+        }
+    };
+    Some(Completion { ghost, tab_result })
+}
+
 fn command_args_placeholder(cmd: &str) -> &'static str {
     match cmd {
         "add" | "subtract" => "<resource> <amount>",
+        "consume" => "<consumable>",
         "feed" => "<amount>",
         "fps" => "<n>",
         "mutate" => "\"<name>\" <mutation>",
@@ -369,6 +412,7 @@ pub enum Action {
     Fish { no_death: bool, no_fish: bool },
     Inventory,
     Shop,
+    Consume { name: String },
     ToggleNames,
     ToggleStats,
     ModResource { name: String, delta: i32 },
@@ -409,13 +453,20 @@ pub fn parse(input: &str) -> Action {
 
     let parts: Vec<&str> = body.splitn(3, ' ').collect();
     match parts.as_slice() {
+        ["consume", name] => Action::Consume {
+            name: name.to_string(),
+        },
         ["feed"] => Action::Feed(0),
         ["feed", n] => n.parse().map(Action::Feed).unwrap_or(Action::Unknown),
         ["add", resource, n] | ["subtract", resource, n] => {
             let Ok(qty) = n.parse::<u32>() else {
                 return Action::Unknown;
             };
-            let delta = if parts[0] == "add" { qty as i32 } else { -(qty as i32) };
+            let delta = if parts[0] == "add" {
+                qty as i32
+            } else {
+                -(qty as i32)
+            };
             let name = capitalize(resource);
             Action::ModResource { name, delta }
         }
