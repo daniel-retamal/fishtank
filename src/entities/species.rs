@@ -1,5 +1,13 @@
 use ratatui::style::Color;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SizeCategory {
+    S = 0,
+    M = 1,
+    L = 2,
+    XL = 3,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FishSpecies {
     Merluza,
@@ -53,8 +61,12 @@ pub struct SpeciesConfig {
     pub palette: &'static [Color],
     pub pattern: PatternKind,
     pub sway_speed: f32,
-    pub size_range: (usize, usize),
     pub speed_range: (f32, f32),
+    pub sizes: [usize; 4],
+    pub weight_base: [u32; 4],
+    pub weight_cap: [u32; 4],
+    pub sell_base: [u32; 4],
+    pub sell_cap: [u32; 4],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -214,40 +226,60 @@ impl FishSpecies {
                 palette: &PAL_MERLUZA,
                 pattern: PatternKind::Solid,
                 sway_speed: 0.10,
-                size_range: (3, 5),
                 speed_range: (2.5, 4.0),
+                sizes: [3, 5, 7, 9],
+                weight_base: [100, 250, 500, 1000],
+                weight_cap: [2500, 7500, 20000, 40000],
+                sell_base: [12, 27, 65, 175],
+                sell_cap: [40, 115, 280, 610],
             },
             FishSpecies::Betta => SpeciesConfig {
                 body: BodyTemplate::Standard(standard('\'', TailKind::Wide)),
                 palette: &PAL_BETTA,
                 pattern: PatternKind::Striped,
                 sway_speed: 0.09,
-                size_range: (4, 6),
                 speed_range: (2.0, 3.5),
+                sizes: [3, 5, 7, 9],
+                weight_base: [100, 250, 500, 1000],
+                weight_cap: [2500, 7500, 20000, 40000],
+                sell_base: [12, 27, 65, 175],
+                sell_cap: [40, 115, 280, 610],
             },
             FishSpecies::Salmon => SpeciesConfig {
                 body: BodyTemplate::Standard(standard('*', TailKind::Wide)),
                 palette: &PAL_SALMON,
                 pattern: PatternKind::Striped,
                 sway_speed: 0.10,
-                size_range: (5, 6),
                 speed_range: (4.0, 6.0),
+                sizes: [3, 5, 7, 9],
+                weight_base: [100, 250, 500, 1000],
+                weight_cap: [2500, 7500, 20000, 40000],
+                sell_base: [12, 27, 65, 175],
+                sell_cap: [40, 115, 280, 610],
             },
             FishSpecies::Chromis => SpeciesConfig {
                 body: BodyTemplate::Standard(standard('º', TailKind::Short)),
                 palette: &PAL_CHROMIS,
                 pattern: PatternKind::Striped,
                 sway_speed: 0.13,
-                size_range: (2, 4),
                 speed_range: (3.0, 5.0),
+                sizes: [3, 5, 7, 9],
+                weight_base: [100, 250, 500, 1000],
+                weight_cap: [2500, 7500, 20000, 40000],
+                sell_base: [12, 27, 65, 175],
+                sell_cap: [40, 115, 280, 610],
             },
             FishSpecies::Tang => SpeciesConfig {
                 body: BodyTemplate::Standard(standard('\'', TailKind::Wide)),
                 palette: &PAL_TANG,
                 pattern: PatternKind::Striped,
                 sway_speed: 0.09,
-                size_range: (4, 6),
                 speed_range: (2.5, 4.0),
+                sizes: [3, 5, 7, 9],
+                weight_base: [100, 250, 500, 1000],
+                weight_cap: [2500, 7500, 20000, 40000],
+                sell_base: [12, 27, 65, 175],
+                sell_cap: [40, 115, 280, 610],
             },
             FishSpecies::Koi => SpeciesConfig {
                 body: BodyTemplate::Standard(BodyChars {
@@ -268,8 +300,12 @@ impl FishSpecies {
                 palette: &PAL_KOI,
                 pattern: PatternKind::Patchy,
                 sway_speed: 0.07,
-                size_range: (3, 5),
                 speed_range: (1.5, 3.0),
+                sizes: [4, 6, 8, 10],
+                weight_base: [100, 250, 500, 1000],
+                weight_cap: [2500, 7500, 20000, 40000],
+                sell_base: [30, 75, 175, 500],
+                sell_cap: [110, 310, 750, 1850],
             },
             FishSpecies::Carpin => SpeciesConfig {
                 body: BodyTemplate::Standard(BodyChars {
@@ -289,8 +325,12 @@ impl FishSpecies {
                 palette: &PAL_CARPIN,
                 pattern: PatternKind::Patchy,
                 sway_speed: 0.09,
-                size_range: (2, 4),
                 speed_range: (2.0, 3.5),
+                sizes: [3, 5, 7, 9],
+                weight_base: [100, 250, 500, 1000],
+                weight_cap: [2500, 7500, 20000, 40000],
+                sell_base: [12, 27, 65, 175],
+                sell_cap: [40, 115, 280, 610],
             },
             FishSpecies::Turbofish => SpeciesConfig {
                 body: BodyTemplate::Standard(BodyChars {
@@ -307,8 +347,12 @@ impl FishSpecies {
                 palette: &PAL_TURBOFISH,
                 pattern: PatternKind::Striped,
                 sway_speed: 0.18,
-                size_range: (2, 2),
                 speed_range: (6.0, 9.0),
+                sizes: [4, 6, 8, 10],
+                weight_base: [100, 250, 500, 1000],
+                weight_cap: [2500, 7500, 20000, 40000],
+                sell_base: [30, 75, 175, 500],
+                sell_cap: [110, 310, 750, 1850],
             },
             FishSpecies::Deadfish => SpeciesConfig {
                 body: BodyTemplate::Standard(BodyChars {
@@ -325,8 +369,12 @@ impl FishSpecies {
                 palette: &PAL_DEADFISH,
                 pattern: PatternKind::Solid,
                 sway_speed: 0.04,
-                size_range: (3, 6),
                 speed_range: (1.0, 2.5),
+                sizes: [4, 6, 8, 10],
+                weight_base: [100, 250, 500, 1000],
+                weight_cap: [2500, 7500, 20000, 40000],
+                sell_base: [30, 75, 175, 500],
+                sell_cap: [110, 310, 750, 1850],
             },
             FishSpecies::Anchoveta => SpeciesConfig {
                 body: BodyTemplate::Fixed {
@@ -336,8 +384,12 @@ impl FishSpecies {
                 palette: &PAL_ANCHOVETA,
                 pattern: PatternKind::Solid,
                 sway_speed: 0.0,
-                size_range: (0, 0),
                 speed_range: (5.0, 7.0),
+                sizes: [3, 5, 7, 9],
+                weight_base: [100, 250, 500, 1000],
+                weight_cap: [2500, 7500, 20000, 40000],
+                sell_base: [12, 27, 65, 175],
+                sell_cap: [40, 115, 280, 610],
             },
             FishSpecies::Jellyfish => SpeciesConfig {
                 body: BodyTemplate::Fixed {
@@ -347,8 +399,12 @@ impl FishSpecies {
                 palette: &PAL_JELLYFISH,
                 pattern: PatternKind::Solid,
                 sway_speed: 0.0,
-                size_range: (0, 0),
                 speed_range: (1.5, 3.0),
+                sizes: [4, 6, 8, 10],
+                weight_base: [100, 250, 500, 1000],
+                weight_cap: [2500, 7500, 20000, 40000],
+                sell_base: [30, 75, 175, 500],
+                sell_cap: [110, 310, 750, 1850],
             },
             FishSpecies::Goldenfish => SpeciesConfig {
                 body: BodyTemplate::Standard(BodyChars {
@@ -365,58 +421,100 @@ impl FishSpecies {
                 palette: &PAL_GOLDENFISH,
                 pattern: PatternKind::Glistening,
                 sway_speed: 0.20,
-                size_range: (3, 5),
                 speed_range: (2.0, 3.5),
+                sizes: [5, 7, 9, 11],
+                weight_base: [100, 250, 500, 1000],
+                weight_cap: [2500, 7500, 20000, 40000],
+                sell_base: [200, 800, 2000, 3500],
+                sell_cap: [900, 2500, 5000, 7000],
             },
             FishSpecies::Goldfish => SpeciesConfig {
                 body: BodyTemplate::Standard(standard('º', TailKind::WideCurly)),
                 palette: &PAL_GOLDFISH,
                 pattern: PatternKind::Striped,
                 sway_speed: 0.08,
-                size_range: (2, 3),
                 speed_range: (1.5, 3.0),
+                sizes: [3, 5, 7, 9],
+                weight_base: [100, 250, 500, 1000],
+                weight_cap: [2500, 7500, 20000, 40000],
+                sell_base: [12, 27, 65, 175],
+                sell_cap: [40, 115, 280, 610],
             },
             FishSpecies::Snapper => SpeciesConfig {
                 body: BodyTemplate::Standard(standard('º', TailKind::Wide)),
                 palette: &PAL_SNAPPER,
                 pattern: PatternKind::Striped,
                 sway_speed: 0.10,
-                size_range: (3, 5),
                 speed_range: (2.5, 4.0),
+                sizes: [3, 5, 7, 9],
+                weight_base: [100, 250, 500, 1000],
+                weight_cap: [2500, 7500, 20000, 40000],
+                sell_base: [12, 27, 65, 175],
+                sell_cap: [40, 115, 280, 610],
             },
             FishSpecies::Nishiki => SpeciesConfig {
                 body: BodyTemplate::Standard(standard('º', TailKind::WideCurly)),
                 palette: &PAL_NISHIKI,
                 pattern: PatternKind::PatchyAll,
                 sway_speed: 0.08,
-                size_range: (2, 3),
                 speed_range: (1.5, 3.0),
+                sizes: [3, 5, 7, 9],
+                weight_base: [100, 250, 500, 1000],
+                weight_cap: [2500, 7500, 20000, 40000],
+                sell_base: [12, 27, 65, 175],
+                sell_cap: [40, 115, 280, 610],
             },
             FishSpecies::Aka => SpeciesConfig {
                 body: BodyTemplate::Standard(standard('º', TailKind::WideCurly)),
                 palette: &PAL_AKA,
                 pattern: PatternKind::Solid,
                 sway_speed: 0.09,
-                size_range: (2, 3),
                 speed_range: (2.0, 3.5),
+                sizes: [3, 5, 7, 9],
+                weight_base: [100, 250, 500, 1000],
+                weight_cap: [2500, 7500, 20000, 40000],
+                sell_base: [12, 27, 65, 175],
+                sell_cap: [40, 115, 280, 610],
             },
             FishSpecies::Kuro => SpeciesConfig {
                 body: BodyTemplate::Standard(standard('º', TailKind::WideCurly)),
                 palette: &PAL_KURO,
                 pattern: PatternKind::Solid,
                 sway_speed: 0.07,
-                size_range: (2, 3),
                 speed_range: (1.5, 3.0),
+                sizes: [3, 5, 7, 9],
+                weight_base: [100, 250, 500, 1000],
+                weight_cap: [2500, 7500, 20000, 40000],
+                sell_base: [12, 27, 65, 175],
+                sell_cap: [40, 115, 280, 610],
             },
             FishSpecies::Mutantfish => SpeciesConfig {
                 body: BodyTemplate::Standard(standard('ʘ', TailKind::Wide)),
                 palette: &PAL_MUTANT_GREEN,
                 pattern: PatternKind::Solid,
                 sway_speed: 0.11,
-                size_range: (2, 8),
                 speed_range: (2.0, 5.0),
+                sizes: [5, 7, 9, 11],
+                weight_base: [0, 250, 0, 0],
+                weight_cap: [0, 0, 0, 0],
+                sell_base: [0, 0, 0, 0],
+                sell_cap: [0, 0, 0, 0],
             },
         }
+    }
+
+    pub fn sell_value(self, weight_g: u32, size_cat: SizeCategory, mutation_count: u32) -> u32 {
+        if self == FishSpecies::Mutantfish {
+            return 500 + mutation_count * 100 + weight_g / 10;
+        }
+        let cfg = self.config();
+        let i = size_cat as usize;
+        let (wb, wc, sb, sc) = (cfg.weight_base[i], cfg.weight_cap[i], cfg.sell_base[i], cfg.sell_cap[i]);
+        if wc == 0 || weight_g <= wb {
+            return sb;
+        }
+        let frac = (weight_g - wb).min(wc - wb) as f32 / (wc - wb) as f32;
+        sb + (frac * (sc - sb) as f32) as u32
     }
 
     pub fn mutant_color_for_seed(seed: u64) -> Color {

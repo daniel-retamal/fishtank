@@ -31,6 +31,7 @@ pub struct Bubble {
     pub bubble_char: char,
     pub color: Color,
     pub dead: bool,
+    pub money_value: Option<u32>,
     sway: SwayState,
     base_x: f32,
     rise_speed: f32,
@@ -50,6 +51,7 @@ impl Bubble {
             bubble_char: BUBBLE_CHARS[rng.random_range(0..BUBBLE_CHARS.len())],
             color: Color::Cyan,
             dead: false,
+            money_value: None,
             phase: BubblePhase::Rising {
                 hover_time: rng.random_range(HOVER_TIME_MIN..HOVER_TIME_MAX),
             },
@@ -68,6 +70,7 @@ impl Bubble {
             bubble_char: ch,
             color,
             dead: false,
+            money_value: None,
             phase: BubblePhase::Rising {
                 hover_time: rng.random_range(HOVER_TIME_MIN..HOVER_TIME_MAX),
             },
@@ -86,15 +89,16 @@ impl Bubble {
             bubble_char: BUBBLE_CHARS[rng.random_range(0..BUBBLE_CHARS.len())],
             color: Color::Cyan,
             dead: false,
+            money_value: None,
             phase: BubblePhase::Surface {
                 remaining: rng.random_range(SURFACE_LIFETIME_MIN..SURFACE_LIFETIME_MAX),
             },
         }
     }
 
-    pub fn tick(&mut self, settings: &Settings, tank_width: u16) {
+    pub fn tick(&mut self, settings: &Settings, tank_width: u16) -> u32 {
         if self.dead {
-            return;
+            return 0;
         }
         let dt = 1.0 / settings.fps;
 
@@ -110,6 +114,7 @@ impl Bubble {
                     self.phase = BubblePhase::Hovering {
                         remaining: hover_time,
                     };
+                    return self.money_value.unwrap_or(0);
                 }
             }
             BubblePhase::Hovering { remaining } => {
@@ -130,5 +135,6 @@ impl Bubble {
                 }
             }
         }
+        0
     }
 }

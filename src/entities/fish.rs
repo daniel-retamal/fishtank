@@ -7,7 +7,8 @@ use unicode_width::UnicodeWidthChar;
 use super::components::{Position, SwayState, Velocity, tick_sway};
 use super::mutant::{EXTRA_BODY_FOR_DOUBLE, MutantState, derive_glistening_palette};
 use super::species::{
-    BodyChars, BodyTemplate, DEADFISH_BC_PLUS, DEADFISH_BC_SEMI, FishSpecies, PatternKind, TailKind,
+    BodyChars, BodyTemplate, DEADFISH_BC_PLUS, DEADFISH_BC_SEMI, FishSpecies, PatternKind,
+    SizeCategory, TailKind,
 };
 use crate::consumable::{COFFEE_SPEED_MULT, COFFEE_SWAY_MULT, COFFEE_ZOOMIE_DT_MULT};
 use crate::settings::Settings;
@@ -81,18 +82,42 @@ pub struct Fish {
     pub sway_speed: f32,
     pub mutant: Option<Box<MutantState>>,
     pub body_chars_override: Option<BodyChars>,
-    pub food_eaten: usize,
+    pub weight_g: u32,
+    pub size_category: SizeCategory,
     direction_timer: u32,
     zoomie_timer: f32,
+}
+
+fn roll_size_category(rng: &mut impl RngExt) -> SizeCategory {
+    const WEIGHTS: [(u32, SizeCategory); 4] = [
+        (55, SizeCategory::S), (30, SizeCategory::M),
+        (12, SizeCategory::L), (3, SizeCategory::XL),
+    ];
+    let mut v = rng.random_range(0u32..100);
+    for (w, cat) in WEIGHTS {
+        if v < w { return cat; }
+        v -= w;
+    }
+    SizeCategory::XL
 }
 
 impl Fish {
     pub fn new(species: FishSpecies, name: String, x: f32, y: f32, rng: &mut impl RngExt) -> Self {
         let cfg = species.config();
 
+        let size_cat = if species == FishSpecies::Mutantfish {
+            SizeCategory::M
+        } else {
+            roll_size_category(rng)
+        };
         let body_size = match cfg.body {
-            BodyTemplate::Standard(_) => rng.random_range(cfg.size_range.0..=cfg.size_range.1),
+            BodyTemplate::Standard(_) => cfg.sizes[size_cat as usize],
             BodyTemplate::Fixed { .. } => 0,
+        };
+        let weight_g = if species == FishSpecies::Mutantfish {
+            cfg.weight_base[1]
+        } else {
+            cfg.weight_base[size_cat as usize]
         };
 
         let speed: f32 = rng.random_range(cfg.speed_range.0..cfg.speed_range.1);
@@ -154,7 +179,62 @@ impl Fish {
             sway_speed: cfg.sway_speed,
             mutant,
             body_chars_override,
-            food_eaten: 0,
+            weight_g,
+            size_category: size_cat,
+        }
+    }
+
+    pub fn new_for_display(species: FishSpecies, rng: &mut impl RngExt) -> Self {
+        let cfg = species.config();
+        let size_cat = SizeCategory::M;
+        let body_size = match cfg.body {
+            BodyTemplate::Standard(_) => cfg.sizes[size_cat as usize],
+            BodyTemplate::Fixed { .. } => 0,
+        };
+        let weight_g = cfg.weight_base[size_cat as usize];
+        let speed: f32 = rng.random_range(cfg.speed_range.0..cfg.speed_range.1);
+        let pattern_seed: u64 = rng.random();
+        let color = if species == FishSpecies::Mutantfish {
+            FishSpecies::mutant_color_for_seed(pattern_seed)
+        } else {
+            cfg.palette[rng.random_range(0..cfg.palette.len())]
+        };
+        let mutant = if species == FishSpecies::Mutantfish {
+            Some(Box::new(MutantState::new(body_size, pattern_seed, rng)))
+        } else {
+            None
+        };
+        let body_chars_override = if species == FishSpecies::Deadfish {
+            Some(if pattern_seed.is_multiple_of(2) { DEADFISH_BC_SEMI } else { DEADFISH_BC_PLUS })
+        } else {
+            None
+        };
+        let display_width = if let Some(ref m) = mutant {
+            m.display_width(body_size)
+        } else {
+            compute_display_width(species, body_size)
+        };
+        Self {
+            name: String::new(),
+            position: Position { x: 0.0, y: 0.0 },
+            velocity: Velocity { dx: speed, dy: 0.0 },
+            sway: SwayState { phase: rng.random::<f32>() * TAU },
+            state: FishState::Idle,
+            facing: Direction::Right,
+            body_size,
+            color,
+            speed,
+            seek_boost: 0.0,
+            direction_timer: 300,
+            zoomie_timer: 60.0,
+            species,
+            pattern_seed,
+            display_width,
+            sway_speed: cfg.sway_speed,
+            mutant,
+            body_chars_override,
+            weight_g,
+            size_category: size_cat,
         }
     }
 

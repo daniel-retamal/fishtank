@@ -217,6 +217,8 @@ impl App {
 
         let coffee = self.coffee_stacks();
         self.tanks[self.current_tank].tick(&self.settings, coffee);
+        self.money += self.tanks[self.current_tank].pending_star_money;
+        self.tanks[self.current_tank].pending_star_money = 0;
         self.tick_blink();
     }
 
@@ -564,6 +566,9 @@ impl App {
                 };
                 *self.inventory.entry(name.to_string()).or_insert(0) += 1;
             }
+            LootKind::GoldBar => {
+                self.money += 5_000;
+            }
             LootKind::Fish(_) => {}
         }
     }
@@ -709,10 +714,14 @@ impl App {
                             };
                         }
                         _ => {
-                            let fish: Vec<(String, FishSpecies)> = self
+                            let fish: Vec<(String, FishSpecies, u32)> = self
                                 .tanks
                                 .iter()
-                                .flat_map(|t| t.fish.iter().map(|f| (f.name.clone(), f.species)))
+                                .flat_map(|t| t.fish.iter().map(|f| {
+                                    let mc = f.mutant.as_ref().map_or(0, |m| m.mutation_count);
+                                    let sv = f.species.sell_value(f.weight_g, f.size_category, mc);
+                                    (f.name.clone(), f.species, sv)
+                                }))
                                 .collect();
                             let sellable_tanks = self.sellable_tank_names();
                             if let Some(sm) =
@@ -954,16 +963,7 @@ impl App {
                         if entry.price <= money {
                             let species = entry.species;
                             let mut rng = rand::rng();
-                            use crate::entities::fish::Direction;
-                            let mut fish = crate::entities::fish::Fish::new(
-                                species,
-                                String::new(),
-                                0.0,
-                                0.0,
-                                &mut rng,
-                            );
-                            fish.facing = Direction::Right;
-                            fish.velocity.dx = fish.velocity.dx.abs();
+                            let fish = crate::entities::fish::Fish::new_for_display(species, &mut rng);
                             fl.popup = Some(FishNamePopup {
                                 catalog_idx: idx,
                                 fish,
@@ -1041,10 +1041,14 @@ impl App {
                             self.inventory.retain(|_, v| *v > 0);
                             self.money += earned;
 
-                            let fish: Vec<(String, FishSpecies)> = self
+                            let fish: Vec<(String, FishSpecies, u32)> = self
                                 .tanks
                                 .iter()
-                                .flat_map(|t| t.fish.iter().map(|f| (f.name.clone(), f.species)))
+                                .flat_map(|t| t.fish.iter().map(|f| {
+                                    let mc = f.mutant.as_ref().map_or(0, |m| m.mutation_count);
+                                    let sv = f.species.sell_value(f.weight_g, f.size_category, mc);
+                                    (f.name.clone(), f.species, sv)
+                                }))
                                 .collect();
                             let sellable_tanks = self.sellable_tank_names();
                             match SellMenuState::new(&fish, &self.inventory, &sellable_tanks) {

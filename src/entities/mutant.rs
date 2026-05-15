@@ -151,6 +151,7 @@ pub struct MutantState {
     pub color_patches: Vec<(usize, Color)>,
     pub is_double: bool,
     pub double_head_eyes: Vec<EyeState>,
+    pub mutation_count: u32,
 }
 
 impl MutantState {
@@ -173,6 +174,7 @@ impl MutantState {
             color_patches: Vec::new(),
             is_double: false,
             double_head_eyes: Vec::new(),
+            mutation_count: 0,
         }
     }
 

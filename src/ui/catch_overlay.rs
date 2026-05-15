@@ -166,6 +166,7 @@ fn left_panel_inner_w(loot: &LootKind, fish: Option<&Fish>) -> u16 {
         LootKind::Food(_) => 11 + 3,
         LootKind::Junk(_) => JunkSprite::hook_col() + 3,
         LootKind::Consumable(kind) => kind.panel_inner_w(),
+        LootKind::GoldBar => 5 + 3,
     }
 }
 
@@ -176,6 +177,7 @@ fn overlay_title(loot: &LootKind) -> &'static str {
         LootKind::Food(_) => " Food to the Fishtank! ",
         LootKind::Junk(_) => " Junk to the Fishtank! ",
         LootKind::Consumable(_) => " Item to the Fishtank! ",
+        LootKind::GoldBar => " Gold Bar! ",
     }
 }
 
@@ -226,6 +228,7 @@ fn draw_left_panel(buf: &mut Buffer, state: &CatchState, x: u16, y: u16, w: u16,
         LootKind::Consumable(kind) => {
             draw_consumable_panel(buf, *kind, state.anim_phase, x, y, w, h)
         }
+        LootKind::GoldBar => draw_goldbar_panel(buf, x, y, w, h),
     }
 }
 
@@ -243,6 +246,7 @@ fn draw_right_panel(buf: &mut Buffer, state: &CatchState, x: u16, y: u16, w: u16
         LootKind::Consumable(kind) => {
             draw_consumable_item_right_panel(buf, kind.display_name(), state.item_qty, x, y, w, h)
         }
+        LootKind::GoldBar => draw_goldbar_right_panel(buf, x, y, w, h),
     }
 }
 
@@ -712,6 +716,69 @@ fn draw_name_input(buf: &mut Buffer, state: &CatchState, x: u16, y: u16, w: u16)
             let avail = (x + w - after_col) as usize;
             buf.set_string(after_col, y, truncate_to_width(after, avail), white);
         }
+    }
+}
+
+fn draw_goldbar_panel(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
+    let gold = Color::Rgb(255, 215, 0);
+    let sprite = "[≡$≡]";
+    let sprite_x = x + 1;
+    let hook_x = sprite_x + 5;
+    let vert_pad = (h.saturating_sub(1)) / 2;
+    let sprite_y = y + vert_pad;
+
+    for i in 0..vert_pad {
+        if hook_x < x + w {
+            buf[(hook_x, y + i)]
+                .set_char('⎹')
+                .set_fg(Color::DarkGray)
+                .set_bg(BG);
+        }
+    }
+
+    if sprite_y < y + h {
+        for (i, ch) in sprite.chars().enumerate() {
+            let col = sprite_x + i as u16;
+            if col >= x + w {
+                break;
+            }
+            buf[(col, sprite_y)].set_char(ch).set_fg(gold).set_bg(BG);
+        }
+        if hook_x < x + w {
+            buf[(hook_x, sprite_y)]
+                .set_char('J')
+                .set_fg(Color::DarkGray)
+                .set_bg(BG);
+        }
+    }
+}
+
+fn draw_goldbar_right_panel(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
+    let gold = Color::Rgb(255, 215, 0);
+    let s_gold = Style::default()
+        .fg(gold)
+        .add_modifier(Modifier::BOLD)
+        .bg(BG);
+    let s_white = Style::default().fg(Color::White).bg(BG);
+    let s_dim = Style::default().fg(Color::DarkGray).bg(BG);
+
+    if h < 2 {
+        return;
+    }
+    buf.set_string(x, y, truncate_to_width("Gold Bar!", w as usize), s_gold);
+    buf.set_string(
+        x,
+        y + 1,
+        truncate_to_width("Worth $5,000", w as usize),
+        s_white,
+    );
+    if h >= 5 {
+        buf.set_string(
+            x,
+            y + h - 1,
+            truncate_to_width("ENTER/ESC collect", w as usize),
+            s_dim,
+        );
     }
 }
 

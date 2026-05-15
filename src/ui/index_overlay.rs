@@ -137,7 +137,7 @@ pub struct FishSnapshot {
     species_name: &'static str,
     segments: Vec<(char, Color)>,
     display_width: usize,
-    food_eaten: usize,
+    weight_g: u32,
     tank_name: Option<String>,
 }
 
@@ -164,7 +164,7 @@ impl IndexState {
                 species_name: species_display_name(f.species),
                 segments: f.static_left_segments(),
                 display_width: f.display_width,
-                food_eaten: f.food_eaten,
+                weight_g: f.weight_g,
                 tank_name: if show_tank_col {
                     Some(tank_name.to_string())
                 } else {
@@ -233,10 +233,10 @@ impl IndexState {
             .max("Display".len());
         let max_food_w = snapshots
             .iter()
-            .map(|s| s.food_eaten.to_string().len())
+            .map(|s| s.weight_g.to_string().len() + 1)
             .max()
             .unwrap_or(1)
-            .max("Food Eaten".len());
+            .max("Weight".len());
 
         let mut fixed_widths = vec![max_name_w, max_species_w, max_display_w, max_food_w];
         if show_tank_col {
@@ -528,7 +528,7 @@ fn fixed_col_header(col_idx: usize) -> &'static str {
         0 => "Name",
         1 => "Species",
         2 => "Display",
-        3 => "Food Eaten",
+        3 => "Weight",
         4 => "Fishtank",
         _ => "",
     }
@@ -624,7 +624,7 @@ fn draw_data_row(
             }
             2 => render_display_cell(buf, &snap.segments, x, row_y, w.min(avail), base_bg),
             3 => {
-                let s = snap.food_eaten.to_string();
+                let s = format!("{}g", snap.weight_g);
                 put_text(buf, &s, x, row_y, w.min(avail), fg, row_bg);
             }
             4 if state.show_tank_col => {

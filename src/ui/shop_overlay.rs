@@ -25,13 +25,13 @@ const BUY_CAT_ITEM_COUNT: usize = 5;
 const PENGUIN_LINES: &[&str] = &["  __   ", " ( o>  ", " ///\\  ", " \\V_/_ "];
 
 pub const FOOD_BUY_PRICE: u32 = 1;
-pub const JUNK_SELL_PRICE: u32 = 5;
+pub const JUNK_SELL_PRICE: u32 = 1;
 pub const COFFEE_BUY_PRICE: u32 = 10;
-pub const COFFEE_SELL_PRICE: u32 = 5;
+pub const COFFEE_SELL_PRICE: u32 = 8;
 pub const BAIT_BUY_PRICE: u32 = 15;
-pub const BAIT_SELL_PRICE: u32 = 7;
-pub const TANK_BUY_PRICE: u32 = 2000;
-pub const TANK_SELL_PRICE: u32 = 500;
+pub const BAIT_SELL_PRICE: u32 = 12;
+pub const TANK_BUY_PRICE: u32 = 3000;
+pub const TANK_SELL_PRICE: u32 = 2500;
 
 pub struct BuyEntry {
     pub species: FishSpecies,
@@ -42,103 +42,95 @@ pub struct BuyEntry {
 pub const FISH_CATALOG: &[BuyEntry] = &[
     BuyEntry {
         species: FishSpecies::Merluza,
-        price: 50,
+        price: 126,
         name: "Merluza",
     },
     BuyEntry {
         species: FishSpecies::Betta,
-        price: 60,
+        price: 126,
         name: "Betta",
     },
     BuyEntry {
         species: FishSpecies::Salmon,
-        price: 70,
+        price: 126,
         name: "Salmon",
     },
     BuyEntry {
         species: FishSpecies::Chromis,
-        price: 80,
+        price: 126,
         name: "Chromis",
     },
     BuyEntry {
         species: FishSpecies::Tang,
-        price: 90,
+        price: 126,
         name: "Tang",
     },
     BuyEntry {
         species: FishSpecies::Carpin,
-        price: 100,
+        price: 126,
         name: "Carpin",
     },
     BuyEntry {
         species: FishSpecies::Anchoveta,
-        price: 110,
+        price: 126,
         name: "Anchoveta",
     },
     BuyEntry {
         species: FishSpecies::Goldfish,
-        price: 120,
+        price: 126,
         name: "Goldfish",
     },
     BuyEntry {
         species: FishSpecies::Snapper,
-        price: 130,
+        price: 126,
         name: "Snapper",
     },
     BuyEntry {
         species: FishSpecies::Nishiki,
-        price: 140,
+        price: 126,
         name: "Nishiki",
     },
     BuyEntry {
         species: FishSpecies::Aka,
-        price: 150,
+        price: 126,
         name: "Aka",
     },
     BuyEntry {
         species: FishSpecies::Kuro,
-        price: 160,
+        price: 126,
         name: "Kuro",
     },
     BuyEntry {
         species: FishSpecies::Koi,
-        price: 300,
+        price: 341,
         name: "Koi",
     },
     BuyEntry {
         species: FishSpecies::Deadfish,
-        price: 350,
+        price: 341,
         name: "Deadfish",
     },
     BuyEntry {
         species: FishSpecies::Jellyfish,
-        price: 400,
+        price: 341,
         name: "Jellyfish",
     },
     BuyEntry {
         species: FishSpecies::Turbofish,
-        price: 500,
+        price: 341,
         name: "Turbofish",
     },
     BuyEntry {
         species: FishSpecies::Goldenfish,
-        price: 1000,
+        price: 7700,
         name: "Goldenfish",
     },
     BuyEntry {
         species: FishSpecies::Mutantfish,
-        price: 1500,
+        price: 7700,
         name: "Mutantfish",
     },
 ];
-
-pub fn fish_sell_price(species: FishSpecies) -> u32 {
-    FISH_CATALOG
-        .iter()
-        .find(|e| e.species == species)
-        .map(|e| e.price / 2)
-        .unwrap_or(25)
-}
 
 pub struct BuyCategoryPopup {
     pub option_idx: usize,
@@ -186,7 +178,7 @@ pub struct FishNamePopup {
 }
 
 pub enum SellEntry {
-    Fish { name: String, species: FishSpecies },
+    Fish { name: String, species: FishSpecies, sell_value: u32 },
     Junk { qty: u32 },
     Coffee { qty: u32 },
     Bait { qty: u32 },
@@ -196,7 +188,7 @@ pub enum SellEntry {
 impl SellEntry {
     pub fn label(&self) -> String {
         match self {
-            SellEntry::Fish { name, species } => format!("{} ({})", name, species.display_name()),
+            SellEntry::Fish { name, species, .. } => format!("{} ({})", name, species.display_name()),
             SellEntry::Junk { qty } => format!("Junk ({})", qty),
             SellEntry::Coffee { qty } => format!("Coffee ({})", qty),
             SellEntry::Bait { qty } => format!("Bait ({})", qty),
@@ -206,7 +198,7 @@ impl SellEntry {
 
     pub fn price_label(&self) -> String {
         match self {
-            SellEntry::Fish { species, .. } => format!("${}", fish_sell_price(*species)),
+            SellEntry::Fish { sell_value, .. } => format!("${}", sell_value),
             SellEntry::Junk { .. } => format!("${}", JUNK_SELL_PRICE),
             SellEntry::Coffee { .. } => format!("${}", COFFEE_SELL_PRICE),
             SellEntry::Bait { .. } => format!("${}", BAIT_SELL_PRICE),
@@ -216,7 +208,7 @@ impl SellEntry {
 
     pub fn unit_price(&self) -> u32 {
         match self {
-            SellEntry::Fish { species, .. } => fish_sell_price(*species),
+            SellEntry::Fish { sell_value, .. } => *sell_value,
             SellEntry::Junk { .. } => JUNK_SELL_PRICE,
             SellEntry::Coffee { .. } => COFFEE_SELL_PRICE,
             SellEntry::Bait { .. } => BAIT_SELL_PRICE,
@@ -262,7 +254,7 @@ pub struct SellMenuState {
 
 impl SellMenuState {
     pub fn new(
-        tank_fish: &[(String, FishSpecies)],
+        tank_fish: &[(String, FishSpecies, u32)],
         inventory: &HashMap<String, u32>,
         sellable_tanks: &[String],
     ) -> Option<Self> {
@@ -286,20 +278,15 @@ impl SellMenuState {
         }
         let mut fish_entries: Vec<SellEntry> = tank_fish
             .iter()
-            .map(|(n, s)| SellEntry::Fish {
+            .map(|(n, s, sv)| SellEntry::Fish {
                 name: n.clone(),
                 species: *s,
+                sell_value: *sv,
             })
             .collect();
         fish_entries.sort_by(|a, b| {
-            let pa = match a {
-                SellEntry::Fish { species, .. } => fish_sell_price(*species),
-                _ => 0,
-            };
-            let pb = match b {
-                SellEntry::Fish { species, .. } => fish_sell_price(*species),
-                _ => 0,
-            };
+            let pa = match a { SellEntry::Fish { sell_value, .. } => *sell_value, _ => 0 };
+            let pb = match b { SellEntry::Fish { sell_value, .. } => *sell_value, _ => 0 };
             pa.cmp(&pb).then_with(|| {
                 let na = match a {
                     SellEntry::Fish { name, .. } => name.as_str(),
@@ -459,7 +446,7 @@ fn overlay_h(state: &ShopState, area_h: u16) -> u16 {
     const MAX_OH: u16 = 13;
     match &state.page {
         ShopPage::Main { .. } => MIN_OH.min(area_h),
-        ShopPage::BuyCategory { .. } => (MIN_OH + 1).min(area_h),
+        ShopPage::BuyCategory { .. } => (MIN_OH + 2).min(area_h),
         ShopPage::BuyFishList(_) => {
             let visible = FISH_CATALOG.len().min(MAX_LIST_VISIBLE);
             ((visible as u16) + 6).clamp(MIN_OH, MAX_OH).min(area_h)
@@ -607,7 +594,7 @@ impl Widget for ShopOverlay<'_> {
                     state.cursor_visible,
                     &available,
                     rx,
-                    content_y,
+                    content_y + 1,
                     RIGHT_INNER_W,
                     draw_h,
                     has_popup,
@@ -1235,7 +1222,7 @@ fn draw_sell_confirm_popup(buf: &mut Buffer, confirm: &SellConfirm, entry: &Sell
     }
 
     let (title, msg) = match entry {
-        SellEntry::Fish { name, species } => {
+        SellEntry::Fish { name, species, .. } => {
             let t = format!(" Sell {} ", species.display_name());
             let inner_w = (pop_w - 4) as usize;
             let total = confirm.sell_qty * entry.unit_price();

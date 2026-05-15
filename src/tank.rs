@@ -76,6 +76,7 @@ pub struct Tank {
     pub width: u16,
     pub height: u16,
     pub used_names: HashSet<String>,
+    pub pending_star_money: u32,
     bubble_bottom_timer: f32,
     bubble_surface_timer: f32,
     mutation_timer: f32,
@@ -93,6 +94,7 @@ impl Tank {
             width: INITIAL_WIDTH,
             height: INITIAL_HEIGHT,
             used_names: HashSet::new(),
+            pending_star_money: 0,
             bubble_bottom_timer: rng
                 .random_range(BUBBLE_BOTTOM_SPAWN_RATE_MIN..BUBBLE_BOTTOM_SPAWN_RATE_MAX),
             bubble_surface_timer: rng
@@ -185,9 +187,10 @@ impl Tank {
         for food in &mut self.food {
             food.tick(settings, self.width, self.height);
         }
-        for bubble in &mut self.bubbles {
-            bubble.tick(settings, self.width);
-        }
+        let star: u32 = self.bubbles.iter_mut()
+            .map(|b| b.tick(settings, self.width))
+            .sum();
+        self.pending_star_money += star;
         self.bubbles.retain(|b| !b.dead);
 
         self.steer_seeking_fish();
@@ -274,6 +277,7 @@ impl Tank {
             glistening_mode,
             glistening_color,
             eye_color,
+            orig_mutation_count,
         ) = {
             let m = self.fish[idx].mutant.as_ref().unwrap();
             let max_eyes = m.left_eyes.len().max(m.right_eyes.len());
@@ -305,6 +309,7 @@ impl Tank {
                 m.glistening_mode,
                 m.glistening_color,
                 m.eye_color,
+                m.mutation_count,
             )
         };
 
@@ -353,6 +358,7 @@ impl Tank {
                 m.left_eyes.push(EyeState::new(&mut rng));
                 m.right_eyes.push(EyeState::new(&mut rng));
             }
+            m.mutation_count = orig_mutation_count;
         }
         new_fish.display_width = new_fish.mutant.as_ref().unwrap().display_width(other_half);
 
@@ -470,12 +476,16 @@ impl Tank {
                     Direction::Right => fish.position.x,
                 };
                 let bubble = match fish.species {
-                    FishSpecies::Goldenfish => Bubble::new_rising_custom(
-                        tail_x,
-                        fish.position.y,
-                        '☆',
-                        ratatui::style::Color::Rgb(255, 255, 80),
-                    ),
+                    FishSpecies::Goldenfish => {
+                        let mut b = Bubble::new_rising_custom(
+                            tail_x,
+                            fish.position.y,
+                            '☆',
+                            ratatui::style::Color::Rgb(255, 255, 80),
+                        );
+                        b.money_value = Some(5);
+                        b
+                    }
                     FishSpecies::Mutantfish => {
                         Bubble::new_rising_custom(tail_x, fish.position.y, '†', fish.color)
                     }
@@ -558,7 +568,10 @@ impl Tank {
                 self.fish[i].state = FishState::Eating {
                     time_remaining: EATING_DURATION,
                 };
-                self.fish[i].food_eaten += 1;
+                let cat = self.fish[i].size_category;
+                let cap = self.fish[i].species.config().weight_cap[cat as usize];
+                let new_w = self.fish[i].weight_g + 50;
+                self.fish[i].weight_g = if cap == 0 { new_w } else { new_w.min(cap) };
             }
         }
     }
@@ -641,6 +654,7 @@ fn pick_random_mutation(fish: &Fish, rng: &mut impl RngExt) -> Mutation {
 
 fn apply_mutation_to_fish(fish: &mut Fish, mutation: Mutation, rng: &mut impl RngExt) {
     let m = fish.mutant.as_mut().unwrap();
+    m.mutation_count += 1;
     match mutation {
         Mutation::SizeChange(delta) => {
             let max_eyes = m.left_eyes.len().max(m.right_eyes.len());

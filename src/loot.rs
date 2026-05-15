@@ -195,13 +195,13 @@ pub enum CashValue {
 }
 
 const CASH_TABLE: &[(u32, CashValue)] = &[
-    (188, CashValue::One),
-    (188, CashValue::Two),
-    (188, CashValue::Five),
-    (188, CashValue::Ten),
-    (188, CashValue::Twenty),
-    (25, CashValue::Hundred),
-    (5, CashValue::Thousand),
+    (55, CashValue::One),
+    (75, CashValue::Two),
+    (95, CashValue::Five),
+    (140, CashValue::Ten),
+    (195, CashValue::Twenty),
+    (75, CashValue::Hundred),
+    (20, CashValue::Thousand),
 ];
 
 impl CashValue {
@@ -240,6 +240,7 @@ pub enum LootKind {
     Food(u32),
     Junk(JunkSprite),
     Consumable(ConsumableKind),
+    GoldBar,
 }
 
 #[derive(Clone, Copy)]
@@ -248,6 +249,7 @@ enum LootEntry {
     Cash,
     Food,
     JunkSlot,
+    GoldBar,
 }
 
 const LEGENDARY: u32 = 3;
@@ -276,6 +278,7 @@ const LOOT_TABLE: &[(u32, LootEntry)] = &[
     (COMMON, LootEntry::Fish(FishSpecies::Kuro)),
     (COMMON, LootEntry::Food),
     (COMMON, LootEntry::JunkSlot),
+    (2, LootEntry::GoldBar),
 ];
 
 fn roll_weighted<T: Copy>(table: &[(u32, T)], rng: &mut impl RngExt) -> T {
@@ -311,8 +314,9 @@ pub fn roll_loot_no_fish(rng: &mut impl RngExt) -> LootKind {
             return match entry {
                 LootEntry::Fish(_) => unreachable!(),
                 LootEntry::Cash => LootKind::Cash(CashValue::roll(rng)),
-                LootEntry::Food => LootKind::Food(rng.random_range(50..=250u32)),
+                LootEntry::Food => LootKind::Food(rng.random_range(20..=80u32)),
                 LootEntry::JunkSlot => roll_junk_slot(rng),
+                LootEntry::GoldBar => LootKind::GoldBar,
             };
         }
         v -= weight;
@@ -337,8 +341,9 @@ pub fn roll_loot(rng: &mut impl RngExt, bait_stacks: u32) -> LootKind {
             return match entry {
                 LootEntry::Fish(s) => LootKind::Fish(*s),
                 LootEntry::Cash => LootKind::Cash(CashValue::roll(rng)),
-                LootEntry::Food => LootKind::Food(rng.random_range(50..=250u32)),
+                LootEntry::Food => LootKind::Food(rng.random_range(20..=80u32)),
                 LootEntry::JunkSlot => roll_junk_slot(rng),
+                LootEntry::GoldBar => LootKind::GoldBar,
             };
         }
         v -= eff_weight;
