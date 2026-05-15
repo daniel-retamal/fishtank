@@ -298,6 +298,28 @@ fn roll_junk_slot(rng: &mut impl RngExt) -> LootKind {
     }
 }
 
+pub fn roll_loot_no_fish(rng: &mut impl RngExt) -> LootKind {
+    let non_fish: Vec<(u32, LootEntry)> = LOOT_TABLE
+        .iter()
+        .filter(|(_, e)| !matches!(e, LootEntry::Fish(_)))
+        .copied()
+        .collect();
+    let total: u32 = non_fish.iter().map(|(w, _)| w).sum();
+    let mut v = rng.random_range(0..total);
+    for (weight, entry) in &non_fish {
+        if v < *weight {
+            return match entry {
+                LootEntry::Fish(_) => unreachable!(),
+                LootEntry::Cash => LootKind::Cash(CashValue::roll(rng)),
+                LootEntry::Food => LootKind::Food(rng.random_range(50..=250u32)),
+                LootEntry::JunkSlot => roll_junk_slot(rng),
+            };
+        }
+        v -= weight;
+    }
+    roll_junk_slot(rng)
+}
+
 pub fn roll_loot(rng: &mut impl RngExt, bait_stacks: u32) -> LootKind {
     let bait_mult = 1u32 + bait_stacks;
     let total: u32 = LOOT_TABLE

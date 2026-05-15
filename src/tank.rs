@@ -1,8 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use rand::RngExt;
 
-use crate::consumable::{BAIT_DURATION, COFFEE_DURATION, CONSUMABLE_STACK_BONUS};
 use crate::entities::bubble::Bubble;
 use crate::entities::fish::{Direction, EATING_DURATION, Fish, FishState};
 use crate::entities::food::Food;
@@ -12,6 +11,7 @@ use crate::entities::mutant::{
 use crate::entities::plant::Plant;
 use crate::entities::species::FishSpecies;
 use crate::loot::ConsumableKind;
+use crate::names;
 use crate::settings::Settings;
 
 pub struct ActiveConsumable {
@@ -19,6 +19,8 @@ pub struct ActiveConsumable {
     pub stacks: u32,
     pub time_remaining: f32,
 }
+
+pub const TANK_CAPACITY: usize = 50;
 
 const PLANT_FIELD_WIDTH: i32 = 600;
 const PLANT_SPACING_MIN: i32 = 3;
@@ -66,6 +68,7 @@ enum Mutation {
 }
 
 pub struct Tank {
+    pub name: String,
     pub fish: Vec<Fish>,
     pub food: Vec<Food>,
     pub plants: Vec<Plant>,
@@ -73,19 +76,16 @@ pub struct Tank {
     pub width: u16,
     pub height: u16,
     pub used_names: HashSet<String>,
-    pub food_supply: u32,
-    pub money: u32,
-    pub inventory: HashMap<String, u32>,
-    pub active_consumables: Vec<ActiveConsumable>,
     bubble_bottom_timer: f32,
     bubble_surface_timer: f32,
     mutation_timer: f32,
 }
 
 impl Tank {
-    pub fn new() -> Self {
+    pub fn new(name: String) -> Self {
         let mut rng = rand::rng();
         Self {
+            name,
             fish: Vec::new(),
             food: Vec::new(),
             plants: Self::generate_plants(),
@@ -93,10 +93,6 @@ impl Tank {
             width: INITIAL_WIDTH,
             height: INITIAL_HEIGHT,
             used_names: HashSet::new(),
-            food_supply: 100,
-            money: 0,
-            inventory: HashMap::new(),
-            active_consumables: Vec::new(),
             bubble_bottom_timer: rng
                 .random_range(BUBBLE_BOTTOM_SPAWN_RATE_MIN..BUBBLE_BOTTOM_SPAWN_RATE_MAX),
             bubble_surface_timer: rng
@@ -105,41 +101,8 @@ impl Tank {
         }
     }
 
-    pub fn consume(&mut self, kind: ConsumableKind) {
-        let duration = match kind {
-            ConsumableKind::Coffee => COFFEE_DURATION,
-            ConsumableKind::Bait => BAIT_DURATION,
-        };
-        if let Some(ac) = self
-            .active_consumables
-            .iter_mut()
-            .find(|ac| ac.kind == kind)
-        {
-            ac.stacks += 1;
-            ac.time_remaining += CONSUMABLE_STACK_BONUS;
-        } else {
-            self.active_consumables.push(ActiveConsumable {
-                kind,
-                stacks: 1,
-                time_remaining: duration,
-            });
-        }
-    }
-
-    pub fn coffee_stacks(&self) -> u32 {
-        self.active_consumables
-            .iter()
-            .find(|ac| ac.kind == ConsumableKind::Coffee)
-            .map(|ac| ac.stacks)
-            .unwrap_or(0)
-    }
-
-    pub fn bait_stacks(&self) -> u32 {
-        self.active_consumables
-            .iter()
-            .find(|ac| ac.kind == ConsumableKind::Bait)
-            .map(|ac| ac.stacks)
-            .unwrap_or(0)
+    pub fn is_full(&self) -> bool {
+        self.fish.len() >= TANK_CAPACITY
     }
 
     pub fn resize(&mut self, width: u16, height: u16) {
@@ -161,16 +124,15 @@ impl Tank {
         }
     }
 
-    pub fn is_name_available(&self, name: &str) -> bool {
-        !self.used_names.contains(name)
-    }
-
     pub fn spawn_fish(
         &mut self,
         species: FishSpecies,
         name: String,
         rng: &mut impl RngExt,
     ) -> bool {
+        if self.is_full() {
+            return false;
+        }
         let actual_name = self.unique_name(&name);
         let x_max = (self.width as f32 - 15.0).max(6.0);
         let y_max = (self.height as f32 - 5.0).max(3.0);
@@ -180,10 +142,6 @@ impl Tank {
         self.used_names.insert(actual_name);
         self.fish.push(fish);
         true
-    }
-
-    pub fn add_to_inventory(&mut self, item: &str) {
-        *self.inventory.entry(item.to_string()).or_insert(0) += 1;
     }
 
     pub fn place_fish(&mut self, mut fish: Fish, name: String, rng: &mut impl RngExt) {
@@ -197,27 +155,15 @@ impl Tank {
         self.fish.push(fish);
     }
 
-    fn generate_plants() -> Vec<Plant> {
-        let mut rng = rand::rng();
-        let mut plants = Vec::new();
-        let mut x = rng.random_range(PLANT_SPACING_MIN..=PLANT_SPACING_MAX);
-        while x < PLANT_FIELD_WIDTH {
-            let height = rng.random_range(PLANT_HEIGHT_MIN..=PLANT_HEIGHT_MAX);
-            plants.push(Plant::new(x, height));
-            x += rng.random_range(PLANT_SPACING_MIN..=PLANT_SPACING_MAX);
-        }
-        plants
-    }
-
-    pub fn feed(&mut self, count: usize) {
+    pub fn feed(&mut self, count: usize, food_supply: &mut u32) {
         if self.width == 0 {
             return;
         }
-        let actual = count.min(self.food_supply as usize);
+        let actual = count.min(*food_supply as usize);
         if actual == 0 {
             return;
         }
-        self.food_supply -= actual as u32;
+        *food_supply -= actual as u32;
         let mut rng = rand::rng();
         let spread = FOOD_SPAWN_SPREAD;
         let min_center = spread;
@@ -230,13 +176,8 @@ impl Tank {
         }
     }
 
-    pub fn tick(&mut self, settings: &Settings) {
+    pub fn tick(&mut self, settings: &Settings, coffee: u32) {
         let dt = 1.0 / settings.fps;
-
-        for ac in &mut self.active_consumables {
-            ac.time_remaining -= dt;
-        }
-        self.active_consumables.retain(|ac| ac.time_remaining > 0.0);
 
         for plant in &mut self.plants {
             plant.tick();
@@ -250,7 +191,7 @@ impl Tank {
         self.bubbles.retain(|b| !b.dead);
 
         self.steer_seeking_fish();
-        self.tick_fish(settings);
+        self.tick_fish(settings, coffee);
         self.spawn_bubbles(dt);
         self.check_eating_collisions();
 
@@ -478,19 +419,20 @@ impl Tank {
         apply_mutation_to_fish(&mut self.fish[fish_idx], mutation, &mut rng);
     }
 
+    fn generate_plants() -> Vec<Plant> {
+        let mut rng = rand::rng();
+        let mut plants = Vec::new();
+        let mut x = rng.random_range(PLANT_SPACING_MIN..=PLANT_SPACING_MAX);
+        while x < PLANT_FIELD_WIDTH {
+            let height = rng.random_range(PLANT_HEIGHT_MIN..=PLANT_HEIGHT_MAX);
+            plants.push(Plant::new(x, height));
+            x += rng.random_range(PLANT_SPACING_MIN..=PLANT_SPACING_MAX);
+        }
+        plants
+    }
+
     fn unique_name(&self, requested: &str) -> String {
-        if self.is_name_available(requested) {
-            return requested.to_string();
-        }
-        let (root, n) = parse_name_numeral(requested);
-        let mut i = n + 1;
-        loop {
-            let candidate = format!("{} {}", root, to_roman(i));
-            if self.is_name_available(&candidate) {
-                return candidate;
-            }
-            i += 1;
-        }
+        names::unique_name_in(&self.used_names, requested)
     }
 
     fn spawn_bubbles(&mut self, dt: f32) {
@@ -592,8 +534,7 @@ impl Tank {
         }
     }
 
-    fn tick_fish(&mut self, settings: &Settings) {
-        let coffee = self.coffee_stacks();
+    fn tick_fish(&mut self, settings: &Settings, coffee: u32) {
         for fish in &mut self.fish {
             fish.tick(settings, self.width, self.height, coffee);
         }
@@ -789,69 +730,4 @@ fn apply_mutation_to_fish(fish: &mut Fish, mutation: Mutation, rng: &mut impl Rn
         Mutation::Mitosis => unreachable!(),
     }
     fish.display_width = fish.mutant.as_ref().unwrap().display_width(fish.body_size);
-}
-
-fn parse_name_numeral(name: &str) -> (&str, u32) {
-    if let Some(pos) = name.rfind(' ') {
-        let suffix = &name[pos + 1..];
-        if let Some(n) = roman_to_u32(suffix) {
-            return (&name[..pos], n);
-        }
-    }
-    (name, 1)
-}
-
-pub fn to_roman(mut n: u32) -> String {
-    const VALS: &[(u32, &str)] = &[
-        (1000, "M"),
-        (900, "CM"),
-        (500, "D"),
-        (400, "CD"),
-        (100, "C"),
-        (90, "XC"),
-        (50, "L"),
-        (40, "XL"),
-        (10, "X"),
-        (9, "IX"),
-        (5, "V"),
-        (4, "IV"),
-        (1, "I"),
-    ];
-    let mut s = String::new();
-    for &(val, sym) in VALS {
-        while n >= val {
-            s.push_str(sym);
-            n -= val;
-        }
-    }
-    s
-}
-
-fn roman_to_u32(s: &str) -> Option<u32> {
-    if s.is_empty() {
-        return None;
-    }
-    let digit = |c: char| match c {
-        'I' => Some(1u32),
-        'V' => Some(5),
-        'X' => Some(10),
-        'L' => Some(50),
-        'C' => Some(100),
-        'D' => Some(500),
-        'M' => Some(1000),
-        _ => None,
-    };
-    let vals: Option<Vec<u32>> = s.chars().map(digit).collect();
-    let vals = vals?;
-    let mut total = 0u32;
-    let mut prev = 0u32;
-    for &v in vals.iter().rev() {
-        if v < prev {
-            total = total.saturating_sub(v);
-        } else {
-            total = total.saturating_add(v);
-        }
-        prev = v;
-    }
-    if total == 0 { None } else { Some(total) }
 }

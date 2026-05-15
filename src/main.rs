@@ -8,6 +8,7 @@ mod commands;
 mod consumable;
 mod entities;
 mod loot;
+mod names;
 mod settings;
 mod tank;
 mod ui;

@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::{
     Frame,
@@ -6,21 +8,25 @@ use ratatui::{
 
 use crate::{
     commands,
+    consumable::{BAIT_DURATION, COFFEE_DURATION, CONSUMABLE_STACK_BONUS},
     entities::food,
     entities::species::FishSpecies,
-    loot::{ConsumableKind, LootKind, roll_loot},
+    loot::{ConsumableKind, LootKind, roll_loot, roll_loot_no_fish},
+    names,
     settings::{FPS_MAX, FPS_MIN, Settings},
-    tank::Tank,
+    tank::{ActiveConsumable, Tank},
     ui::{
-        catch_overlay::{CatchOverlay, CatchState, title_case},
+        catch_overlay::{CatchOverlay, CatchState},
         command_bar::{self, CommandBar},
         fishing_overlay::{FishingOverlay, FishingState},
+        fishtanks_overlay::{FishtanksOverlay, FishtanksState},
         index_overlay::{IndexOverlay, IndexState},
         inventory_overlay::{InventoryOverlay, InventoryState},
         shop_overlay::{
-            BAIT_BUY_PRICE, BuyCategoryPopup, COFFEE_BUY_PRICE, FISH_CATALOG, FishListState,
-            FishNamePopup, SellConfirm, SellEntry, SellMenuState, ShopOverlay, ShopPage, ShopState,
-            buy_cat_first_available, buy_cat_next, list_visible_rows,
+            BAIT_BUY_PRICE, BuyCategoryPopup, BuyTankPopup, COFFEE_BUY_PRICE, FISH_CATALOG,
+            FishListState, FishNamePopup, SellConfirm, SellEntry, SellMenuState, ShopOverlay,
+            ShopPage, ShopState, TANK_BUY_PRICE, buy_cat_first_available, buy_cat_next,
+            list_visible_rows,
         },
         tank_view::TankView,
     },
@@ -28,7 +34,13 @@ use crate::{
 
 pub struct App {
     pub settings: Settings,
-    pub tank: Tank,
+    pub tanks: Vec<Tank>,
+    pub current_tank: usize,
+    used_tank_names: HashSet<String>,
+    pub money: u32,
+    pub food_supply: u32,
+    pub inventory: HashMap<String, u32>,
+    pub active_consumables: Vec<ActiveConsumable>,
     pub command_input: String,
     pub running: bool,
     cursor_pos: usize,
@@ -42,6 +54,7 @@ pub struct App {
     fishing_state: Option<FishingState>,
     catch_state: Option<CatchState>,
     shop_state: Option<ShopState>,
+    fishtanks_state: Option<FishtanksState>,
     terminal_height: u16,
     terminal_width: u16,
 }
@@ -49,8 +62,12 @@ pub struct App {
 impl App {
     pub fn new() -> Self {
         let settings = Settings::default();
-        let mut tank = Tank::new();
         let mut rng = rand::rng();
+
+        let initial_name = names::unique_name_in(&HashSet::new(), "Fishtank");
+        let mut used_tank_names = HashSet::new();
+        used_tank_names.insert(initial_name.clone());
+        let mut first_tank = Tank::new(initial_name);
 
         for (species, name) in [
             (FishSpecies::Merluza, "merluza"),
@@ -63,12 +80,18 @@ impl App {
             (FishSpecies::Betta, "betta"),
             (FishSpecies::Salmon, "salmon"),
         ] {
-            tank.spawn_fish(species, name.to_string(), &mut rng);
+            first_tank.spawn_fish(species, name.to_string(), &mut rng);
         }
 
         Self {
             settings,
-            tank,
+            tanks: vec![first_tank],
+            current_tank: 0,
+            used_tank_names,
+            money: 0,
+            food_supply: 0,
+            inventory: HashMap::new(),
+            active_consumables: Vec::new(),
             command_input: String::new(),
             running: true,
             cursor_pos: 0,
@@ -82,8 +105,50 @@ impl App {
             fishing_state: None,
             catch_state: None,
             shop_state: None,
+            fishtanks_state: None,
             terminal_height: 24,
             terminal_width: 80,
+        }
+    }
+
+    fn tank(&self) -> &Tank {
+        &self.tanks[self.current_tank]
+    }
+
+    fn tank_mut(&mut self) -> &mut Tank {
+        &mut self.tanks[self.current_tank]
+    }
+
+    fn coffee_stacks(&self) -> u32 {
+        self.active_consumables
+            .iter()
+            .filter(|c| matches!(c.kind, ConsumableKind::Coffee))
+            .map(|c| c.stacks)
+            .sum()
+    }
+
+    fn bait_stacks(&self) -> u32 {
+        self.active_consumables
+            .iter()
+            .filter(|c| matches!(c.kind, ConsumableKind::Bait))
+            .map(|c| c.stacks)
+            .sum()
+    }
+
+    fn consume_item(&mut self, kind: ConsumableKind) {
+        let duration = match kind {
+            ConsumableKind::Coffee => COFFEE_DURATION,
+            ConsumableKind::Bait => BAIT_DURATION,
+        };
+        if let Some(existing) = self.active_consumables.iter_mut().find(|c| c.kind == kind) {
+            existing.stacks += 1;
+            existing.time_remaining += CONSUMABLE_STACK_BONUS;
+        } else {
+            self.active_consumables.push(ActiveConsumable {
+                kind,
+                stacks: 1,
+                time_remaining: duration,
+            });
         }
     }
 
@@ -94,7 +159,7 @@ impl App {
         }
 
         if self.fishing_state.is_some() {
-            let coffee = self.tank.coffee_stacks();
+            let coffee = self.coffee_stacks();
             self.fishing_state
                 .as_mut()
                 .unwrap()
@@ -105,15 +170,20 @@ impl App {
                 self.fishing_state = None;
             } else if captured {
                 let mut rng = rand::rng();
-                let bait = self.tank.bait_stacks();
-                let loot = roll_loot(&mut rng, bait);
+                let bait = self.bait_stacks();
+                let all_tanks_full = self.tanks.iter().all(|t| t.is_full());
+                let loot = if all_tanks_full {
+                    roll_loot_no_fish(&mut rng)
+                } else {
+                    roll_loot(&mut rng, bait)
+                };
                 let item_qty = match &loot {
-                    LootKind::Junk(_) => self.tank.inventory.get("Junk").copied().unwrap_or(0) + 1,
+                    LootKind::Junk(_) => self.inventory.get("Junk").copied().unwrap_or(0) + 1,
                     LootKind::Consumable(ConsumableKind::Coffee) => {
-                        self.tank.inventory.get("Coffee").copied().unwrap_or(0) + 1
+                        self.inventory.get("Coffee").copied().unwrap_or(0) + 1
                     }
                     LootKind::Consumable(ConsumableKind::Bait) => {
-                        self.tank.inventory.get("Bait").copied().unwrap_or(0) + 1
+                        self.inventory.get("Bait").copied().unwrap_or(0) + 1
                     }
                     _ => 0,
                 };
@@ -130,14 +200,23 @@ impl App {
             return;
         }
 
-        if self.inventory_state.is_some() {
+        if self.inventory_state.is_some() || self.fishtanks_state.is_some() {
             return;
         }
+
         if let Some(ref mut shop) = self.shop_state {
             shop.tick(self.settings.fps);
             return;
         }
-        self.tank.tick(&self.settings);
+
+        let dt = 1.0 / self.settings.fps;
+        for ac in &mut self.active_consumables {
+            ac.time_remaining -= dt;
+        }
+        self.active_consumables.retain(|ac| ac.time_remaining > 0.0);
+
+        let coffee = self.coffee_stacks();
+        self.tanks[self.current_tank].tick(&self.settings, coffee);
         self.tick_blink();
     }
 
@@ -156,6 +235,10 @@ impl App {
         }
         if self.inventory_state.is_some() {
             self.handle_inventory_input(event);
+            return;
+        }
+        if self.fishtanks_state.is_some() {
+            self.handle_fishtanks_input(event);
             return;
         }
         if self.shop_state.is_some() {
@@ -246,18 +329,30 @@ impl App {
                 }
                 KeyCode::Tab => {
                     let fish_names: Vec<&str> =
-                        self.tank.fish.iter().map(|f| f.name.as_str()).collect();
+                        self.tank().fish.iter().map(|f| f.name.as_str()).collect();
                     let consumable_names: Vec<&str> = ["coffee", "bait"]
                         .iter()
                         .filter(|&&n| {
                             let cap = n[..1].to_uppercase() + &n[1..];
-                            self.tank.inventory.get(&cap).copied().unwrap_or(0) > 0
+                            self.inventory.get(&cap).copied().unwrap_or(0) > 0
                         })
                         .copied()
                         .collect();
-                    if let Some(new_input) =
-                        commands::tab_complete(&self.command_input, &fish_names, &consumable_names)
-                    {
+                    let tank_names: Vec<&str> =
+                        self.tanks.iter().map(|t| t.name.as_str()).collect();
+                    let fish_in_tanks: Vec<(&str, &str)> = self
+                        .tanks
+                        .iter()
+                        .flat_map(|t| t.fish.iter().map(move |f| (f.name.as_str(), t.name.as_str())))
+                        .collect();
+                    if let Some(new_input) = commands::tab_complete(
+                        &self.command_input,
+                        &fish_names,
+                        &consumable_names,
+                        &tank_names,
+                        self.tank().name.as_str(),
+                        &fish_in_tanks,
+                    ) {
                         self.command_input = new_input;
                         self.cursor_pos = self.command_input.len();
                     }
@@ -273,7 +368,8 @@ impl App {
             Event::Resize(w, h) => {
                 self.terminal_height = h;
                 self.terminal_width = w;
-                self.tank.resize(w, h.saturating_sub(self.bar_height()));
+                let bh = self.bar_height();
+                self.tanks[self.current_tank].resize(w, h.saturating_sub(bh));
             }
             _ => {}
         }
@@ -387,9 +483,17 @@ impl App {
                     .is_none_or(|s| s.name_input.is_empty())
                     && let Some(state) = self.catch_state.take()
                 {
-                    let name = title_case(&state.name_input);
+                    let name = names::title_case(&state.name_input);
                     let mut rng = rand::rng();
-                    self.tank.place_fish(state.fish.unwrap(), name, &mut rng);
+                    let target_idx = if !self.tanks[self.current_tank].is_full() {
+                        self.current_tank
+                    } else {
+                        self.tanks
+                            .iter()
+                            .position(|t| !t.is_full())
+                            .unwrap_or(self.current_tank)
+                    };
+                    self.tanks[target_idx].place_fish(state.fish.unwrap(), name, &mut rng);
                 }
             }
             KeyCode::Left => {
@@ -445,20 +549,20 @@ impl App {
     fn apply_non_fish_loot(&mut self, loot: LootKind) {
         match loot {
             LootKind::Cash(cv) => {
-                self.tank.money += cv.amount();
+                self.money += cv.amount();
             }
             LootKind::Food(amount) => {
-                self.tank.food_supply += amount;
+                self.food_supply += amount;
             }
             LootKind::Junk(_) => {
-                self.tank.add_to_inventory("Junk");
+                *self.inventory.entry("Junk".to_string()).or_insert(0) += 1;
             }
             LootKind::Consumable(kind) => {
                 let name = match kind {
                     ConsumableKind::Coffee => "Coffee",
                     ConsumableKind::Bait => "Bait",
                 };
-                self.tank.add_to_inventory(name);
+                *self.inventory.entry(name.to_string()).or_insert(0) += 1;
             }
             LootKind::Fish(_) => {}
         }
@@ -500,22 +604,56 @@ impl App {
                         _ => None,
                     };
                     if let Some(kind) = kind {
-                        self.tank.consume(kind);
-                        let entry = self.tank.inventory.entry(name).or_insert(0);
+                        self.consume_item(kind);
+                        let entry = self.inventory.entry(name).or_insert(0);
                         *entry = entry.saturating_sub(1);
-                        self.tank.inventory.retain(|_, v| *v > 0);
+                        self.inventory.retain(|_, v| *v > 0);
                         if let Some(ref mut state) = self.inventory_state {
-                            state.update_from(&self.tank.inventory, &mut rand::rng());
+                            state.update_from(&self.inventory, &mut rand::rng());
                             if state.items.is_empty() {
                                 self.inventory_state = None;
                             }
                         }
-                        self.tank.resize(
-                            self.terminal_width,
-                            self.terminal_height.saturating_sub(self.bar_height()),
-                        );
+                        let bh = self.bar_height();
+                        self.tanks[self.current_tank]
+                            .resize(self.terminal_width, self.terminal_height.saturating_sub(bh));
                     }
                 }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_fishtanks_input(&mut self, event: Event) {
+        let Event::Key(key) = event else { return };
+        if key.kind != KeyEventKind::Press {
+            return;
+        }
+        match key.code {
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.running = false;
+            }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.fishtanks_state = None;
+            }
+            KeyCode::Up => {
+                if let Some(ref mut s) = self.fishtanks_state {
+                    s.scroll_up();
+                }
+            }
+            KeyCode::Down => {
+                let visible = self.fishtanks_visible_rows();
+                if let Some(ref mut s) = self.fishtanks_state {
+                    s.scroll_down(visible);
+                }
+            }
+            KeyCode::Enter => {
+                if let Some(ref s) = self.fishtanks_state {
+                    if s.selected != s.current_tank {
+                        self.current_tank = s.selected;
+                    }
+                }
+                self.fishtanks_state = None;
             }
             _ => {}
         }
@@ -536,7 +674,7 @@ impl App {
             None => return,
         };
 
-        let money = self.tank.money;
+        let money = self.money;
         let visible = list_visible_rows(&shop, self.tank_height());
 
         match shop.page {
@@ -548,7 +686,6 @@ impl App {
                     if *selected > 0 {
                         let new_sel = selected.saturating_sub(1);
                         if new_sel == 0 && money == 0 {
-                            // Can't navigate to Buy with no money
                         } else {
                             *selected = new_sel;
                         }
@@ -568,16 +705,19 @@ impl App {
                             shop.page = ShopPage::BuyCategory {
                                 selected: init_sel,
                                 buy_popup: None,
-                            }
+                                buy_tank_popup: None,
+                            };
                         }
                         _ => {
                             let fish: Vec<(String, FishSpecies)> = self
-                                .tank
-                                .fish
+                                .tanks
                                 .iter()
-                                .map(|f| (f.name.clone(), f.species))
+                                .flat_map(|t| t.fish.iter().map(|f| (f.name.clone(), f.species)))
                                 .collect();
-                            if let Some(sm) = SellMenuState::new(&fish, &self.tank.inventory) {
+                            let sellable_tanks = self.sellable_tank_names();
+                            if let Some(sm) =
+                                SellMenuState::new(&fish, &self.inventory, &sellable_tanks)
+                            {
                                 shop.page = ShopPage::Sell(sm);
                             }
                         }
@@ -590,8 +730,51 @@ impl App {
             ShopPage::BuyCategory {
                 ref mut selected,
                 ref mut buy_popup,
+                ref mut buy_tank_popup,
             } => {
-                if let Some(popup) = buy_popup {
+                if let Some(popup) = buy_tank_popup {
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('q') => {
+                            *buy_tank_popup = None;
+                        }
+                        KeyCode::Enter if !popup.name_input.is_empty() => {
+                            let name = names::title_case(&popup.name_input);
+                            let actual_name = names::unique_name_in(&self.used_tank_names, &name);
+                            if self.money >= TANK_BUY_PRICE {
+                                self.money = self.money.saturating_sub(TANK_BUY_PRICE);
+                                self.used_tank_names.insert(actual_name.clone());
+                                self.tanks.push(Tank::new(actual_name));
+                                self.current_tank = self.tanks.len() - 1;
+                            }
+                            *buy_tank_popup = None;
+                        }
+                        KeyCode::Left => {
+                            let pos = popup.cursor_pos;
+                            popup.cursor_pos = prev_char_boundary(&popup.name_input, pos);
+                        }
+                        KeyCode::Right => {
+                            let pos = popup.cursor_pos;
+                            popup.cursor_pos = next_char_boundary(&popup.name_input, pos);
+                        }
+                        KeyCode::Home => popup.cursor_pos = 0,
+                        KeyCode::End => popup.cursor_pos = popup.name_input.len(),
+                        KeyCode::Backspace if popup.cursor_pos > 0 => {
+                            let prev = prev_char_boundary(&popup.name_input, popup.cursor_pos);
+                            popup.name_input.drain(prev..popup.cursor_pos);
+                            popup.cursor_pos = prev;
+                        }
+                        KeyCode::Delete if popup.cursor_pos < popup.name_input.len() => {
+                            let next = next_char_boundary(&popup.name_input, popup.cursor_pos);
+                            popup.name_input.drain(popup.cursor_pos..next);
+                        }
+                        KeyCode::Char(c) => {
+                            popup.name_input.insert(popup.cursor_pos, c);
+                            popup.cursor_pos += c.len_utf8();
+                        }
+                        _ => {}
+                    }
+                    shop.reset_blink();
+                } else if let Some(popup) = buy_popup {
                     match key.code {
                         KeyCode::Esc | KeyCode::Char('q') => {
                             *buy_popup = None;
@@ -613,24 +796,18 @@ impl App {
                             if money >= cost {
                                 match popup.option_idx {
                                     1 => {
-                                        *self
-                                            .tank
-                                            .inventory
-                                            .entry("Coffee".to_string())
-                                            .or_insert(0) += qty;
+                                        *self.inventory.entry("Coffee".to_string()).or_insert(0) +=
+                                            qty;
                                     }
                                     2 => {
-                                        *self
-                                            .tank
-                                            .inventory
-                                            .entry("Bait".to_string())
-                                            .or_insert(0) += qty;
+                                        *self.inventory.entry("Bait".to_string()).or_insert(0) +=
+                                            qty;
                                     }
                                     _ => {
-                                        self.tank.food_supply += qty;
+                                        self.food_supply += qty;
                                     }
                                 }
-                                self.tank.money = self.tank.money.saturating_sub(cost);
+                                self.money = self.money.saturating_sub(cost);
                             }
                             *buy_popup = None;
                         }
@@ -654,6 +831,14 @@ impl App {
                             match *selected {
                                 0 => {
                                     shop.page = ShopPage::BuyFishList(FishListState::new(money));
+                                }
+                                4 => {
+                                    if money >= TANK_BUY_PRICE {
+                                        *buy_tank_popup = Some(BuyTankPopup {
+                                            name_input: String::new(),
+                                            cursor_pos: 0,
+                                        });
+                                    }
                                 }
                                 idx => {
                                     let unit_price = match idx {
@@ -694,10 +879,18 @@ impl App {
                     {
                         let price = FISH_CATALOG[catalog_idx].price;
                         if money >= price {
-                            let name = title_case(&name_input);
-                            self.tank.money = self.tank.money.saturating_sub(price);
+                            let name = names::title_case(&name_input);
+                            self.money = self.money.saturating_sub(price);
                             let mut rng = rand::rng();
-                            self.tank.place_fish(fish, name, &mut rng);
+                            let target_idx = if !self.tanks[self.current_tank].is_full() {
+                                self.current_tank
+                            } else {
+                                self.tanks
+                                    .iter()
+                                    .position(|t| !t.is_full())
+                                    .unwrap_or(self.current_tank)
+                            };
+                            self.tanks[target_idx].place_fish(fish, name, &mut rng);
                         }
                     }
                     self.shop_state = Some(shop);
@@ -744,6 +937,7 @@ impl App {
                         shop.page = ShopPage::BuyCategory {
                             selected: buy_cat_first_available(money),
                             buy_popup: None,
+                            buy_tank_popup: None,
                         };
                     }
                     KeyCode::Up => {
@@ -759,25 +953,23 @@ impl App {
                         let entry = &FISH_CATALOG[idx];
                         if entry.price <= money {
                             let species = entry.species;
-                            {
-                                let mut rng = rand::rng();
-                                use crate::entities::fish::Direction;
-                                let mut fish = crate::entities::fish::Fish::new(
-                                    species,
-                                    String::new(),
-                                    0.0,
-                                    0.0,
-                                    &mut rng,
-                                );
-                                fish.facing = Direction::Right;
-                                fish.velocity.dx = fish.velocity.dx.abs();
-                                fl.popup = Some(FishNamePopup {
-                                    catalog_idx: idx,
-                                    fish,
-                                    name_input: String::new(),
-                                    cursor_pos: 0,
-                                });
-                            }
+                            let mut rng = rand::rng();
+                            use crate::entities::fish::Direction;
+                            let mut fish = crate::entities::fish::Fish::new(
+                                species,
+                                String::new(),
+                                0.0,
+                                0.0,
+                                &mut rng,
+                            );
+                            fish.facing = Direction::Right;
+                            fish.velocity.dx = fish.velocity.dx.abs();
+                            fl.popup = Some(FishNamePopup {
+                                catalog_idx: idx,
+                                fish,
+                                name_input: String::new(),
+                                cursor_pos: 0,
+                            });
                         }
                         shop.reset_blink();
                     }
@@ -805,45 +997,57 @@ impl App {
                             match item {
                                 SellEntry::Fish { name, .. } => {
                                     let fish_name = name.clone();
-                                    if let Some(pos) =
-                                        self.tank.fish.iter().position(|f| f.name == fish_name)
-                                    {
-                                        self.tank.used_names.remove(&fish_name);
-                                        self.tank.fish.remove(pos);
+                                    for tank in &mut self.tanks {
+                                        if let Some(pos) =
+                                            tank.fish.iter().position(|f| f.name == fish_name)
+                                        {
+                                            tank.used_names.remove(&fish_name);
+                                            tank.fish.remove(pos);
+                                            break;
+                                        }
                                     }
                                 }
                                 SellEntry::Junk { .. } => {
                                     let sell_qty = confirm.sell_qty;
-                                    let qty =
-                                        self.tank.inventory.entry("Junk".to_string()).or_insert(0);
+                                    let qty = self.inventory.entry("Junk".to_string()).or_insert(0);
                                     *qty = qty.saturating_sub(sell_qty);
                                 }
                                 SellEntry::Coffee { .. } => {
                                     let sell_qty = confirm.sell_qty;
-                                    let qty = self
-                                        .tank
-                                        .inventory
-                                        .entry("Coffee".to_string())
-                                        .or_insert(0);
+                                    let qty =
+                                        self.inventory.entry("Coffee".to_string()).or_insert(0);
                                     *qty = qty.saturating_sub(sell_qty);
                                 }
                                 SellEntry::Bait { .. } => {
                                     let sell_qty = confirm.sell_qty;
-                                    let qty =
-                                        self.tank.inventory.entry("Bait".to_string()).or_insert(0);
+                                    let qty = self.inventory.entry("Bait".to_string()).or_insert(0);
                                     *qty = qty.saturating_sub(sell_qty);
                                 }
+                                SellEntry::Tank { name } => {
+                                    let tank_name = name.clone();
+                                    if let Some(pos) =
+                                        self.tanks.iter().position(|t| t.name == tank_name)
+                                    {
+                                        self.tanks.remove(pos);
+                                        self.used_tank_names.remove(&tank_name);
+                                        if self.current_tank == pos {
+                                            self.current_tank = if pos > 0 { pos - 1 } else { 0 };
+                                        } else if self.current_tank > pos {
+                                            self.current_tank -= 1;
+                                        }
+                                    }
+                                }
                             }
-                            self.tank.inventory.retain(|_, v| *v > 0);
-                            self.tank.money += earned;
+                            self.inventory.retain(|_, v| *v > 0);
+                            self.money += earned;
 
                             let fish: Vec<(String, FishSpecies)> = self
-                                .tank
-                                .fish
+                                .tanks
                                 .iter()
-                                .map(|f| (f.name.clone(), f.species))
+                                .flat_map(|t| t.fish.iter().map(|f| (f.name.clone(), f.species)))
                                 .collect();
-                            match SellMenuState::new(&fish, &self.tank.inventory) {
+                            let sellable_tanks = self.sellable_tank_names();
+                            match SellMenuState::new(&fish, &self.inventory, &sellable_tanks) {
                                 Some(new_sm) => shop.page = ShopPage::Sell(new_sm),
                                 None => shop.page = ShopPage::Main { selected: 1 },
                             }
@@ -880,14 +1084,26 @@ impl App {
         self.shop_state = Some(shop);
     }
 
+    fn sellable_tank_names(&self) -> Vec<String> {
+        if self.tanks.len() <= 1 {
+            return vec![];
+        }
+        self.tanks
+            .iter()
+            .filter(|t| t.fish.is_empty())
+            .map(|t| t.name.clone())
+            .collect()
+    }
+
     fn bar_height(&self) -> u16 {
         command_bar::height(
             self.settings.show_stats,
             self.terminal_width,
-            &self.tank.active_consumables,
-            self.tank.money,
-            self.tank.food_supply,
-            self.tank.fish.len(),
+            &self.active_consumables,
+            self.money,
+            self.food_supply,
+            self.tank().fish.len(),
+            &self.tank().name,
         )
     }
 
@@ -903,6 +1119,10 @@ impl App {
         (self.tank_height() as usize).saturating_sub(6).max(1)
     }
 
+    fn fishtanks_visible_rows(&self) -> usize {
+        (self.tank_height() as usize).saturating_sub(6).max(1)
+    }
+
     pub fn draw(&mut self, frame: &mut Frame) {
         let full_area = frame.area();
         self.terminal_height = full_area.height;
@@ -912,36 +1132,50 @@ impl App {
             Layout::vertical([Constraint::Min(0), Constraint::Length(self.bar_height())])
                 .areas(full_area);
 
-        self.tank.resize(tank_area.width, tank_area.height);
+        self.tanks[self.current_tank].resize(tank_area.width, tank_area.height);
 
         frame.render_widget(
-            TankView::new(&self.tank, self.settings.show_names),
+            TankView::new(self.tank(), self.settings.show_names),
             tank_area,
         );
 
-        let fish_names: Vec<&str> = self.tank.fish.iter().map(|f| f.name.as_str()).collect();
+        let fish_names: Vec<&str> = self.tank().fish.iter().map(|f| f.name.as_str()).collect();
         let consumable_names: Vec<&str> = ["coffee", "bait"]
             .iter()
             .filter(|&&n| {
                 let cap = n[..1].to_uppercase() + &n[1..];
-                self.tank.inventory.get(&cap).copied().unwrap_or(0) > 0
+                self.inventory.get(&cap).copied().unwrap_or(0) > 0
             })
             .copied()
             .collect();
-        let ghost = commands::autocomplete(&self.command_input, &fish_names, &consumable_names)
-            .map(|c| c.ghost)
-            .unwrap_or_default();
+        let tank_names: Vec<&str> = self.tanks.iter().map(|t| t.name.as_str()).collect();
+        let fish_in_tanks: Vec<(&str, &str)> = self
+            .tanks
+            .iter()
+            .flat_map(|t| t.fish.iter().map(move |f| (f.name.as_str(), t.name.as_str())))
+            .collect();
+        let ghost = commands::autocomplete(
+            &self.command_input,
+            &fish_names,
+            &consumable_names,
+            &tank_names,
+            self.tank().name.as_str(),
+            &fish_in_tanks,
+        )
+        .map(|c| c.ghost)
+        .unwrap_or_default();
         frame.render_widget(
             CommandBar {
                 input: &self.command_input,
                 cursor_pos: self.cursor_pos,
                 cursor_visible: self.cursor_visible,
                 ghost: &ghost,
-                fish_count: self.tank.fish.len(),
-                food_supply: self.tank.food_supply,
-                money: self.tank.money,
+                fish_count: self.tank().fish.len(),
+                food_supply: self.food_supply,
+                money: self.money,
                 show_stats: self.settings.show_stats,
-                active_consumables: &self.tank.active_consumables,
+                active_consumables: &self.active_consumables,
+                tank_name: &self.tank().name,
             },
             command_area,
         );
@@ -954,6 +1188,10 @@ impl App {
             frame.render_widget(InventoryOverlay::new(state), tank_area);
         }
 
+        if let Some(ref state) = self.fishtanks_state {
+            frame.render_widget(FishtanksOverlay::new(state), tank_area);
+        }
+
         if let Some(ref state) = self.fishing_state {
             frame.render_widget(FishingOverlay::new(state), tank_area);
         }
@@ -963,7 +1201,7 @@ impl App {
         }
 
         if let Some(ref state) = self.shop_state {
-            frame.render_widget(ShopOverlay::new(state, self.tank.money), tank_area);
+            frame.render_widget(ShopOverlay::new(state, self.money), tank_area);
         }
     }
 
@@ -975,52 +1213,74 @@ impl App {
                 } else {
                     count
                 };
-                self.tank.feed(n);
+                let ct = self.current_tank;
+                self.tanks[ct].feed(n, &mut self.food_supply);
             }
             commands::Action::SetFps(fps) => self.settings.fps = fps.clamp(FPS_MIN, FPS_MAX),
             commands::Action::ToggleNames => self.settings.show_names = !self.settings.show_names,
             commands::Action::ToggleStats => {
                 self.settings.show_stats = !self.settings.show_stats;
-                self.tank.resize(
-                    self.terminal_width,
-                    self.terminal_height.saturating_sub(self.bar_height()),
-                );
+                let bh = self.bar_height();
+                self.tanks[self.current_tank]
+                    .resize(self.terminal_width, self.terminal_height.saturating_sub(bh));
             }
             commands::Action::ModResource { name, delta } => match name.to_lowercase().as_str() {
                 "money" => {
-                    self.tank.money = (self.tank.money as i64 + delta as i64).max(0) as u32;
+                    self.money = (self.money as i64 + delta as i64).max(0) as u32;
                 }
                 "food" => {
-                    self.tank.food_supply =
-                        (self.tank.food_supply as i64 + delta as i64).max(0) as u32;
+                    self.food_supply = (self.food_supply as i64 + delta as i64).max(0) as u32;
                 }
                 _ => {
-                    let current = self.tank.inventory.get(&name).copied().unwrap_or(0);
+                    let current = self.inventory.get(&name).copied().unwrap_or(0);
                     let new_val = (current as i64 + delta as i64).max(0) as u32;
                     if new_val == 0 {
-                        self.tank.inventory.remove(&name);
+                        self.inventory.remove(&name);
                     } else {
-                        self.tank.inventory.insert(name, new_val);
+                        self.inventory.insert(name, new_val);
                     }
                 }
             },
             commands::Action::Spawn(species, name) => {
                 let mut rng = rand::rng();
-                self.tank.spawn_fish(species, title_case(&name), &mut rng);
+                self.tank_mut()
+                    .spawn_fish(species, names::title_case(&name), &mut rng);
             }
             commands::Action::Mutate(fish_name, mutation_name) => {
-                self.tank.apply_named_mutation(&fish_name, &mutation_name);
+                self.tank_mut()
+                    .apply_named_mutation(&fish_name, &mutation_name);
             }
-            commands::Action::Index { all } => {
-                self.index_state = Some(IndexState::new(&self.tank.fish, all));
+            commands::Action::Index { all, tank_filter } => {
+                if let Some(filter) = tank_filter {
+                    let tank_idx = self
+                        .tanks
+                        .iter()
+                        .position(|t| t.name.eq_ignore_ascii_case(&filter));
+                    if let Some(idx) = tank_idx {
+                        let fish_with_tanks: Vec<(&str, &crate::entities::fish::Fish)> = self.tanks
+                            [idx]
+                            .fish
+                            .iter()
+                            .map(|f| (self.tanks[idx].name.as_str(), f))
+                            .collect();
+                        self.index_state = Some(IndexState::new(&fish_with_tanks, all, false));
+                    }
+                } else {
+                    let fish_with_tanks: Vec<(&str, &crate::entities::fish::Fish)> = self
+                        .tanks
+                        .iter()
+                        .flat_map(|t| t.fish.iter().map(|f| (t.name.as_str(), f)))
+                        .collect();
+                    self.index_state = Some(IndexState::new(&fish_with_tanks, all, true));
+                }
             }
             commands::Action::Inventory => {
-                if let Some(state) = InventoryState::new(&self.tank.inventory, &mut rand::rng()) {
+                if let Some(state) = InventoryState::new(&self.inventory, &mut rand::rng()) {
                     self.inventory_state = Some(state);
                 }
             }
             commands::Action::Shop => {
-                let money = self.tank.money;
+                let money = self.money;
                 let mut state = ShopState::new();
                 if money == 0
                     && let ShopPage::Main { ref mut selected } = state.page
@@ -1039,28 +1299,82 @@ impl App {
                     ConsumableKind::Coffee => "Coffee",
                     ConsumableKind::Bait => "Bait",
                 };
-                let available = self.tank.inventory.get(item_name).copied().unwrap_or(0);
+                let available = self.inventory.get(item_name).copied().unwrap_or(0);
                 if available == 0 {
                     return;
                 }
-                self.tank.consume(kind);
-                let entry = self
-                    .tank
-                    .inventory
-                    .entry(item_name.to_string())
-                    .or_insert(0);
+                self.consume_item(kind);
+                let entry = self.inventory.entry(item_name.to_string()).or_insert(0);
                 *entry = entry.saturating_sub(1);
-                self.tank.inventory.retain(|_, v| *v > 0);
-                self.tank.resize(
-                    self.terminal_width,
-                    self.terminal_height.saturating_sub(self.bar_height()),
-                );
+                self.inventory.retain(|_, v| *v > 0);
+                let bh = self.bar_height();
+                self.tanks[self.current_tank]
+                    .resize(self.terminal_width, self.terminal_height.saturating_sub(bh));
             }
             commands::Action::Fish { no_death, no_fish } => {
                 let mut state = FishingState::new();
                 state.no_death = no_death;
                 state.no_fish = no_fish;
                 self.fishing_state = Some(state);
+            }
+            commands::Action::Switch(tank_name) => {
+                if self.tanks.len() <= 1 {
+                    return;
+                }
+                if let Some(idx) = self
+                    .tanks
+                    .iter()
+                    .position(|t| t.name.eq_ignore_ascii_case(&tank_name))
+                {
+                    self.current_tank = idx;
+                }
+            }
+            commands::Action::Move { fish, tank } => {
+                let target_idx = match self
+                    .tanks
+                    .iter()
+                    .position(|t| t.name.eq_ignore_ascii_case(&tank))
+                {
+                    Some(i) => i,
+                    None => return,
+                };
+                if self.tanks[target_idx].is_full() {
+                    return;
+                }
+                if self.tanks[target_idx]
+                    .fish
+                    .iter()
+                    .any(|f| f.name.eq_ignore_ascii_case(&fish))
+                {
+                    return;
+                }
+                let source_idx =
+                    match (0..self.tanks.len())
+                        .filter(|&i| i != target_idx)
+                        .find(|&i| {
+                            self.tanks[i]
+                                .fish
+                                .iter()
+                                .any(|f| f.name.eq_ignore_ascii_case(&fish))
+                        }) {
+                        Some(i) => i,
+                        None => return,
+                    };
+                let fish_pos = self.tanks[source_idx]
+                    .fish
+                    .iter()
+                    .position(|f| f.name.eq_ignore_ascii_case(&fish))
+                    .unwrap();
+                let fish_obj = self.tanks[source_idx].fish.remove(fish_pos);
+                let fish_name = fish_obj.name.clone();
+                self.tanks[source_idx].used_names.remove(&fish_name);
+                let mut rng = rand::rng();
+                self.tanks[target_idx].place_fish(fish_obj, fish_name, &mut rng);
+            }
+            commands::Action::Fishtanks => {
+                let visible = self.fishtanks_visible_rows();
+                self.fishtanks_state =
+                    Some(FishtanksState::new(&self.tanks, self.current_tank, visible));
             }
             commands::Action::Exit => self.running = false,
             commands::Action::Unknown => {}

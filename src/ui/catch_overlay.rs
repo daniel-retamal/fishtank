@@ -25,22 +25,6 @@ const BREAD: Color = Color::Rgb(245, 230, 180);
 const CHEESE: Color = Color::Rgb(220, 180, 50);
 const BURGER: Color = Color::Rgb(140, 80, 30);
 
-pub fn title_case(s: &str) -> String {
-    s.split_whitespace()
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(c) => {
-                    let upper: String = c.to_uppercase().collect();
-                    upper + chars.as_str()
-                }
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 pub struct CatchState {
     pub loot: LootKind,
     pub fish: Option<Fish>,

@@ -1,6 +1,7 @@
 pub mod catch_overlay;
 pub mod command_bar;
 pub mod fishing_overlay;
+pub mod fishtanks_overlay;
 pub mod index_overlay;
 pub mod inventory_overlay;
 pub mod shop_overlay;

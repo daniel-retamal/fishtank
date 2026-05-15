@@ -11,15 +11,18 @@ static COMMAND_NAMES: &[&str] = &[
     "exit",
     "feed",
     "fish",
+    "fishtanks",
     "fps",
     "index",
     "inventory",
+    "move",
     "mutate",
     "names",
     "shop",
     "spawn",
     "stats",
     "subtract",
+    "switch",
 ];
 
 static RESOURCE_NAMES: &[&str] = &["food", "junk", "money"];
@@ -70,6 +73,9 @@ pub fn autocomplete(
     input: &str,
     fish_names: &[&str],
     consumable_names: &[&str],
+    tank_names: &[&str],
+    current_tank: &str,
+    fish_in_tanks: &[(&str, &str)],
 ) -> Option<Completion> {
     if !input.starts_with('/') {
         return None;
@@ -83,16 +89,27 @@ pub fn autocomplete(
             "consume" => complete_consume(rest, consumable_names),
             "feed" => complete_feed(rest),
             "fps" => complete_fps(rest),
+            "index" => complete_index(rest, tank_names),
+            "move" => complete_move(rest, fish_names, tank_names, fish_in_tanks),
             "mutate" => complete_mutate(rest, fish_names),
             "spawn" => complete_spawn(rest),
             "subtract" => complete_add_subtract("subtract", rest),
+            "switch" => complete_switch(rest, tank_names, current_tank),
             _ => None,
         },
     }
 }
 
-pub fn tab_complete(input: &str, fish_names: &[&str], consumable_names: &[&str]) -> Option<String> {
-    autocomplete(input, fish_names, consumable_names).and_then(|c| c.tab_result)
+pub fn tab_complete(
+    input: &str,
+    fish_names: &[&str],
+    consumable_names: &[&str],
+    tank_names: &[&str],
+    current_tank: &str,
+    fish_in_tanks: &[(&str, &str)],
+) -> Option<String> {
+    autocomplete(input, fish_names, consumable_names, tank_names, current_tank, fish_in_tanks)
+        .and_then(|c| c.tab_result)
 }
 
 fn complete_command(partial: &str) -> Option<Completion> {
@@ -367,14 +384,194 @@ fn complete_consume(rest: &str, consumable_names: &[&str]) -> Option<Completion>
     Some(Completion { ghost, tab_result })
 }
 
+fn complete_switch(rest: &str, tank_names: &[&str], current_tank: &str) -> Option<Completion> {
+    let available: Vec<&str> = tank_names
+        .iter()
+        .copied()
+        .filter(|&n| !n.eq_ignore_ascii_case(current_tank))
+        .collect();
+    if available.is_empty() {
+        return None;
+    }
+    if rest.is_empty() {
+        return Some(Completion {
+            ghost: "\"<name>\"".to_string(),
+            tab_result: None,
+        });
+    }
+    let inner = rest.strip_prefix('"')?;
+    if inner.contains('"') {
+        return None;
+    }
+    let matches: Vec<&str> = available
+        .iter()
+        .copied()
+        .filter(|&n| n.starts_with(inner))
+        .collect();
+    if matches.is_empty() {
+        return Some(Completion {
+            ghost: "\"".to_string(),
+            tab_result: None,
+        });
+    }
+    let first = matches[0];
+    let ghost = format!("{}\"", &first[inner.len()..]);
+    let tab_result = if matches.len() == 1 {
+        Some(format!("/switch \"{}\"", first))
+    } else {
+        let cp = longest_common_prefix(&matches);
+        if cp.len() > inner.len() {
+            Some(format!("/switch \"{}", cp))
+        } else {
+            Some(format!("/switch \"{}\"", first))
+        }
+    };
+    Some(Completion { ghost, tab_result })
+}
+
+fn complete_move(
+    rest: &str,
+    fish_names: &[&str],
+    tank_names: &[&str],
+    fish_in_tanks: &[(&str, &str)],
+) -> Option<Completion> {
+    if rest.is_empty() {
+        return Some(Completion {
+            ghost: "\"<fish>\" \"<tank>\"".to_string(),
+            tab_result: None,
+        });
+    }
+
+    let inner = rest.strip_prefix('"')?;
+
+    if let Some(end_pos) = inner.find('"') {
+        let fish_name = &inner[..end_pos];
+        let after_fish = inner[end_pos + 1..].trim_start();
+
+        if after_fish.is_empty() {
+            return Some(Completion {
+                ghost: "\"<tank>\"".to_string(),
+                tab_result: Some(format!("/move \"{}\" \"", fish_name)),
+            });
+        }
+
+        let tank_inner = after_fish.strip_prefix('"')?;
+        if tank_inner.contains('"') {
+            return None;
+        }
+
+        let fish_home: Option<&str> = fish_in_tanks
+            .iter()
+            .find(|(fn_, _)| fn_.eq_ignore_ascii_case(fish_name))
+            .map(|(_, tn)| *tn);
+        let available_tanks: Vec<&str> = tank_names
+            .iter()
+            .copied()
+            .filter(|&t| fish_home.is_none_or(|h| !t.eq_ignore_ascii_case(h)))
+            .collect();
+
+        let matches: Vec<&str> = available_tanks
+            .iter()
+            .copied()
+            .filter(|&n| n.starts_with(tank_inner))
+            .collect();
+        if matches.is_empty() {
+            return Some(Completion {
+                ghost: "\"".to_string(),
+                tab_result: None,
+            });
+        }
+        let first = matches[0];
+        let ghost = format!("{}\"", &first[tank_inner.len()..]);
+        let tab_result = if matches.len() == 1 {
+            Some(format!("/move \"{}\" \"{}\"", fish_name, first))
+        } else {
+            let cp = longest_common_prefix(&matches);
+            if cp.len() > tank_inner.len() {
+                Some(format!("/move \"{}\" \"{}", fish_name, cp))
+            } else {
+                Some(format!("/move \"{}\" \"{}\"", fish_name, first))
+            }
+        };
+        return Some(Completion { ghost, tab_result });
+    }
+
+    let matches: Vec<&str> = fish_names
+        .iter()
+        .copied()
+        .filter(|&n| n.starts_with(inner))
+        .collect();
+    if matches.is_empty() {
+        return Some(Completion {
+            ghost: "\" \"<tank>\"".to_string(),
+            tab_result: None,
+        });
+    }
+    let first = matches[0];
+    let ghost = format!("{}\" \"<tank>\"", &first[inner.len()..]);
+    let tab_result = if matches.len() == 1 {
+        Some(format!("/move \"{}\" \"", first))
+    } else {
+        let cp = longest_common_prefix(&matches);
+        if cp.len() > inner.len() {
+            Some(format!("/move \"{}", cp))
+        } else {
+            Some(format!("/move \"{}\" \"", first))
+        }
+    };
+    Some(Completion { ghost, tab_result })
+}
+
+fn complete_index(rest: &str, tank_names: &[&str]) -> Option<Completion> {
+    if tank_names.is_empty() {
+        return None;
+    }
+    if rest.is_empty() {
+        return Some(Completion {
+            ghost: "\"<name>\"".to_string(),
+            tab_result: None,
+        });
+    }
+    let inner = rest.strip_prefix('"')?;
+    if inner.contains('"') {
+        return None;
+    }
+    let matches: Vec<&str> = tank_names
+        .iter()
+        .copied()
+        .filter(|&n| n.starts_with(inner))
+        .collect();
+    if matches.is_empty() {
+        return Some(Completion {
+            ghost: "\"".to_string(),
+            tab_result: None,
+        });
+    }
+    let first = matches[0];
+    let ghost = format!("{}\"", &first[inner.len()..]);
+    let tab_result = if matches.len() == 1 {
+        Some(format!("/index \"{}\"", first))
+    } else {
+        let cp = longest_common_prefix(&matches);
+        if cp.len() > inner.len() {
+            Some(format!("/index \"{}", cp))
+        } else {
+            Some(format!("/index \"{}\"", first))
+        }
+    };
+    Some(Completion { ghost, tab_result })
+}
+
 fn command_args_placeholder(cmd: &str) -> &'static str {
     match cmd {
         "add" | "subtract" => "<resource> <amount>",
         "consume" => "<consumable>",
         "feed" => "<amount>",
         "fps" => "<n>",
+        "move" => "\"<fish>\" \"<tank>\"",
         "mutate" => "\"<name>\" <mutation>",
         "spawn" => "<species> \"<name>\"",
+        "switch" => "\"<name>\"",
         _ => "",
     }
 }
@@ -408,16 +605,66 @@ pub enum Action {
     SetFps(f32),
     Spawn(FishSpecies, String),
     Mutate(String, String),
-    Index { all: bool },
-    Fish { no_death: bool, no_fish: bool },
+    Index {
+        all: bool,
+        tank_filter: Option<String>,
+    },
+    Fish {
+        no_death: bool,
+        no_fish: bool,
+    },
     Inventory,
     Shop,
-    Consume { name: String },
+    Consume {
+        name: String,
+    },
     ToggleNames,
     ToggleStats,
-    ModResource { name: String, delta: i32 },
+    ModResource {
+        name: String,
+        delta: i32,
+    },
+    Switch(String),
+    Move {
+        fish: String,
+        tank: String,
+    },
+    Fishtanks,
     Exit,
     Unknown,
+}
+
+fn parse_quoted_arg(rest: &str) -> Option<String> {
+    let rest = rest.trim();
+    let inner = if let Some(s) = rest.strip_prefix('"') {
+        s
+    } else if let Some(s) = rest.strip_prefix('\'') {
+        s
+    } else {
+        return None;
+    };
+    let quote_char = rest.chars().next().unwrap();
+    let end = inner.find(quote_char)?;
+    Some(inner[..end].to_string())
+}
+
+fn parse_two_quoted_args(rest: &str) -> Option<(String, String)> {
+    let rest = rest.trim();
+    let (quote_char, inner) = if let Some(s) = rest.strip_prefix('"') {
+        ('"', s)
+    } else if let Some(s) = rest.strip_prefix('\'') {
+        ('\'', s)
+    } else {
+        return None;
+    };
+    let end = inner.find(quote_char)?;
+    let first = inner[..end].to_string();
+    let remainder = inner[end + 1..].trim_start();
+    let second = parse_quoted_arg(remainder)?;
+    if first.is_empty() || second.is_empty() {
+        return None;
+    }
+    Some((first, second))
 }
 
 fn parse_mutate_args(rest: &str) -> Option<(String, String)> {
@@ -451,6 +698,37 @@ pub fn parse(input: &str) -> Action {
         };
     }
 
+    if let Some(rest) = body.strip_prefix("switch ") {
+        return match parse_quoted_arg(rest) {
+            Some(name) if !name.is_empty() => Action::Switch(name),
+            _ => Action::Unknown,
+        };
+    }
+
+    if let Some(rest) = body.strip_prefix("move ") {
+        return match parse_two_quoted_args(rest) {
+            Some((fish, tank)) => Action::Move { fish, tank },
+            None => Action::Unknown,
+        };
+    }
+
+    if let Some(rest) = body.strip_prefix("index ") {
+        let rest = rest.trim();
+        if rest == "all" {
+            return Action::Index {
+                all: true,
+                tank_filter: None,
+            };
+        }
+        return match parse_quoted_arg(rest) {
+            Some(name) if !name.is_empty() => Action::Index {
+                all: false,
+                tank_filter: Some(name),
+            },
+            _ => Action::Unknown,
+        };
+    }
+
     let parts: Vec<&str> = body.splitn(3, ' ').collect();
     match parts.as_slice() {
         ["consume", name] => Action::Consume {
@@ -475,8 +753,11 @@ pub fn parse(input: &str) -> Action {
             no_death: rest.contains(&"--no-death"),
             no_fish: rest.contains(&"--no-fish"),
         },
-        ["index"] => Action::Index { all: false },
-        ["index", "all"] => Action::Index { all: true },
+        ["fishtanks"] => Action::Fishtanks,
+        ["index"] => Action::Index {
+            all: false,
+            tank_filter: None,
+        },
         ["inventory"] => Action::Inventory,
         ["shop"] => Action::Shop,
         ["names"] => Action::ToggleNames,

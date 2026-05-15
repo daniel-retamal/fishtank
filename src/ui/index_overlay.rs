@@ -138,6 +138,7 @@ pub struct FishSnapshot {
     segments: Vec<(char, Color)>,
     display_width: usize,
     food_eaten: usize,
+    tank_name: Option<String>,
 }
 
 pub struct IndexState {
@@ -146,27 +147,33 @@ pub struct IndexState {
     pub col_scroll: usize,
     snapshots: Vec<FishSnapshot>,
     fish_clones: Vec<Fish>,
-    fixed_widths: [usize; 4],
+    fixed_widths: Vec<usize>,
+    show_tank_col: bool,
     fantasy_cols: Vec<FantasyColumn>,
     animated_fish: Option<Fish>,
 }
 
 impl IndexState {
-    pub fn new(fish: &[Fish], all: bool) -> Self {
+    pub fn new(fish_with_tanks: &[(&str, &Fish)], all: bool, show_tank_col: bool) -> Self {
         let mut rng = rand::rng();
 
-        let snapshots: Vec<FishSnapshot> = fish
+        let snapshots: Vec<FishSnapshot> = fish_with_tanks
             .iter()
-            .map(|f| FishSnapshot {
+            .map(|(tank_name, f)| FishSnapshot {
                 name: f.name.clone(),
                 species_name: species_display_name(f.species),
                 segments: f.static_left_segments(),
                 display_width: f.display_width,
                 food_eaten: f.food_eaten,
+                tank_name: if show_tank_col {
+                    Some(tank_name.to_string())
+                } else {
+                    None
+                },
             })
             .collect();
 
-        let fish_clones: Vec<Fish> = fish.to_vec();
+        let fish_clones: Vec<Fish> = fish_with_tanks.iter().map(|(_, f)| (*f).clone()).collect();
 
         let chosen_kinds: Vec<FantasyKind> = if all {
             FantasyKind::all().to_vec()
@@ -181,8 +188,12 @@ impl IndexState {
             chosen
         };
 
-        let fish_names: Vec<String> = fish.iter().map(|f| f.name.clone()).collect();
-        let species_list: Vec<FishSpecies> = fish.iter().map(|f| f.species).collect();
+        let fish_names: Vec<String> = fish_with_tanks
+            .iter()
+            .map(|(_, f)| f.name.clone())
+            .collect();
+        let species_list: Vec<FishSpecies> =
+            fish_with_tanks.iter().map(|(_, f)| f.species).collect();
 
         let fantasy_cols = chosen_kinds
             .into_iter()
@@ -227,7 +238,17 @@ impl IndexState {
             .unwrap_or(1)
             .max("Food Eaten".len());
 
-        let fixed_widths = [max_name_w, max_species_w, max_display_w, max_food_w];
+        let mut fixed_widths = vec![max_name_w, max_species_w, max_display_w, max_food_w];
+        if show_tank_col {
+            let max_tank_w = snapshots
+                .iter()
+                .filter_map(|s| s.tank_name.as_deref())
+                .map(|tn| tn.len())
+                .max()
+                .unwrap_or(4)
+                .max("Fishtank".len());
+            fixed_widths.push(max_tank_w);
+        }
 
         let animated_fish = fish_clones.first().cloned().map(display_clone);
 
@@ -238,6 +259,7 @@ impl IndexState {
             snapshots,
             fish_clones,
             fixed_widths,
+            show_tank_col,
             fantasy_cols,
             animated_fish,
         }
@@ -296,7 +318,7 @@ impl IndexState {
     }
 
     fn all_col_widths(&self) -> Vec<usize> {
-        let mut w: Vec<usize> = self.fixed_widths.to_vec();
+        let mut w = self.fixed_widths.clone();
         for fc in &self.fantasy_cols {
             w.push(fc.col_width);
         }
@@ -363,7 +385,8 @@ impl Widget for IndexOverlay<'_> {
         let inner_x = ox + 1;
         let inner_w = overlay_w.saturating_sub(2) as usize;
         let vis_cols = state.visible_columns(inner_w);
-        let total_cols = state.fixed_widths.len() + state.fantasy_cols.len();
+        let fixed_count = state.fixed_widths.len();
+        let total_cols = fixed_count + state.fantasy_cols.len();
         let last_vis = vis_cols.last().copied().unwrap_or(0);
         let has_right_scroll = last_vis + 1 < total_cols;
 
@@ -500,6 +523,17 @@ fn draw_separator(
     }
 }
 
+fn fixed_col_header(col_idx: usize) -> &'static str {
+    match col_idx {
+        0 => "Name",
+        1 => "Species",
+        2 => "Display",
+        3 => "Food Eaten",
+        4 => "Fishtank",
+        _ => "",
+    }
+}
+
 fn draw_header_row(
     buf: &mut Buffer,
     state: &IndexState,
@@ -515,15 +549,15 @@ fn draw_header_row(
         .bg(bg);
     let sep_style = Style::default().fg(Color::White).bg(bg);
     let widths = state.all_col_widths();
-    let fixed_headers = ["Name", "Species", "Display", "Food Eaten"];
+    let fixed_count = state.fixed_widths.len();
 
     let mut x = inner_x;
     for (order, &col_idx) in vis_cols.iter().enumerate() {
         let w = widths[col_idx];
-        let header: &str = if col_idx < 4 {
-            fixed_headers[col_idx]
+        let header: &str = if col_idx < fixed_count {
+            fixed_col_header(col_idx)
         } else {
-            state.fantasy_cols[col_idx - 4].kind.header()
+            state.fantasy_cols[col_idx - fixed_count].kind.header()
         };
         let padded = pad_right(header, w);
         let clipped = truncate_str(
@@ -576,6 +610,7 @@ fn draw_data_row(
         let w = widths[col_idx];
         let avail = right_x.saturating_sub(x) as usize;
 
+        let fixed_count = state.fixed_widths.len();
         match col_idx {
             0 => put_text(buf, &snap.name, x, row_y, w.min(avail), fg, row_bg),
             1 => put_text(buf, snap.species_name, x, row_y, w.min(avail), fg, row_bg),
@@ -592,8 +627,12 @@ fn draw_data_row(
                 let s = snap.food_eaten.to_string();
                 put_text(buf, &s, x, row_y, w.min(avail), fg, row_bg);
             }
-            col_idx => {
-                let fc_idx = col_idx - 4;
+            4 if state.show_tank_col => {
+                let tn = snap.tank_name.as_deref().unwrap_or("");
+                put_text(buf, tn, x, row_y, w.min(avail), fg, row_bg);
+            }
+            c => {
+                let fc_idx = c - fixed_count;
                 if fc_idx < state.fantasy_cols.len() {
                     let col = &state.fantasy_cols[fc_idx];
                     let cell = &col.cells[fish_idx];

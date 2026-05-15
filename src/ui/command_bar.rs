@@ -15,12 +15,20 @@ pub fn height(
     money: u32,
     food_supply: u32,
     fish_count: usize,
+    tank_name: &str,
 ) -> u16 {
     if !show_stats {
         return 3;
     }
     if !active_consumables.is_empty()
-        && !inline_fits(width, active_consumables, money, food_supply, fish_count)
+        && !inline_fits(
+            width,
+            active_consumables,
+            money,
+            food_supply,
+            fish_count,
+            tank_name,
+        )
     {
         5
     } else {
@@ -38,11 +46,16 @@ pub struct CommandBar<'a> {
     pub money: u32,
     pub show_stats: bool,
     pub active_consumables: &'a [ActiveConsumable],
+    pub tank_name: &'a str,
 }
 
 fn format_metric(n: u32) -> String {
     if n >= 1_000_000_000 {
-        format!("{}.{}B", n / 1_000_000_000, (n % 1_000_000_000) / 100_000_000)
+        format!(
+            "{}.{}B",
+            n / 1_000_000_000,
+            (n % 1_000_000_000) / 100_000_000
+        )
     } else if n >= 1_000_000 {
         format!("{}.{}M", n / 1_000_000, (n % 1_000_000) / 100_000)
     } else if n >= 1_000 {
@@ -57,32 +70,6 @@ fn format_mm_ss(secs: f32) -> String {
     format!("{:02}:{:02}", total / 60, total % 60)
 }
 
-fn to_roman_bar(mut n: u32) -> String {
-    const VALS: &[(u32, &str)] = &[
-        (1000, "M"),
-        (900, "CM"),
-        (500, "D"),
-        (400, "CD"),
-        (100, "C"),
-        (90, "XC"),
-        (50, "L"),
-        (40, "XL"),
-        (10, "X"),
-        (9, "IX"),
-        (5, "V"),
-        (4, "IV"),
-        (1, "I"),
-    ];
-    let mut s = String::new();
-    for &(val, sym) in VALS {
-        while n >= val {
-            s.push_str(sym);
-            n -= val;
-        }
-    }
-    s
-}
-
 fn consumables_total_len(active_consumables: &[ActiveConsumable]) -> usize {
     let mut total = 0;
     for (i, ac) in active_consumables.iter().enumerate() {
@@ -93,14 +80,14 @@ fn consumables_total_len(active_consumables: &[ActiveConsumable]) -> usize {
             ConsumableKind::Coffee => 6,
             ConsumableKind::Bait => 4,
         };
-        total += name_len + 1 + to_roman_bar(ac.stacks).len() + 2 + 5;
+        total += name_len + 1 + crate::names::to_roman(ac.stacks).len() + 2 + 5;
     }
     total
 }
 
 fn stats_str(money: u32, food_supply: u32, fish_count: usize) -> String {
     format!(
-        "cash: {}  food: {}  fishes: {}/∞",
+        "cash: {}  food: {}  fishes: {}/50",
         format_metric(money),
         format_metric(food_supply),
         fish_count
@@ -113,11 +100,12 @@ fn inline_fits(
     money: u32,
     food_supply: u32,
     fish_count: usize,
+    tank_name: &str,
 ) -> bool {
     if active_consumables.is_empty() {
         return true;
     }
-    let title_len: usize = 10;
+    let title_len = tank_name.len();
     let cons_len = consumables_total_len(active_consumables);
     let s_len = stats_str(money, food_supply, fish_count).chars().count();
     title_len + 2 + cons_len + 2 + s_len <= width as usize
@@ -203,7 +191,7 @@ impl Widget for CommandBar<'_> {
 
         if self.show_stats {
             let stats_row = area.y + 3;
-            buf.set_string(area.x, stats_row, "Fishtank I", white);
+            buf.set_string(area.x, stats_row, self.tank_name, white);
 
             let has_consumables = !self.active_consumables.is_empty();
             let stats = stats_str(self.money, self.food_supply, self.fish_count);
@@ -220,6 +208,7 @@ impl Widget for CommandBar<'_> {
                     self.money,
                     self.food_supply,
                     self.fish_count,
+                    self.tank_name,
                 );
                 let cons_row = if fits_inline { stats_row } else { area.y + 4 };
                 let cons_total = consumables_total_len(self.active_consumables) as u16;
@@ -240,7 +229,7 @@ impl Widget for CommandBar<'_> {
                     let text = format!(
                         "{} {}: {}",
                         name,
-                        to_roman_bar(ac.stacks),
+                        crate::names::to_roman(ac.stacks),
                         format_mm_ss(ac.time_remaining)
                     );
                     let text_w = text.chars().count() as u16;
