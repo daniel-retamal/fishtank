@@ -29,8 +29,12 @@ use crate::{
             list_visible_rows,
         },
         tank_view::TankView,
+        text_input::TextInput,
     },
 };
+
+const TERMINAL_HEIGHT_DEFAULT: u16 = 24;
+const TERMINAL_WIDTH_DEFAULT: u16 = 80;
 
 pub struct App {
     pub settings: Settings,
@@ -106,8 +110,8 @@ impl App {
             catch_state: None,
             shop_state: None,
             fishtanks_state: None,
-            terminal_height: 24,
-            terminal_width: 80,
+            terminal_height: TERMINAL_HEIGHT_DEFAULT,
+            terminal_width: TERMINAL_WIDTH_DEFAULT,
         }
     }
 
@@ -332,20 +336,23 @@ impl App {
                 KeyCode::Tab => {
                     let fish_names: Vec<&str> =
                         self.tank().fish.iter().map(|f| f.name.as_str()).collect();
-                    let consumable_names: Vec<&str> = ["coffee", "bait"]
+                    let consumable_name_strings: Vec<String> = ConsumableKind::all()
                         .iter()
-                        .filter(|&&n| {
-                            let cap = n[..1].to_uppercase() + &n[1..];
-                            self.inventory.get(&cap).copied().unwrap_or(0) > 0
-                        })
-                        .copied()
+                        .filter(|k| self.inventory.get(k.display_name()).copied().unwrap_or(0) > 0)
+                        .map(|k| k.lowercase_name())
                         .collect();
+                    let consumable_names: Vec<&str> =
+                        consumable_name_strings.iter().map(String::as_str).collect();
                     let tank_names: Vec<&str> =
                         self.tanks.iter().map(|t| t.name.as_str()).collect();
                     let fish_in_tanks: Vec<(&str, &str)> = self
                         .tanks
                         .iter()
-                        .flat_map(|t| t.fish.iter().map(move |f| (f.name.as_str(), t.name.as_str())))
+                        .flat_map(|t| {
+                            t.fish
+                                .iter()
+                                .map(move |f| (f.name.as_str(), t.name.as_str()))
+                        })
                         .collect();
                     if let Some(new_input) = commands::tab_complete(
                         &self.command_input,
@@ -485,7 +492,7 @@ impl App {
                     .is_none_or(|s| s.name_input.is_empty())
                     && let Some(state) = self.catch_state.take()
                 {
-                    let name = names::title_case(&state.name_input);
+                    let name = names::title_case(state.name_input.as_str());
                     let mut rng = rand::rng();
                     let target_idx = if !self.tanks[self.current_tank].is_full() {
                         self.current_tank
@@ -498,53 +505,12 @@ impl App {
                     self.tanks[target_idx].place_fish(state.fish.unwrap(), name, &mut rng);
                 }
             }
-            KeyCode::Left => {
+            _ => {
                 if let Some(ref mut s) = self.catch_state {
-                    s.cursor_pos = prev_char_boundary(&s.name_input, s.cursor_pos);
-                }
-            }
-            KeyCode::Right => {
-                if let Some(ref mut s) = self.catch_state {
-                    s.cursor_pos = next_char_boundary(&s.name_input, s.cursor_pos);
-                }
-            }
-            KeyCode::Home => {
-                if let Some(ref mut s) = self.catch_state {
-                    s.cursor_pos = 0;
-                }
-            }
-            KeyCode::End => {
-                if let Some(ref mut s) = self.catch_state {
-                    s.cursor_pos = s.name_input.len();
-                }
-            }
-            KeyCode::Backspace => {
-                if let Some(ref mut s) = self.catch_state {
-                    if s.cursor_pos > 0 {
-                        let prev = prev_char_boundary(&s.name_input, s.cursor_pos);
-                        s.name_input.drain(prev..s.cursor_pos);
-                        s.cursor_pos = prev;
-                    }
+                    s.name_input.handle_key(key.code);
                     s.reset_blink();
                 }
             }
-            KeyCode::Delete => {
-                if let Some(ref mut s) = self.catch_state {
-                    if s.cursor_pos < s.name_input.len() {
-                        let next = next_char_boundary(&s.name_input, s.cursor_pos);
-                        s.name_input.drain(s.cursor_pos..next);
-                    }
-                    s.reset_blink();
-                }
-            }
-            KeyCode::Char(c) => {
-                if let Some(ref mut s) = self.catch_state {
-                    s.name_input.insert(s.cursor_pos, c);
-                    s.cursor_pos += c.len_utf8();
-                    s.reset_blink();
-                }
-            }
-            _ => {}
         }
     }
 
@@ -567,7 +533,7 @@ impl App {
                 *self.inventory.entry(name.to_string()).or_insert(0) += 1;
             }
             LootKind::GoldBar => {
-                self.money += 5_000;
+                self.money += crate::loot::GOLD_BAR_VALUE;
             }
             LootKind::Fish(_) => {}
         }
@@ -653,10 +619,10 @@ impl App {
                 }
             }
             KeyCode::Enter => {
-                if let Some(ref s) = self.fishtanks_state {
-                    if s.selected != s.current_tank {
-                        self.current_tank = s.selected;
-                    }
+                if let Some(ref s) = self.fishtanks_state
+                    && s.selected != s.current_tank
+                {
+                    self.current_tank = s.selected;
                 }
                 self.fishtanks_state = None;
             }
@@ -714,19 +680,7 @@ impl App {
                             };
                         }
                         _ => {
-                            let fish: Vec<(String, FishSpecies, u32)> = self
-                                .tanks
-                                .iter()
-                                .flat_map(|t| t.fish.iter().map(|f| {
-                                    let mc = f.mutant.as_ref().map_or(0, |m| m.mutation_count);
-                                    let sv = f.species.sell_value(f.weight_g, f.size_category, mc);
-                                    (f.name.clone(), f.species, sv)
-                                }))
-                                .collect();
-                            let sellable_tanks = self.sellable_tank_names();
-                            if let Some(sm) =
-                                SellMenuState::new(&fish, &self.inventory, &sellable_tanks)
-                            {
+                            if let Some(sm) = self.build_sell_menu_state() {
                                 shop.page = ShopPage::Sell(sm);
                             }
                         }
@@ -747,7 +701,7 @@ impl App {
                             *buy_tank_popup = None;
                         }
                         KeyCode::Enter if !popup.name_input.is_empty() => {
-                            let name = names::title_case(&popup.name_input);
+                            let name = names::title_case(popup.name_input.as_str());
                             let actual_name = names::unique_name_in(&self.used_tank_names, &name);
                             if self.money >= TANK_BUY_PRICE {
                                 self.money = self.money.saturating_sub(TANK_BUY_PRICE);
@@ -757,30 +711,9 @@ impl App {
                             }
                             *buy_tank_popup = None;
                         }
-                        KeyCode::Left => {
-                            let pos = popup.cursor_pos;
-                            popup.cursor_pos = prev_char_boundary(&popup.name_input, pos);
+                        _ => {
+                            popup.name_input.handle_key(key.code);
                         }
-                        KeyCode::Right => {
-                            let pos = popup.cursor_pos;
-                            popup.cursor_pos = next_char_boundary(&popup.name_input, pos);
-                        }
-                        KeyCode::Home => popup.cursor_pos = 0,
-                        KeyCode::End => popup.cursor_pos = popup.name_input.len(),
-                        KeyCode::Backspace if popup.cursor_pos > 0 => {
-                            let prev = prev_char_boundary(&popup.name_input, popup.cursor_pos);
-                            popup.name_input.drain(prev..popup.cursor_pos);
-                            popup.cursor_pos = prev;
-                        }
-                        KeyCode::Delete if popup.cursor_pos < popup.name_input.len() => {
-                            let next = next_char_boundary(&popup.name_input, popup.cursor_pos);
-                            popup.name_input.drain(popup.cursor_pos..next);
-                        }
-                        KeyCode::Char(c) => {
-                            popup.name_input.insert(popup.cursor_pos, c);
-                            popup.cursor_pos += c.len_utf8();
-                        }
-                        _ => {}
                     }
                     shop.reset_blink();
                 } else if let Some(popup) = buy_popup {
@@ -844,8 +777,7 @@ impl App {
                                 4 => {
                                     if money >= TANK_BUY_PRICE {
                                         *buy_tank_popup = Some(BuyTankPopup {
-                                            name_input: String::new(),
-                                            cursor_pos: 0,
+                                            name_input: TextInput::new(),
                                         });
                                     }
                                 }
@@ -888,18 +820,9 @@ impl App {
                     {
                         let price = FISH_CATALOG[catalog_idx].price;
                         if money >= price {
-                            let name = names::title_case(&name_input);
+                            let name = names::title_case(name_input.as_str());
                             self.money = self.money.saturating_sub(price);
-                            let mut rng = rand::rng();
-                            let target_idx = if !self.tanks[self.current_tank].is_full() {
-                                self.current_tank
-                            } else {
-                                self.tanks
-                                    .iter()
-                                    .position(|t| !t.is_full())
-                                    .unwrap_or(self.current_tank)
-                            };
-                            self.tanks[target_idx].place_fish(fish, name, &mut rng);
+                            self.place_purchased_fish(fish, name);
                         }
                     }
                     self.shop_state = Some(shop);
@@ -911,30 +834,9 @@ impl App {
                         KeyCode::Esc | KeyCode::Char('q') => {
                             fl.popup = None;
                         }
-                        KeyCode::Left => {
-                            popup.cursor_pos =
-                                prev_char_boundary(&popup.name_input, popup.cursor_pos);
+                        _ => {
+                            popup.name_input.handle_key(key.code);
                         }
-                        KeyCode::Right => {
-                            popup.cursor_pos =
-                                next_char_boundary(&popup.name_input, popup.cursor_pos);
-                        }
-                        KeyCode::Home => popup.cursor_pos = 0,
-                        KeyCode::End => popup.cursor_pos = popup.name_input.len(),
-                        KeyCode::Backspace if popup.cursor_pos > 0 => {
-                            let prev = prev_char_boundary(&popup.name_input, popup.cursor_pos);
-                            popup.name_input.drain(prev..popup.cursor_pos);
-                            popup.cursor_pos = prev;
-                        }
-                        KeyCode::Delete if popup.cursor_pos < popup.name_input.len() => {
-                            let next = next_char_boundary(&popup.name_input, popup.cursor_pos);
-                            popup.name_input.drain(popup.cursor_pos..next);
-                        }
-                        KeyCode::Char(c) => {
-                            popup.name_input.insert(popup.cursor_pos, c);
-                            popup.cursor_pos += c.len_utf8();
-                        }
-                        _ => {}
                     }
                     shop.reset_blink();
                     self.shop_state = Some(shop);
@@ -963,12 +865,12 @@ impl App {
                         if entry.price <= money {
                             let species = entry.species;
                             let mut rng = rand::rng();
-                            let fish = crate::entities::fish::Fish::new_for_display(species, &mut rng);
+                            let fish =
+                                crate::entities::fish::Fish::new_for_display(species, &mut rng);
                             fl.popup = Some(FishNamePopup {
                                 catalog_idx: idx,
                                 fish,
-                                name_input: String::new(),
-                                cursor_pos: 0,
+                                name_input: TextInput::new(),
                             });
                         }
                         shop.reset_blink();
@@ -1041,17 +943,7 @@ impl App {
                             self.inventory.retain(|_, v| *v > 0);
                             self.money += earned;
 
-                            let fish: Vec<(String, FishSpecies, u32)> = self
-                                .tanks
-                                .iter()
-                                .flat_map(|t| t.fish.iter().map(|f| {
-                                    let mc = f.mutant.as_ref().map_or(0, |m| m.mutation_count);
-                                    let sv = f.species.sell_value(f.weight_g, f.size_category, mc);
-                                    (f.name.clone(), f.species, sv)
-                                }))
-                                .collect();
-                            let sellable_tanks = self.sellable_tank_names();
-                            match SellMenuState::new(&fish, &self.inventory, &sellable_tanks) {
+                            match self.build_sell_menu_state() {
                                 Some(new_sm) => shop.page = ShopPage::Sell(new_sm),
                                 None => shop.page = ShopPage::Main { selected: 1 },
                             }
@@ -1086,6 +978,35 @@ impl App {
         }
 
         self.shop_state = Some(shop);
+    }
+
+    fn build_sell_menu_state(&self) -> Option<SellMenuState> {
+        let fish: Vec<(String, FishSpecies, u32)> = self
+            .tanks
+            .iter()
+            .flat_map(|t| {
+                t.fish.iter().map(|f| {
+                    let mc = f.mutant.as_ref().map_or(0, |m| m.mutation_count);
+                    let sv = f.species.sell_value(f.weight_g, f.size_category, mc);
+                    (f.name.clone(), f.species, sv)
+                })
+            })
+            .collect();
+        let sellable_tanks = self.sellable_tank_names();
+        SellMenuState::new(&fish, &self.inventory, &sellable_tanks)
+    }
+
+    fn place_purchased_fish(&mut self, fish: crate::entities::fish::Fish, name: String) {
+        let mut rng = rand::rng();
+        let target_idx = if !self.tanks[self.current_tank].is_full() {
+            self.current_tank
+        } else {
+            self.tanks
+                .iter()
+                .position(|t| !t.is_full())
+                .unwrap_or(self.current_tank)
+        };
+        self.tanks[target_idx].place_fish(fish, name, &mut rng);
     }
 
     fn sellable_tank_names(&self) -> Vec<String> {
@@ -1156,7 +1077,11 @@ impl App {
         let fish_in_tanks: Vec<(&str, &str)> = self
             .tanks
             .iter()
-            .flat_map(|t| t.fish.iter().map(move |f| (f.name.as_str(), t.name.as_str())))
+            .flat_map(|t| {
+                t.fish
+                    .iter()
+                    .map(move |f| (f.name.as_str(), t.name.as_str()))
+            })
             .collect();
         let ghost = commands::autocomplete(
             &self.command_input,

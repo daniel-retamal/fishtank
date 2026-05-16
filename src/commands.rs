@@ -108,8 +108,15 @@ pub fn tab_complete(
     current_tank: &str,
     fish_in_tanks: &[(&str, &str)],
 ) -> Option<String> {
-    autocomplete(input, fish_names, consumable_names, tank_names, current_tank, fish_in_tanks)
-        .and_then(|c| c.tab_result)
+    autocomplete(
+        input,
+        fish_names,
+        consumable_names,
+        tank_names,
+        current_tank,
+        fish_in_tanks,
+    )
+    .and_then(|c| c.tab_result)
 }
 
 fn complete_command(partial: &str) -> Option<Completion> {

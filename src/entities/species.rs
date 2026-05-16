@@ -32,31 +32,13 @@ pub enum FishSpecies {
 
 impl FishSpecies {
     pub fn display_name(self) -> &'static str {
-        match self {
-            FishSpecies::Merluza => "Merluza",
-            FishSpecies::Betta => "Betta",
-            FishSpecies::Salmon => "Salmon",
-            FishSpecies::Chromis => "Chromis",
-            FishSpecies::Tang => "Tang",
-            FishSpecies::Koi => "Koi",
-            FishSpecies::Carpin => "Carpin",
-            FishSpecies::Turbofish => "Turbofish",
-            FishSpecies::Deadfish => "Deadfish",
-            FishSpecies::Anchoveta => "Anchoveta",
-            FishSpecies::Jellyfish => "Jellyfish",
-            FishSpecies::Goldenfish => "Goldenfish",
-            FishSpecies::Goldfish => "Goldfish",
-            FishSpecies::Snapper => "Snapper",
-            FishSpecies::Mutantfish => "Mutantfish",
-            FishSpecies::Nishiki => "Nishiki",
-            FishSpecies::Aka => "Aka",
-            FishSpecies::Kuro => "Kuro",
-        }
+        self.config().name
     }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct SpeciesConfig {
+    pub name: &'static str,
     pub body: BodyTemplate,
     pub palette: &'static [Color],
     pub pattern: PatternKind,
@@ -68,6 +50,43 @@ pub struct SpeciesConfig {
     pub sell_base: [u32; 4],
     pub sell_cap: [u32; 4],
 }
+
+pub const MUTANT_SELL_BASE: u32 = 500;
+pub const MUTANT_SELL_PER_MUTATION: u32 = 100;
+pub const MUTANT_SELL_WEIGHT_DIVISOR: u32 = 10;
+
+const COMMON_SIZES: [usize; 4] = [3, 5, 7, 9];
+const RARE_SIZES: [usize; 4] = [4, 6, 8, 10];
+const LEGENDARY_SIZES: [usize; 4] = [5, 7, 9, 11];
+
+const STD_WEIGHT_BASE: [u32; 4] = [100, 250, 500, 1_000];
+const STD_WEIGHT_CAP: [u32; 4] = [2_500, 7_500, 20_000, 40_000];
+
+const COMMON_SELL_BASE: [u32; 4] = [12, 27, 65, 175];
+const COMMON_SELL_CAP: [u32; 4] = [40, 115, 280, 610];
+const RARE_SELL_BASE: [u32; 4] = [30, 75, 175, 500];
+const RARE_SELL_CAP: [u32; 4] = [110, 310, 750, 1_850];
+
+pub const ALL_SPECIES: &[FishSpecies] = &[
+    FishSpecies::Merluza,
+    FishSpecies::Betta,
+    FishSpecies::Salmon,
+    FishSpecies::Chromis,
+    FishSpecies::Tang,
+    FishSpecies::Koi,
+    FishSpecies::Carpin,
+    FishSpecies::Turbofish,
+    FishSpecies::Deadfish,
+    FishSpecies::Anchoveta,
+    FishSpecies::Jellyfish,
+    FishSpecies::Goldenfish,
+    FishSpecies::Goldfish,
+    FishSpecies::Snapper,
+    FishSpecies::Mutantfish,
+    FishSpecies::Nishiki,
+    FishSpecies::Aka,
+    FishSpecies::Kuro,
+];
 
 #[derive(Debug, Clone, Copy)]
 pub enum BodyTemplate {
@@ -222,66 +241,72 @@ impl FishSpecies {
     pub fn config(self) -> SpeciesConfig {
         match self {
             FishSpecies::Merluza => SpeciesConfig {
+                name: "Merluza",
                 body: BodyTemplate::Standard(standard('º', TailKind::Wide)),
                 palette: &PAL_MERLUZA,
                 pattern: PatternKind::Solid,
                 sway_speed: 0.10,
                 speed_range: (2.5, 4.0),
-                sizes: [3, 5, 7, 9],
-                weight_base: [100, 250, 500, 1000],
-                weight_cap: [2500, 7500, 20000, 40000],
-                sell_base: [12, 27, 65, 175],
-                sell_cap: [40, 115, 280, 610],
+                sizes: COMMON_SIZES,
+                weight_base: STD_WEIGHT_BASE,
+                weight_cap: STD_WEIGHT_CAP,
+                sell_base: COMMON_SELL_BASE,
+                sell_cap: COMMON_SELL_CAP,
             },
             FishSpecies::Betta => SpeciesConfig {
+                name: "Betta",
                 body: BodyTemplate::Standard(standard('\'', TailKind::Wide)),
                 palette: &PAL_BETTA,
                 pattern: PatternKind::Striped,
                 sway_speed: 0.09,
                 speed_range: (2.0, 3.5),
-                sizes: [3, 5, 7, 9],
-                weight_base: [100, 250, 500, 1000],
-                weight_cap: [2500, 7500, 20000, 40000],
-                sell_base: [12, 27, 65, 175],
-                sell_cap: [40, 115, 280, 610],
+                sizes: COMMON_SIZES,
+                weight_base: STD_WEIGHT_BASE,
+                weight_cap: STD_WEIGHT_CAP,
+                sell_base: COMMON_SELL_BASE,
+                sell_cap: COMMON_SELL_CAP,
             },
             FishSpecies::Salmon => SpeciesConfig {
+                name: "Salmon",
                 body: BodyTemplate::Standard(standard('*', TailKind::Wide)),
                 palette: &PAL_SALMON,
                 pattern: PatternKind::Striped,
                 sway_speed: 0.10,
                 speed_range: (4.0, 6.0),
-                sizes: [3, 5, 7, 9],
-                weight_base: [100, 250, 500, 1000],
-                weight_cap: [2500, 7500, 20000, 40000],
-                sell_base: [12, 27, 65, 175],
-                sell_cap: [40, 115, 280, 610],
+                sizes: COMMON_SIZES,
+                weight_base: STD_WEIGHT_BASE,
+                weight_cap: STD_WEIGHT_CAP,
+                sell_base: COMMON_SELL_BASE,
+                sell_cap: COMMON_SELL_CAP,
             },
             FishSpecies::Chromis => SpeciesConfig {
+                name: "Chromis",
                 body: BodyTemplate::Standard(standard('º', TailKind::Short)),
                 palette: &PAL_CHROMIS,
                 pattern: PatternKind::Striped,
                 sway_speed: 0.13,
                 speed_range: (3.0, 5.0),
-                sizes: [3, 5, 7, 9],
-                weight_base: [100, 250, 500, 1000],
-                weight_cap: [2500, 7500, 20000, 40000],
-                sell_base: [12, 27, 65, 175],
-                sell_cap: [40, 115, 280, 610],
+                sizes: COMMON_SIZES,
+                weight_base: STD_WEIGHT_BASE,
+                weight_cap: STD_WEIGHT_CAP,
+                sell_base: COMMON_SELL_BASE,
+                sell_cap: COMMON_SELL_CAP,
             },
             FishSpecies::Tang => SpeciesConfig {
+                name: "Tang",
                 body: BodyTemplate::Standard(standard('\'', TailKind::Wide)),
                 palette: &PAL_TANG,
                 pattern: PatternKind::Striped,
                 sway_speed: 0.09,
                 speed_range: (2.5, 4.0),
-                sizes: [3, 5, 7, 9],
-                weight_base: [100, 250, 500, 1000],
-                weight_cap: [2500, 7500, 20000, 40000],
-                sell_base: [12, 27, 65, 175],
-                sell_cap: [40, 115, 280, 610],
+                sizes: COMMON_SIZES,
+                weight_base: STD_WEIGHT_BASE,
+                weight_cap: STD_WEIGHT_CAP,
+                sell_base: COMMON_SELL_BASE,
+                sell_cap: COMMON_SELL_CAP,
             },
             FishSpecies::Koi => SpeciesConfig {
+                name: "Koi",
                 body: BodyTemplate::Standard(BodyChars {
                     mouth_left: '>',
                     mouth_right: '<',
@@ -301,13 +326,14 @@ impl FishSpecies {
                 pattern: PatternKind::Patchy,
                 sway_speed: 0.07,
                 speed_range: (1.5, 3.0),
-                sizes: [4, 6, 8, 10],
-                weight_base: [100, 250, 500, 1000],
-                weight_cap: [2500, 7500, 20000, 40000],
-                sell_base: [30, 75, 175, 500],
-                sell_cap: [110, 310, 750, 1850],
+                sizes: RARE_SIZES,
+                weight_base: STD_WEIGHT_BASE,
+                weight_cap: STD_WEIGHT_CAP,
+                sell_base: RARE_SELL_BASE,
+                sell_cap: RARE_SELL_CAP,
             },
             FishSpecies::Carpin => SpeciesConfig {
+                name: "Carpin",
                 body: BodyTemplate::Standard(BodyChars {
                     mouth_left: '<',
                     mouth_right: '>',
@@ -326,13 +352,14 @@ impl FishSpecies {
                 pattern: PatternKind::Patchy,
                 sway_speed: 0.09,
                 speed_range: (2.0, 3.5),
-                sizes: [3, 5, 7, 9],
-                weight_base: [100, 250, 500, 1000],
-                weight_cap: [2500, 7500, 20000, 40000],
-                sell_base: [12, 27, 65, 175],
-                sell_cap: [40, 115, 280, 610],
+                sizes: COMMON_SIZES,
+                weight_base: STD_WEIGHT_BASE,
+                weight_cap: STD_WEIGHT_CAP,
+                sell_base: COMMON_SELL_BASE,
+                sell_cap: COMMON_SELL_CAP,
             },
             FishSpecies::Turbofish => SpeciesConfig {
+                name: "Turbofish",
                 body: BodyTemplate::Standard(BodyChars {
                     mouth_left: '<',
                     mouth_right: '>',
@@ -348,13 +375,14 @@ impl FishSpecies {
                 pattern: PatternKind::Striped,
                 sway_speed: 0.18,
                 speed_range: (6.0, 9.0),
-                sizes: [4, 6, 8, 10],
-                weight_base: [100, 250, 500, 1000],
-                weight_cap: [2500, 7500, 20000, 40000],
-                sell_base: [30, 75, 175, 500],
-                sell_cap: [110, 310, 750, 1850],
+                sizes: RARE_SIZES,
+                weight_base: STD_WEIGHT_BASE,
+                weight_cap: STD_WEIGHT_CAP,
+                sell_base: RARE_SELL_BASE,
+                sell_cap: RARE_SELL_CAP,
             },
             FishSpecies::Deadfish => SpeciesConfig {
+                name: "Deadfish",
                 body: BodyTemplate::Standard(BodyChars {
                     mouth_left: '<',
                     mouth_right: '>',
@@ -370,13 +398,14 @@ impl FishSpecies {
                 pattern: PatternKind::Solid,
                 sway_speed: 0.04,
                 speed_range: (1.0, 2.5),
-                sizes: [4, 6, 8, 10],
-                weight_base: [100, 250, 500, 1000],
-                weight_cap: [2500, 7500, 20000, 40000],
-                sell_base: [30, 75, 175, 500],
-                sell_cap: [110, 310, 750, 1850],
+                sizes: RARE_SIZES,
+                weight_base: STD_WEIGHT_BASE,
+                weight_cap: STD_WEIGHT_CAP,
+                sell_base: RARE_SELL_BASE,
+                sell_cap: RARE_SELL_CAP,
             },
             FishSpecies::Anchoveta => SpeciesConfig {
+                name: "Anchoveta",
                 body: BodyTemplate::Fixed {
                     left: &ANCHOVETA_L,
                     right: &ANCHOVETA_R,
@@ -385,13 +414,14 @@ impl FishSpecies {
                 pattern: PatternKind::Solid,
                 sway_speed: 0.0,
                 speed_range: (5.0, 7.0),
-                sizes: [3, 5, 7, 9],
-                weight_base: [100, 250, 500, 1000],
-                weight_cap: [2500, 7500, 20000, 40000],
-                sell_base: [12, 27, 65, 175],
-                sell_cap: [40, 115, 280, 610],
+                sizes: COMMON_SIZES,
+                weight_base: STD_WEIGHT_BASE,
+                weight_cap: STD_WEIGHT_CAP,
+                sell_base: COMMON_SELL_BASE,
+                sell_cap: COMMON_SELL_CAP,
             },
             FishSpecies::Jellyfish => SpeciesConfig {
+                name: "Jellyfish",
                 body: BodyTemplate::Fixed {
                     left: &JELLYFISH_LR,
                     right: &JELLYFISH_LR,
@@ -400,13 +430,14 @@ impl FishSpecies {
                 pattern: PatternKind::Solid,
                 sway_speed: 0.0,
                 speed_range: (1.5, 3.0),
-                sizes: [4, 6, 8, 10],
-                weight_base: [100, 250, 500, 1000],
-                weight_cap: [2500, 7500, 20000, 40000],
-                sell_base: [30, 75, 175, 500],
-                sell_cap: [110, 310, 750, 1850],
+                sizes: RARE_SIZES,
+                weight_base: STD_WEIGHT_BASE,
+                weight_cap: STD_WEIGHT_CAP,
+                sell_base: RARE_SELL_BASE,
+                sell_cap: RARE_SELL_CAP,
             },
             FishSpecies::Goldenfish => SpeciesConfig {
+                name: "Goldenfish",
                 body: BodyTemplate::Standard(BodyChars {
                     mouth_left: '<',
                     mouth_right: '>',
@@ -422,94 +453,107 @@ impl FishSpecies {
                 pattern: PatternKind::Glistening,
                 sway_speed: 0.20,
                 speed_range: (2.0, 3.5),
-                sizes: [5, 7, 9, 11],
-                weight_base: [100, 250, 500, 1000],
-                weight_cap: [2500, 7500, 20000, 40000],
-                sell_base: [200, 800, 2000, 3500],
-                sell_cap: [900, 2500, 5000, 7000],
+                sizes: LEGENDARY_SIZES,
+                weight_base: STD_WEIGHT_BASE,
+                weight_cap: STD_WEIGHT_CAP,
+                sell_base: [200, 800, 2_000, 3_500],
+                sell_cap: [900, 2_500, 5_000, 7_000],
             },
             FishSpecies::Goldfish => SpeciesConfig {
+                name: "Goldfish",
                 body: BodyTemplate::Standard(standard('º', TailKind::WideCurly)),
                 palette: &PAL_GOLDFISH,
                 pattern: PatternKind::Striped,
                 sway_speed: 0.08,
                 speed_range: (1.5, 3.0),
-                sizes: [3, 5, 7, 9],
-                weight_base: [100, 250, 500, 1000],
-                weight_cap: [2500, 7500, 20000, 40000],
-                sell_base: [12, 27, 65, 175],
-                sell_cap: [40, 115, 280, 610],
+                sizes: COMMON_SIZES,
+                weight_base: STD_WEIGHT_BASE,
+                weight_cap: STD_WEIGHT_CAP,
+                sell_base: COMMON_SELL_BASE,
+                sell_cap: COMMON_SELL_CAP,
             },
             FishSpecies::Snapper => SpeciesConfig {
+                name: "Snapper",
                 body: BodyTemplate::Standard(standard('º', TailKind::Wide)),
                 palette: &PAL_SNAPPER,
                 pattern: PatternKind::Striped,
                 sway_speed: 0.10,
                 speed_range: (2.5, 4.0),
-                sizes: [3, 5, 7, 9],
-                weight_base: [100, 250, 500, 1000],
-                weight_cap: [2500, 7500, 20000, 40000],
-                sell_base: [12, 27, 65, 175],
-                sell_cap: [40, 115, 280, 610],
+                sizes: COMMON_SIZES,
+                weight_base: STD_WEIGHT_BASE,
+                weight_cap: STD_WEIGHT_CAP,
+                sell_base: COMMON_SELL_BASE,
+                sell_cap: COMMON_SELL_CAP,
             },
             FishSpecies::Nishiki => SpeciesConfig {
+                name: "Nishiki",
                 body: BodyTemplate::Standard(standard('º', TailKind::WideCurly)),
                 palette: &PAL_NISHIKI,
                 pattern: PatternKind::PatchyAll,
                 sway_speed: 0.08,
                 speed_range: (1.5, 3.0),
-                sizes: [3, 5, 7, 9],
-                weight_base: [100, 250, 500, 1000],
-                weight_cap: [2500, 7500, 20000, 40000],
-                sell_base: [12, 27, 65, 175],
-                sell_cap: [40, 115, 280, 610],
+                sizes: COMMON_SIZES,
+                weight_base: STD_WEIGHT_BASE,
+                weight_cap: STD_WEIGHT_CAP,
+                sell_base: COMMON_SELL_BASE,
+                sell_cap: COMMON_SELL_CAP,
             },
             FishSpecies::Aka => SpeciesConfig {
+                name: "Aka",
                 body: BodyTemplate::Standard(standard('º', TailKind::WideCurly)),
                 palette: &PAL_AKA,
                 pattern: PatternKind::Solid,
                 sway_speed: 0.09,
                 speed_range: (2.0, 3.5),
-                sizes: [3, 5, 7, 9],
-                weight_base: [100, 250, 500, 1000],
-                weight_cap: [2500, 7500, 20000, 40000],
-                sell_base: [12, 27, 65, 175],
-                sell_cap: [40, 115, 280, 610],
+                sizes: COMMON_SIZES,
+                weight_base: STD_WEIGHT_BASE,
+                weight_cap: STD_WEIGHT_CAP,
+                sell_base: COMMON_SELL_BASE,
+                sell_cap: COMMON_SELL_CAP,
             },
             FishSpecies::Kuro => SpeciesConfig {
+                name: "Kuro",
                 body: BodyTemplate::Standard(standard('º', TailKind::WideCurly)),
                 palette: &PAL_KURO,
                 pattern: PatternKind::Solid,
                 sway_speed: 0.07,
                 speed_range: (1.5, 3.0),
-                sizes: [3, 5, 7, 9],
-                weight_base: [100, 250, 500, 1000],
-                weight_cap: [2500, 7500, 20000, 40000],
-                sell_base: [12, 27, 65, 175],
-                sell_cap: [40, 115, 280, 610],
+                sizes: COMMON_SIZES,
+                weight_base: STD_WEIGHT_BASE,
+                weight_cap: STD_WEIGHT_CAP,
+                sell_base: COMMON_SELL_BASE,
+                sell_cap: COMMON_SELL_CAP,
             },
             FishSpecies::Mutantfish => SpeciesConfig {
+                name: "Mutantfish",
                 body: BodyTemplate::Standard(standard('ʘ', TailKind::Wide)),
                 palette: &PAL_MUTANT_GREEN,
                 pattern: PatternKind::Solid,
                 sway_speed: 0.11,
                 speed_range: (2.0, 5.0),
-                sizes: [5, 7, 9, 11],
+                sizes: LEGENDARY_SIZES,
                 weight_base: [0, 250, 0, 0],
-                weight_cap: [0, 0, 0, 0],
-                sell_base: [0, 0, 0, 0],
-                sell_cap: [0, 0, 0, 0],
+                weight_cap: [0; 4],
+                sell_base: [0; 4],
+                sell_cap: [0; 4],
             },
         }
     }
 
     pub fn sell_value(self, weight_g: u32, size_cat: SizeCategory, mutation_count: u32) -> u32 {
         if self == FishSpecies::Mutantfish {
-            return 500 + mutation_count * 100 + weight_g / 10;
+            return MUTANT_SELL_BASE
+                + mutation_count * MUTANT_SELL_PER_MUTATION
+                + weight_g / MUTANT_SELL_WEIGHT_DIVISOR;
         }
         let cfg = self.config();
         let i = size_cat as usize;
-        let (wb, wc, sb, sc) = (cfg.weight_base[i], cfg.weight_cap[i], cfg.sell_base[i], cfg.sell_cap[i]);
+        let (wb, wc, sb, sc) = (
+            cfg.weight_base[i],
+            cfg.weight_cap[i],
+            cfg.sell_base[i],
+            cfg.sell_cap[i],
+        );
         if wc == 0 || weight_g <= wb {
             return sb;
         }
@@ -527,26 +571,10 @@ impl FishSpecies {
     }
 
     pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_ascii_lowercase().as_str() {
-            "merluza" => Some(FishSpecies::Merluza),
-            "betta" => Some(FishSpecies::Betta),
-            "salmon" => Some(FishSpecies::Salmon),
-            "chromis" => Some(FishSpecies::Chromis),
-            "tang" => Some(FishSpecies::Tang),
-            "koi" => Some(FishSpecies::Koi),
-            "carpin" => Some(FishSpecies::Carpin),
-            "turbofish" => Some(FishSpecies::Turbofish),
-            "deadfish" => Some(FishSpecies::Deadfish),
-            "anchoveta" => Some(FishSpecies::Anchoveta),
-            "jellyfish" => Some(FishSpecies::Jellyfish),
-            "goldenfish" => Some(FishSpecies::Goldenfish),
-            "goldfish" => Some(FishSpecies::Goldfish),
-            "snapper" => Some(FishSpecies::Snapper),
-            "mutantfish" => Some(FishSpecies::Mutantfish),
-            "nishiki" => Some(FishSpecies::Nishiki),
-            "aka" => Some(FishSpecies::Aka),
-            "kuro" => Some(FishSpecies::Kuro),
-            _ => None,
-        }
+        let lower = s.to_ascii_lowercase();
+        ALL_SPECIES
+            .iter()
+            .find(|&&sp| sp.config().name.to_ascii_lowercase() == lower)
+            .copied()
     }
 }

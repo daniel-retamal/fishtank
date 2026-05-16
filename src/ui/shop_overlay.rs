@@ -5,11 +5,13 @@ use ratatui::{
     widgets::Widget,
 };
 use std::collections::HashMap;
-use unicode_width::UnicodeWidthChar;
 
 use crate::{
     entities::{fish::Fish, species::FishSpecies},
-    ui::render_fish_segs,
+    ui::{
+        render_fish_segs, table,
+        text_input::{TextInput, draw_text_cursor},
+    },
 };
 
 const BG: Color = Color::Reset;
@@ -139,8 +141,7 @@ pub struct BuyCategoryPopup {
 }
 
 pub struct BuyTankPopup {
-    pub name_input: String,
-    pub cursor_pos: usize,
+    pub name_input: TextInput,
 }
 
 pub fn buy_cat_available(idx: usize, money: u32) -> bool {
@@ -173,22 +174,35 @@ pub fn buy_cat_next(current: usize, down: bool, money: u32) -> usize {
 pub struct FishNamePopup {
     pub catalog_idx: usize,
     pub fish: Fish,
-    pub name_input: String,
-    pub cursor_pos: usize,
+    pub name_input: TextInput,
 }
 
 pub enum SellEntry {
-    Fish { name: String, species: FishSpecies, sell_value: u32 },
-    Junk { qty: u32 },
-    Coffee { qty: u32 },
-    Bait { qty: u32 },
-    Tank { name: String },
+    Fish {
+        name: String,
+        species: FishSpecies,
+        sell_value: u32,
+    },
+    Junk {
+        qty: u32,
+    },
+    Coffee {
+        qty: u32,
+    },
+    Bait {
+        qty: u32,
+    },
+    Tank {
+        name: String,
+    },
 }
 
 impl SellEntry {
     pub fn label(&self) -> String {
         match self {
-            SellEntry::Fish { name, species, .. } => format!("{} ({})", name, species.display_name()),
+            SellEntry::Fish { name, species, .. } => {
+                format!("{} ({})", name, species.display_name())
+            }
             SellEntry::Junk { qty } => format!("Junk ({})", qty),
             SellEntry::Coffee { qty } => format!("Coffee ({})", qty),
             SellEntry::Bait { qty } => format!("Bait ({})", qty),
@@ -285,8 +299,14 @@ impl SellMenuState {
             })
             .collect();
         fish_entries.sort_by(|a, b| {
-            let pa = match a { SellEntry::Fish { sell_value, .. } => *sell_value, _ => 0 };
-            let pb = match b { SellEntry::Fish { sell_value, .. } => *sell_value, _ => 0 };
+            let pa = match a {
+                SellEntry::Fish { sell_value, .. } => *sell_value,
+                _ => 0,
+            };
+            let pb = match b {
+                SellEntry::Fish { sell_value, .. } => *sell_value,
+                _ => 0,
+            };
             pa.cmp(&pb).then_with(|| {
                 let na = match a {
                     SellEntry::Fish { name, .. } => name.as_str(),
@@ -446,7 +466,7 @@ fn overlay_h(state: &ShopState, area_h: u16) -> u16 {
     const MAX_OH: u16 = 13;
     match &state.page {
         ShopPage::Main { .. } => MIN_OH.min(area_h),
-        ShopPage::BuyCategory { .. } => (MIN_OH + 2).min(area_h),
+        ShopPage::BuyCategory { .. } => (MIN_OH + 3).min(area_h),
         ShopPage::BuyFishList(_) => {
             let visible = FISH_CATALOG.len().min(MAX_LIST_VISIBLE);
             ((visible as u16) + 6).clamp(MIN_OH, MAX_OH).min(area_h)
@@ -673,29 +693,6 @@ impl Widget for ShopOverlay<'_> {
     }
 }
 
-fn draw_border(buf: &mut Buffer, ox: u16, oy: u16, w: u16, h: u16, title: &str, dim: bool) {
-    let fg = if dim { Color::DarkGray } else { Color::White };
-    let s = Style::default().fg(fg).bg(BG);
-    let ts = Style::default().fg(fg).add_modifier(Modifier::BOLD).bg(BG);
-    let r = ox + w - 1;
-    let b = oy + h - 1;
-    buf[(ox, oy)].set_char('┌').set_style(s);
-    buf[(r, oy)].set_char('┐').set_style(s);
-    buf[(ox, b)].set_char('└').set_style(s);
-    buf[(r, b)].set_char('┘').set_style(s);
-    for dx in 1..w - 1 {
-        buf[(ox + dx, oy)].set_char('─').set_style(s);
-        buf[(ox + dx, b)].set_char('─').set_style(s);
-    }
-    for dy in 1..h - 1 {
-        buf[(ox, oy + dy)].set_char('│').set_style(s);
-        buf[(r, oy + dy)].set_char('│').set_style(s);
-    }
-    if (title.len() as u16 + 4) < w {
-        buf.set_string(ox + 2, oy, title, ts);
-    }
-}
-
 fn draw_penguin(buf: &mut Buffer, x: u16, y: u16, dim: bool) {
     let fg = if dim { Color::DarkGray } else { Color::White };
     let s = Style::default().fg(fg).bg(BG);
@@ -731,7 +728,7 @@ fn draw_main_right(
             Color::White
         };
         let s = Style::default().fg(fg).bg(BG);
-        buf.set_string(x, row_y, trunc(&line, w as usize), s);
+        buf.set_string(x, row_y, table::truncate_str(&line, w as usize), s);
     }
 }
 
@@ -770,7 +767,7 @@ fn draw_buy_category_right(
             Color::White
         };
         let s = Style::default().fg(fg).bg(BG);
-        buf.set_string(x, y + row as u16, trunc(&line, w as usize), s);
+        buf.set_string(x, y + row as u16, table::truncate_str(&line, w as usize), s);
     }
 }
 
@@ -795,7 +792,12 @@ fn draw_fish_list(
         .bg(BG);
     let s_sep = Style::default().fg(hdr_fg).bg(BG);
 
-    buf.set_string(rx, content_y, pad("Name", (right_w / 2) as usize), s_bold);
+    buf.set_string(
+        rx,
+        content_y,
+        table::pad_right("Name", (right_w / 2) as usize),
+        s_bold,
+    );
     let price_hdr = "Price/unit";
     buf.set_string(
         right_border_x.saturating_sub(1 + price_hdr.len() as u16),
@@ -837,7 +839,7 @@ fn draw_fish_list(
         let s = Style::default().fg(item_fg).bg(BG);
 
         let prefix = if is_sel && eff_cursor_vis { "> " } else { "  " };
-        let label = format!("{}{}", prefix, trunc(entry.name, name_max));
+        let label = format!("{}{}", prefix, table::truncate_str(entry.name, name_max));
         buf.set_string(rx, row_y, label, s);
         buf.set_string(price_x, row_y, &price_str, s);
     }
@@ -866,7 +868,12 @@ fn draw_sell_list(
         .fg(if dim { Color::DarkGray } else { Color::White })
         .bg(BG);
 
-    buf.set_string(rx, content_y, pad("Item", (right_w / 2) as usize), s_bold);
+    buf.set_string(
+        rx,
+        content_y,
+        table::pad_right("Item", (right_w / 2) as usize),
+        s_bold,
+    );
     let price_hdr = "Price/unit";
     buf.set_string(
         right_border_x.saturating_sub(1 + price_hdr.len() as u16),
@@ -900,7 +907,11 @@ fn draw_sell_list(
         let name_max = price_x.saturating_sub(rx + 2) as usize;
 
         let prefix = if is_sel && eff_cursor_vis { "> " } else { "  " };
-        let label = format!("{}{}", prefix, trunc(&entry.label(), name_max));
+        let label = format!(
+            "{}{}",
+            prefix,
+            table::truncate_str(&entry.label(), name_max)
+        );
         buf.set_string(rx, row_y, label, s_white);
         buf.set_string(price_x, row_y, &price_str, s_white);
     }
@@ -908,9 +919,9 @@ fn draw_sell_list(
 
 fn draw_footer_text(buf: &mut Buffer, x: u16, y: u16, inner_w: u16, left: &str, right: &str) {
     let s = Style::default().fg(Color::DarkGray).bg(BG);
-    buf.set_string(x, y, trunc(left, inner_w as usize), s);
-    let rw = vw(right) as u16;
-    if rw + vw(left) as u16 + 3 <= inner_w {
+    buf.set_string(x, y, table::truncate_str(left, inner_w as usize), s);
+    let rw = table::visual_width(right) as u16;
+    if rw + table::visual_width(left) as u16 + 3 <= inner_w {
         buf.set_string(x + inner_w - rw, y, right, s);
     }
 }
@@ -941,7 +952,7 @@ fn draw_qty_row(
         col += 1;
     }
     let remaining = (x + max_w as u16).saturating_sub(col) as usize;
-    buf.set_string(col, y, trunc(total_str, remaining), mid_s);
+    buf.set_string(col, y, table::truncate_str(total_str, remaining), mid_s);
 }
 
 fn draw_qty_popup(
@@ -967,7 +978,7 @@ fn draw_qty_popup(
             buf[(ox + dx, oy + dy)].set_bg(BG);
         }
     }
-    draw_border(buf, ox, oy, POP_W, POP_H, title, false);
+    table::draw_box_border(buf, ox, oy, POP_W, POP_H, title, Color::White, BG);
 
     let s_white = Style::default().fg(Color::White).bg(BG);
     let s_dim = Style::default().fg(Color::DarkGray).bg(BG);
@@ -992,7 +1003,12 @@ fn draw_qty_popup(
     );
 
     let left_hint = "ESC/q cancel";
-    buf.set_string(inner_x, oy + POP_H - 2, trunc(left_hint, inner_w), s_dim);
+    buf.set_string(
+        inner_x,
+        oy + POP_H - 2,
+        table::truncate_str(left_hint, inner_w),
+        s_dim,
+    );
     let rw = confirm_hint.len() as u16;
     if (left_hint.len() as u16 + rw + 2) <= inner_w as u16 {
         buf.set_string(
@@ -1048,7 +1064,7 @@ fn draw_fish_name_popup(buf: &mut Buffer, popup: &FishNamePopup, cursor_vis: boo
 
     let species = FISH_CATALOG[popup.catalog_idx].name;
     let title = format!(" Buy {} ", species);
-    draw_border(buf, ox, oy, pop_w, POP_H, &title, false);
+    table::draw_box_border(buf, ox, oy, pop_w, POP_H, &title, Color::White, BG);
 
     let sep_x = ox + 1 + left_w;
     buf[(sep_x, oy + POP_H - 1)]
@@ -1078,92 +1094,27 @@ fn draw_fish_name_popup(buf: &mut Buffer, popup: &FishNamePopup, cursor_vis: boo
     buf.set_string(
         rx,
         oy + 1,
-        trunc(
+        table::truncate_str(
             &format!("{} for sale! Only ${}", species, price),
             RIGHT_W as usize,
         ),
         s_bold,
     );
     buf.set_string(rx, oy + 3, "Name it", s_white);
-    draw_text_cursor(
-        buf,
-        &popup.name_input,
-        popup.cursor_pos,
-        cursor_vis,
-        rx,
-        oy + 4,
-        RIGHT_W,
-    );
+    draw_text_cursor(buf, &popup.name_input, cursor_vis, rx, oy + 4, RIGHT_W, BG);
 
     let s_dim = Style::default().fg(Color::DarkGray).bg(BG);
     let left_hint = "ESC/q cancel";
     let right_hint = "ENTER buy";
-    buf.set_string(rx, oy + 5, trunc(left_hint, RIGHT_W as usize), s_dim);
+    buf.set_string(
+        rx,
+        oy + 5,
+        table::truncate_str(left_hint, RIGHT_W as usize),
+        s_dim,
+    );
     let rw = right_hint.len() as u16;
     if (left_hint.len() as u16 + rw + 4) <= RIGHT_W {
         buf.set_string(rx + RIGHT_W - rw - 1, oy + 5, right_hint, s_dim);
-    }
-}
-
-fn draw_text_cursor(
-    buf: &mut Buffer,
-    input: &str,
-    cursor_pos: usize,
-    cursor_vis: bool,
-    x: u16,
-    y: u16,
-    w: u16,
-) {
-    if w < 3 {
-        return;
-    }
-    let s_white = Style::default().fg(Color::White).bg(BG);
-
-    buf[(x, y)].set_char('>').set_style(s_white);
-    buf[(x + 1, y)].set_char(' ').set_style(s_white);
-
-    let base_x = x + 2;
-    let cp = cursor_pos;
-    let at_end = cp == input.len();
-    let cursor_col = base_x + cp as u16;
-
-    if cp > 0 && base_x < x + w {
-        let avail = (x + w - base_x) as usize;
-        buf.set_string(base_x, y, trunc(&input[..cp], avail), s_white);
-    }
-
-    if cursor_col < x + w {
-        let ch = if at_end {
-            ' '
-        } else {
-            input[cp..].chars().next().unwrap_or(' ')
-        };
-        if cursor_vis {
-            buf[(cursor_col, y)]
-                .set_char(ch)
-                .set_fg(Color::Black)
-                .set_bg(Color::White);
-        } else if !at_end {
-            buf[(cursor_col, y)].set_char(ch).set_style(s_white);
-        }
-    }
-
-    if !at_end {
-        let char_len = input[cp..]
-            .chars()
-            .next()
-            .map(|c| c.len_utf8())
-            .unwrap_or(1);
-        let after = &input[cp + char_len..];
-        let after_col = cursor_col + 1;
-        if !after.is_empty() && after_col < x + w {
-            buf.set_string(
-                after_col,
-                y,
-                trunc(after, (x + w - after_col) as usize),
-                s_white,
-            );
-        }
     }
 }
 
@@ -1228,7 +1179,7 @@ fn draw_sell_confirm_popup(buf: &mut Buffer, confirm: &SellConfirm, entry: &Sell
             let total = confirm.sell_qty * entry.unit_price();
             let m = format!(
                 "Sell {} for ${}?",
-                trunc(name, inner_w.saturating_sub(16)),
+                table::truncate_str(name, inner_w.saturating_sub(16)),
                 total
             );
             (t, m)
@@ -1239,7 +1190,7 @@ fn draw_sell_confirm_popup(buf: &mut Buffer, confirm: &SellConfirm, entry: &Sell
             let total = confirm.sell_qty * entry.unit_price();
             let m = format!(
                 "Sell {} for ${}?",
-                trunc(name, inner_w.saturating_sub(16)),
+                table::truncate_str(name, inner_w.saturating_sub(16)),
                 total
             );
             (t, m)
@@ -1248,19 +1199,24 @@ fn draw_sell_confirm_popup(buf: &mut Buffer, confirm: &SellConfirm, entry: &Sell
             unreachable!()
         }
     };
-    draw_border(buf, ox, oy, pop_w, pop_h, &title, false);
+    table::draw_box_border(buf, ox, oy, pop_w, pop_h, &title, Color::White, BG);
 
     let s_white = Style::default().fg(Color::White).bg(BG);
     let s_dim = Style::default().fg(Color::DarkGray).bg(BG);
     let inner_x = ox + 2;
     let inner_w = (pop_w - 4) as usize;
 
-    buf.set_string(inner_x, oy + 1, trunc(&msg, inner_w), s_white);
+    buf.set_string(inner_x, oy + 1, table::truncate_str(&msg, inner_w), s_white);
 
     let left_hint = "ESC/q cancel";
     let right_hint = "ENTER sell";
     let hint_y = oy + pop_h - 2;
-    buf.set_string(inner_x, hint_y, trunc(left_hint, inner_w), s_dim);
+    buf.set_string(
+        inner_x,
+        hint_y,
+        table::truncate_str(left_hint, inner_w),
+        s_dim,
+    );
     let rw = right_hint.len() as u16;
     if (left_hint.len() as u16 + rw + 2) <= inner_w as u16 {
         buf.set_string(inner_x + inner_w as u16 - rw, hint_y, right_hint, s_dim);
@@ -1285,7 +1241,16 @@ fn draw_buy_tank_popup(buf: &mut Buffer, popup: &BuyTankPopup, cursor_vis: bool,
         }
     }
 
-    draw_border(buf, ox, oy, POP_W, POP_H, " Buy Fishtank ", false);
+    table::draw_box_border(
+        buf,
+        ox,
+        oy,
+        POP_W,
+        POP_H,
+        " Buy Fishtank ",
+        Color::White,
+        BG,
+    );
 
     let s_bold = Style::default()
         .fg(Color::White)
@@ -1297,21 +1262,31 @@ fn draw_buy_tank_popup(buf: &mut Buffer, popup: &BuyTankPopup, cursor_vis: bool,
     let inner_w = (POP_W - 4) as usize;
 
     let header = format!("Fishtank for sale! Only ${}", TANK_BUY_PRICE);
-    buf.set_string(inner_x, oy + 1, trunc(&header, inner_w), s_bold);
+    buf.set_string(
+        inner_x,
+        oy + 1,
+        table::truncate_str(&header, inner_w),
+        s_bold,
+    );
     buf.set_string(inner_x, oy + 3, "Name it", s_white);
     draw_text_cursor(
         buf,
         &popup.name_input,
-        popup.cursor_pos,
         cursor_vis,
         inner_x,
         oy + 4,
         POP_W - 4,
+        BG,
     );
 
     let left_hint = "ESC/q cancel";
     let right_hint = "ENTER buy";
-    buf.set_string(inner_x, oy + POP_H - 2, trunc(left_hint, inner_w), s_dim);
+    buf.set_string(
+        inner_x,
+        oy + POP_H - 2,
+        table::truncate_str(left_hint, inner_w),
+        s_dim,
+    );
     let rw = right_hint.len() as u16;
     if (left_hint.len() as u16 + rw + 2) <= inner_w as u16 {
         buf.set_string(
@@ -1320,34 +1295,5 @@ fn draw_buy_tank_popup(buf: &mut Buffer, popup: &BuyTankPopup, cursor_vis: bool,
             right_hint,
             s_dim,
         );
-    }
-}
-
-fn vw(s: &str) -> usize {
-    s.chars()
-        .map(|c| UnicodeWidthChar::width(c).unwrap_or(1))
-        .sum()
-}
-
-fn trunc(s: &str, max: usize) -> String {
-    let mut out = String::new();
-    let mut w = 0;
-    for c in s.chars() {
-        let cw = UnicodeWidthChar::width(c).unwrap_or(1);
-        if w + cw > max {
-            break;
-        }
-        out.push(c);
-        w += cw;
-    }
-    out
-}
-
-fn pad(s: &str, width: usize) -> String {
-    let w = vw(s);
-    if w >= width {
-        s.to_string()
-    } else {
-        format!("{}{}", s, " ".repeat(width - w))
     }
 }

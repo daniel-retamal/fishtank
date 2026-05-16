@@ -33,6 +33,8 @@ const DIRECTION_TIMER_POST_EVENT_MIN: u32 = 60;
 const DIRECTION_TIMER_POST_EVENT_MAX: u32 = 180;
 const ZOOMIE_INITIAL_TIMER_MIN: f32 = 30.0;
 const ZOOMIE_INITIAL_TIMER_MAX: f32 = 90.0;
+const DIRECTION_TIMER_DISPLAY_DEFAULT: u32 = 300;
+const ZOOMIE_TIMER_DISPLAY_DEFAULT: f32 = 60.0;
 
 #[derive(Clone, Copy)]
 pub enum Direction {
@@ -90,12 +92,16 @@ pub struct Fish {
 
 fn roll_size_category(rng: &mut impl RngExt) -> SizeCategory {
     const WEIGHTS: [(u32, SizeCategory); 4] = [
-        (55, SizeCategory::S), (30, SizeCategory::M),
-        (12, SizeCategory::L), (3, SizeCategory::XL),
+        (55, SizeCategory::S),
+        (30, SizeCategory::M),
+        (12, SizeCategory::L),
+        (3, SizeCategory::XL),
     ];
     let mut v = rng.random_range(0u32..100);
     for (w, cat) in WEIGHTS {
-        if v < w { return cat; }
+        if v < w {
+            return cat;
+        }
         v -= w;
     }
     SizeCategory::XL
@@ -205,7 +211,11 @@ impl Fish {
             None
         };
         let body_chars_override = if species == FishSpecies::Deadfish {
-            Some(if pattern_seed.is_multiple_of(2) { DEADFISH_BC_SEMI } else { DEADFISH_BC_PLUS })
+            Some(if pattern_seed.is_multiple_of(2) {
+                DEADFISH_BC_SEMI
+            } else {
+                DEADFISH_BC_PLUS
+            })
         } else {
             None
         };
@@ -218,15 +228,17 @@ impl Fish {
             name: String::new(),
             position: Position { x: 0.0, y: 0.0 },
             velocity: Velocity { dx: speed, dy: 0.0 },
-            sway: SwayState { phase: rng.random::<f32>() * TAU },
+            sway: SwayState {
+                phase: rng.random::<f32>() * TAU,
+            },
             state: FishState::Idle,
             facing: Direction::Right,
             body_size,
             color,
             speed,
             seek_boost: 0.0,
-            direction_timer: 300,
-            zoomie_timer: 60.0,
+            direction_timer: DIRECTION_TIMER_DISPLAY_DEFAULT,
+            zoomie_timer: ZOOMIE_TIMER_DISPLAY_DEFAULT,
             species,
             pattern_seed,
             display_width,

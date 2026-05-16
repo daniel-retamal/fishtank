@@ -5,11 +5,10 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::Widget,
 };
-use unicode_width::UnicodeWidthChar;
 
 use crate::entities::fish::{Direction, Fish};
 use crate::entities::species::FishSpecies;
-use crate::ui::render_fish_segs;
+use crate::ui::{render_fish_segs, scroll_list, table};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum FantasyKind {
@@ -161,7 +160,7 @@ impl IndexState {
             .iter()
             .map(|(tank_name, f)| FishSnapshot {
                 name: f.name.clone(),
-                species_name: species_display_name(f.species),
+                species_name: f.species.display_name(),
                 segments: f.static_left_segments(),
                 display_width: f.display_width,
                 weight_g: f.weight_g,
@@ -201,10 +200,10 @@ impl IndexState {
                 let cells = gen_fantasy(kind, &fish_names, &species_list, &mut rng);
                 let max_cell_w = cells
                     .iter()
-                    .map(|c| visual_width(&c.text))
+                    .map(|c| table::visual_width(&c.text))
                     .max()
                     .unwrap_or(0);
-                let col_width = max_cell_w.max(visual_width(kind.header())).max(4);
+                let col_width = max_cell_w.max(table::visual_width(kind.header())).max(4);
                 FantasyColumn {
                     kind,
                     cells,
@@ -272,11 +271,9 @@ impl IndexState {
     }
 
     pub fn scroll_up(&mut self) {
-        if self.selected > 0 {
-            self.selected -= 1;
-            if self.selected < self.scroll {
-                self.scroll = self.selected;
-            }
+        let prev = self.selected;
+        scroll_list::scroll_up(&mut self.selected, &mut self.scroll);
+        if self.selected != prev {
             self.animated_fish = self
                 .fish_clones
                 .get(self.selected)
@@ -286,11 +283,14 @@ impl IndexState {
     }
 
     pub fn scroll_down(&mut self, visible_rows: usize) {
-        if self.selected + 1 < self.snapshots.len() {
-            self.selected += 1;
-            if self.selected >= self.scroll + visible_rows {
-                self.scroll = self.selected + 1 - visible_rows;
-            }
+        let prev = self.selected;
+        scroll_list::scroll_down(
+            &mut self.selected,
+            &mut self.scroll,
+            self.snapshots.len(),
+            visible_rows,
+        );
+        if self.selected != prev {
             self.animated_fish = self
                 .fish_clones
                 .get(self.selected)
@@ -425,12 +425,12 @@ impl Widget for IndexOverlay<'_> {
         };
         let hint_style = Style::default().fg(Color::DarkGray).bg(bg);
         let right_text = "ESC/q close";
-        let right_w = visual_width(right_text);
-        let left_w = visual_width(&left_hint);
+        let right_w = table::visual_width(right_text);
+        let left_w = table::visual_width(&left_hint);
         buf.set_string(
             inner_x,
             footer_y,
-            truncate_str(&left_hint, inner_w),
+            table::truncate_str(&left_hint, inner_w),
             hint_style,
         );
         if left_w + 4 + right_w <= inner_w {
@@ -559,8 +559,8 @@ fn draw_header_row(
         } else {
             state.fantasy_cols[col_idx - fixed_count].kind.header()
         };
-        let padded = pad_right(header, w);
-        let clipped = truncate_str(
+        let padded = table::pad_right(header, w);
+        let clipped = table::truncate_str(
             &padded,
             (inner_x + inner_w as u16).saturating_sub(x) as usize,
         );
@@ -676,60 +676,8 @@ fn put_text(buf: &mut Buffer, text: &str, x: u16, y: u16, width: usize, fg: Colo
     let style = Style::default().fg(fg).bg(bg);
     let blank = " ".repeat(width);
     buf.set_string(x, y, &blank, style);
-    let s = truncate_str(text, width);
+    let s = table::truncate_str(text, width);
     buf.set_string(x, y, &s, style);
-}
-
-fn pad_right(s: &str, width: usize) -> String {
-    let vw = visual_width(s);
-    if vw >= width {
-        s.to_string()
-    } else {
-        format!("{}{}", s, " ".repeat(width - vw))
-    }
-}
-
-fn truncate_str(s: &str, width: usize) -> String {
-    let mut out = String::new();
-    let mut w = 0;
-    for ch in s.chars() {
-        let cw = UnicodeWidthChar::width(ch).unwrap_or(1);
-        if w + cw > width {
-            break;
-        }
-        out.push(ch);
-        w += cw;
-    }
-    out
-}
-
-fn visual_width(s: &str) -> usize {
-    s.chars()
-        .map(|c| UnicodeWidthChar::width(c).unwrap_or(1))
-        .sum()
-}
-
-fn species_display_name(s: FishSpecies) -> &'static str {
-    match s {
-        FishSpecies::Merluza => "Merluza",
-        FishSpecies::Betta => "Betta",
-        FishSpecies::Salmon => "Salmon",
-        FishSpecies::Chromis => "Chromis",
-        FishSpecies::Tang => "Tang",
-        FishSpecies::Koi => "Koi",
-        FishSpecies::Carpin => "Carpin",
-        FishSpecies::Turbofish => "Turbofish",
-        FishSpecies::Deadfish => "Deadfish",
-        FishSpecies::Anchoveta => "Anchoveta",
-        FishSpecies::Jellyfish => "Jellyfish",
-        FishSpecies::Goldenfish => "Goldenfish",
-        FishSpecies::Goldfish => "Goldfish",
-        FishSpecies::Snapper => "Snapper",
-        FishSpecies::Mutantfish => "Mutantfish",
-        FishSpecies::Nishiki => "Nishiki",
-        FishSpecies::Aka => "Aka",
-        FishSpecies::Kuro => "Kuro",
-    }
 }
 
 fn generate_rut(rng: &mut impl RngExt) -> String {

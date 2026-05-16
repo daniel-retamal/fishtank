@@ -4,9 +4,9 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::Widget,
 };
-use unicode_width::UnicodeWidthChar;
 
 use crate::tank::{TANK_CAPACITY, Tank};
+use crate::ui::{scroll_list, table};
 
 struct FishtanksEntry {
     name: String,
@@ -43,21 +43,16 @@ impl FishtanksState {
     }
 
     pub fn scroll_up(&mut self) {
-        if self.selected > 0 {
-            self.selected -= 1;
-            if self.selected < self.scroll {
-                self.scroll = self.selected;
-            }
-        }
+        scroll_list::scroll_up(&mut self.selected, &mut self.scroll);
     }
 
     pub fn scroll_down(&mut self, visible: usize) {
-        if self.selected + 1 < self.entries.len() {
-            self.selected += 1;
-            if self.selected >= self.scroll + visible {
-                self.scroll = self.selected + 1 - visible;
-            }
-        }
+        scroll_list::scroll_down(
+            &mut self.selected,
+            &mut self.scroll,
+            self.entries.len(),
+            visible,
+        );
     }
 }
 
@@ -80,12 +75,12 @@ impl Widget for FishtanksOverlay<'_> {
         let name_w = state
             .entries
             .iter()
-            .map(|e| visual_width(&e.name))
+            .map(|e| table::visual_width(&e.name))
             .max()
             .unwrap_or(4)
-            .max(visual_width("Name"));
+            .max(table::visual_width("Name"));
         let count_str_max = format!("{}/{}", TANK_CAPACITY, TANK_CAPACITY);
-        let fishes_w = visual_width(&count_str_max).max(visual_width("Fishes"));
+        let fishes_w = table::visual_width(&count_str_max).max(table::visual_width("Fishes"));
         let content_inner_w = name_w + 1 + fishes_w;
 
         let visible_data_rows = n.min(area.height.saturating_sub(6) as usize).max(1);
@@ -93,12 +88,12 @@ impl Widget for FishtanksOverlay<'_> {
 
         let enter_hint = "ENTER switch";
         let close_hint = "ESC/q close";
-        let enter_w = visual_width(enter_hint);
-        let close_w = visual_width(close_hint);
+        let enter_w = table::visual_width(enter_hint);
+        let close_w = table::visual_width(close_hint);
         let nav_max_w = if scrollable {
-            visual_width(&format!(" \u{2191}\u{2193} scroll ({}/{})", n, n))
+            table::visual_width(&format!(" \u{2191}\u{2193} scroll ({}/{})", n, n))
         } else {
-            visual_width(" \u{2191}\u{2193} navigate")
+            table::visual_width(" \u{2191}\u{2193} navigate")
         };
         let footer_inner_w = nav_max_w + 2 + enter_w + 2 + close_w + 1;
 
@@ -124,13 +119,22 @@ impl Widget for FishtanksOverlay<'_> {
             }
         }
 
-        draw_border(buf, ox, oy, overlay_w, overlay_h, bg);
+        table::draw_box_border(
+            buf,
+            ox,
+            oy,
+            overlay_w,
+            overlay_h,
+            " Fishtank#index ",
+            Color::White,
+            bg,
+        );
 
         let inner_x = ox + 1;
         let sep_x = inner_x + name_w as u16;
 
         draw_header(buf, inner_x, oy + 1, name_w, fishes_w, sep_x, bg);
-        draw_separator(buf, ox, oy + 2, overlay_w, sep_x, bg);
+        table::draw_box_separator(buf, ox, oy + 2, overlay_w, &[sep_x], Color::White, bg);
 
         let data_start_y = oy + 3;
         let data_end_y = oy + overlay_h.saturating_sub(4);
@@ -175,35 +179,6 @@ impl Widget for FishtanksOverlay<'_> {
     }
 }
 
-fn draw_border(buf: &mut Buffer, ox: u16, oy: u16, w: u16, h: u16, bg: Color) {
-    let style = Style::default().fg(Color::White).bg(bg);
-    let title_style = Style::default()
-        .fg(Color::White)
-        .add_modifier(Modifier::BOLD)
-        .bg(bg);
-    let right = ox + w - 1;
-    let bottom = oy + h - 1;
-
-    buf[(ox, oy)].set_char('┌').set_style(style);
-    buf[(right, oy)].set_char('┐').set_style(style);
-    buf[(ox, bottom)].set_char('└').set_style(style);
-    buf[(right, bottom)].set_char('┘').set_style(style);
-
-    for dx in 1..w - 1 {
-        buf[(ox + dx, oy)].set_char('─').set_style(style);
-        buf[(ox + dx, bottom)].set_char('─').set_style(style);
-    }
-    for dy in 1..h - 1 {
-        buf[(ox, oy + dy)].set_char('│').set_style(style);
-        buf[(right, oy + dy)].set_char('│').set_style(style);
-    }
-
-    let title = " Fishtank#index ";
-    if (title.len() as u16 + 4) < w {
-        buf.set_string(ox + 2, oy, title, title_style);
-    }
-}
-
 fn draw_header(
     buf: &mut Buffer,
     x: u16,
@@ -219,22 +194,9 @@ fn draw_header(
         .bg(bg);
     let sep = Style::default().fg(Color::White).bg(bg);
 
-    buf.set_string(x, y, pad_right("Name", name_w), bold);
+    buf.set_string(x, y, table::pad_right("Name", name_w), bold);
     buf[(sep_x, y)].set_char('│').set_style(sep);
-    buf.set_string(sep_x + 1, y, pad_right("Fishes", fishes_w), bold);
-}
-
-fn draw_separator(buf: &mut Buffer, ox: u16, sep_y: u16, w: u16, sep_x: u16, bg: Color) {
-    let style = Style::default().fg(Color::White).bg(bg);
-
-    buf[(ox, sep_y)].set_char('├').set_style(style);
-    buf[(ox + w - 1, sep_y)].set_char('┤').set_style(style);
-    for dx in 1..w - 1 {
-        buf[(ox + dx, sep_y)].set_char('─').set_style(style);
-    }
-    if sep_x > ox && sep_x < ox + w - 1 {
-        buf[(sep_x, sep_y)].set_char('┼').set_style(style);
-    }
+    buf.set_string(sep_x + 1, y, table::pad_right("Fishes", fishes_w), bold);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -265,23 +227,13 @@ fn draw_row(
     }
 
     buf[(sep_x, y)].set_char('│').set_style(sep_style);
-    buf.set_string(x, y, pad_right(&entry.name, name_w), text_style);
+    buf.set_string(x, y, table::pad_right(&entry.name, name_w), text_style);
 
     let count_str = format!("{}/{}", entry.fish_count, TANK_CAPACITY);
-    buf.set_string(sep_x + 1, y, pad_right(&count_str, fishes_w), text_style);
-}
-
-fn pad_right(s: &str, width: usize) -> String {
-    let vw = visual_width(s);
-    if vw >= width {
-        s.to_string()
-    } else {
-        format!("{}{}", s, " ".repeat(width - vw))
-    }
-}
-
-fn visual_width(s: &str) -> usize {
-    s.chars()
-        .map(|c| UnicodeWidthChar::width(c).unwrap_or(1))
-        .sum()
+    buf.set_string(
+        sep_x + 1,
+        y,
+        table::pad_right(&count_str, fishes_w),
+        text_style,
+    );
 }

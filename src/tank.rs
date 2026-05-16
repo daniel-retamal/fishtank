@@ -50,6 +50,13 @@ const GLISTEN_SPEED_SLOW_MULT: f32 = 0.25;
 const SWAY_SPEED_CLAMP_MAX: f32 = 2.5;
 const DOUBLE_EYE_COUNT_MAX: usize = 3;
 const MIN_SPLIT_BODY_SIZE: usize = 2;
+const FISH_SPAWN_X_MIN: f32 = 5.0;
+const FISH_SPAWN_X_MAX_OFFSET: f32 = 15.0;
+const FISH_SPAWN_X_SAFE_MIN: f32 = 6.0;
+const FISH_SPAWN_Y_MIN: f32 = 2.0;
+const FISH_SPAWN_Y_MAX_OFFSET: f32 = 5.0;
+const FISH_SPAWN_Y_SAFE_MIN: f32 = 3.0;
+const FOOD_WEIGHT_GAIN_G: u32 = 50;
 
 enum Mutation {
     SizeChange(i32),
@@ -136,10 +143,10 @@ impl Tank {
             return false;
         }
         let actual_name = self.unique_name(&name);
-        let x_max = (self.width as f32 - 15.0).max(6.0);
-        let y_max = (self.height as f32 - 5.0).max(3.0);
-        let x = rng.random_range(5.0..x_max);
-        let y = rng.random_range(2.0..y_max);
+        let x_max = (self.width as f32 - FISH_SPAWN_X_MAX_OFFSET).max(FISH_SPAWN_X_SAFE_MIN);
+        let y_max = (self.height as f32 - FISH_SPAWN_Y_MAX_OFFSET).max(FISH_SPAWN_Y_SAFE_MIN);
+        let x = rng.random_range(FISH_SPAWN_X_MIN..x_max);
+        let y = rng.random_range(FISH_SPAWN_Y_MIN..y_max);
         let fish = Fish::new(species, actual_name.clone(), x, y, rng);
         self.used_names.insert(actual_name);
         self.fish.push(fish);
@@ -148,10 +155,10 @@ impl Tank {
 
     pub fn place_fish(&mut self, mut fish: Fish, name: String, rng: &mut impl RngExt) {
         let actual_name = self.unique_name(&name);
-        let x_max = (self.width as f32 - 15.0).max(6.0);
-        let y_max = (self.height as f32 - 5.0).max(3.0);
-        fish.position.x = rng.random_range(5.0..x_max);
-        fish.position.y = rng.random_range(2.0..y_max);
+        let x_max = (self.width as f32 - FISH_SPAWN_X_MAX_OFFSET).max(FISH_SPAWN_X_SAFE_MIN);
+        let y_max = (self.height as f32 - FISH_SPAWN_Y_MAX_OFFSET).max(FISH_SPAWN_Y_SAFE_MIN);
+        fish.position.x = rng.random_range(FISH_SPAWN_X_MIN..x_max);
+        fish.position.y = rng.random_range(FISH_SPAWN_Y_MIN..y_max);
         fish.name = actual_name.clone();
         self.used_names.insert(actual_name);
         self.fish.push(fish);
@@ -187,7 +194,9 @@ impl Tank {
         for food in &mut self.food {
             food.tick(settings, self.width, self.height);
         }
-        let star: u32 = self.bubbles.iter_mut()
+        let star: u32 = self
+            .bubbles
+            .iter_mut()
             .map(|b| b.tick(settings, self.width))
             .sum();
         self.pending_star_money += star;
@@ -570,7 +579,7 @@ impl Tank {
                 };
                 let cat = self.fish[i].size_category;
                 let cap = self.fish[i].species.config().weight_cap[cat as usize];
-                let new_w = self.fish[i].weight_g + 50;
+                let new_w = self.fish[i].weight_g + FOOD_WEIGHT_GAIN_G;
                 self.fish[i].weight_g = if cap == 0 { new_w } else { new_w.min(cap) };
             }
         }

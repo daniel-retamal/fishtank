@@ -7,7 +7,8 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::Widget,
 };
-use unicode_width::UnicodeWidthChar;
+
+use crate::ui::{scroll_list, table};
 
 pub struct InventoryItem {
     pub name: String,
@@ -96,21 +97,16 @@ impl InventoryState {
     }
 
     pub fn scroll_up(&mut self) {
-        if self.selected > 0 {
-            self.selected -= 1;
-            if self.selected < self.scroll {
-                self.scroll = self.selected;
-            }
-        }
+        scroll_list::scroll_up(&mut self.selected, &mut self.scroll);
     }
 
     pub fn scroll_down(&mut self, visible: usize) {
-        if self.selected + 1 < self.items.len() {
-            self.selected += 1;
-            if self.selected >= self.scroll + visible {
-                self.scroll = self.selected + 1 - visible;
-            }
-        }
+        scroll_list::scroll_down(
+            &mut self.selected,
+            &mut self.scroll,
+            self.items.len(),
+            visible,
+        );
     }
 }
 
@@ -135,10 +131,10 @@ fn word_wrap(text: &str, width: usize) -> Vec<String> {
     let mut current_w = 0usize;
 
     for word in text.split_whitespace() {
-        let word_w = visual_width(word);
+        let word_w = table::visual_width(word);
         if current_w == 0 {
-            let truncated = truncate_str(word, width);
-            current_w = visual_width(&truncated);
+            let truncated = table::truncate_str(word, width);
+            current_w = table::visual_width(&truncated);
             current = truncated;
         } else if current_w + 1 + word_w <= width {
             current.push(' ');
@@ -146,8 +142,8 @@ fn word_wrap(text: &str, width: usize) -> Vec<String> {
             current_w += 1 + word_w;
         } else {
             lines.push(current.clone());
-            let truncated = truncate_str(word, width);
-            current_w = visual_width(&truncated);
+            let truncated = table::truncate_str(word, width);
+            current_w = table::visual_width(&truncated);
             current = truncated;
         }
     }
@@ -166,22 +162,22 @@ impl Widget for InventoryOverlay<'_> {
         let item_w = state
             .items
             .iter()
-            .map(|item| visual_width(&item.name))
+            .map(|item| table::visual_width(&item.name))
             .max()
             .unwrap_or(4)
-            .max(visual_width("Item"));
+            .max(table::visual_width("Item"));
         let qty_w = state
             .items
             .iter()
             .map(|item| item.qty.to_string().len())
             .max()
             .unwrap_or(1)
-            .max(visual_width("Quantity"));
+            .max(table::visual_width("Quantity"));
 
         let avail = (area.width as usize).saturating_sub(2);
         let base_inner = item_w + 1 + qty_w + 1 + CONS_W;
         let avail_for_desc = avail.saturating_sub(base_inner + 1);
-        let show_desc = avail_for_desc >= visual_width("Description");
+        let show_desc = avail_for_desc >= table::visual_width("Description");
         let desc_w = avail_for_desc;
 
         let all_item_lines: Vec<Vec<String>> = state
@@ -227,9 +223,9 @@ impl Widget for InventoryOverlay<'_> {
         };
         let consume_hint = "ENTER consume";
         let right_hint = "ESC/q close";
-        let left_w = visual_width(&left_hint);
-        let consume_w = visual_width(consume_hint);
-        let right_w = visual_width(right_hint);
+        let left_w = table::visual_width(&left_hint);
+        let consume_w = table::visual_width(consume_hint);
+        let right_w = table::visual_width(right_hint);
         let footer_min_w = left_w + 2 + consume_w + 2 + right_w;
 
         let inner_w = if show_desc { avail } else { base_inner }.max(footer_min_w);
@@ -254,7 +250,16 @@ impl Widget for InventoryOverlay<'_> {
             }
         }
 
-        draw_border(buf, ox, oy, overlay_w, overlay_h, bg);
+        table::draw_box_border(
+            buf,
+            ox,
+            oy,
+            overlay_w,
+            overlay_h,
+            " Inventory#index ",
+            Color::White,
+            bg,
+        );
 
         let sep1_x = ox + 1 + item_w as u16;
         let sep2_x = sep1_x + 1 + qty_w as u16;
@@ -265,7 +270,7 @@ impl Widget for InventoryOverlay<'_> {
 
         let inner_x = ox + 1;
         draw_header(buf, inner_x, oy + 1, item_w, qty_w, show_desc, desc_w, bg);
-        draw_separator(buf, ox, oy + 2, overlay_w, sep_xs, bg);
+        table::draw_box_separator(buf, ox, oy + 2, overlay_w, sep_xs, Color::White, bg);
 
         let data_start_y = oy + 3;
         let data_end_y = oy + overlay_h.saturating_sub(4);
@@ -305,7 +310,7 @@ impl Widget for InventoryOverlay<'_> {
         buf.set_string(
             inner_x,
             footer_y,
-            truncate_str(&left_hint, inner_w),
+            table::truncate_str(&left_hint, inner_w),
             hint_style,
         );
 
@@ -321,35 +326,6 @@ impl Widget for InventoryOverlay<'_> {
             let center_x = inner_x + (left_w + 2) as u16;
             buf.set_string(center_x, footer_y, consume_hint, hint_style);
         }
-    }
-}
-
-fn draw_border(buf: &mut Buffer, ox: u16, oy: u16, w: u16, h: u16, bg: Color) {
-    let style = Style::default().fg(Color::White).bg(bg);
-    let title_style = Style::default()
-        .fg(Color::White)
-        .add_modifier(Modifier::BOLD)
-        .bg(bg);
-    let right = ox + w - 1;
-    let bottom = oy + h - 1;
-
-    buf[(ox, oy)].set_char('┌').set_style(style);
-    buf[(right, oy)].set_char('┐').set_style(style);
-    buf[(ox, bottom)].set_char('└').set_style(style);
-    buf[(right, bottom)].set_char('┘').set_style(style);
-
-    for dx in 1..w - 1 {
-        buf[(ox + dx, oy)].set_char('─').set_style(style);
-        buf[(ox + dx, bottom)].set_char('─').set_style(style);
-    }
-    for dy in 1..h - 1 {
-        buf[(ox, oy + dy)].set_char('│').set_style(style);
-        buf[(right, oy + dy)].set_char('│').set_style(style);
-    }
-
-    let title = " Inventory#index ";
-    if (title.len() as u16 + 4) < w {
-        buf.set_string(ox + 2, oy, title, title_style);
     }
 }
 
@@ -370,35 +346,20 @@ fn draw_header(
         .bg(bg);
     let sep = Style::default().fg(Color::White).bg(bg);
 
-    buf.set_string(x, y, pad_right("Item", item_w), bold);
+    buf.set_string(x, y, table::pad_right("Item", item_w), bold);
 
     let q_x = x + item_w as u16;
     buf[(q_x, y)].set_char('│').set_style(sep);
-    buf.set_string(q_x + 1, y, pad_right("Quantity", qty_w), bold);
+    buf.set_string(q_x + 1, y, table::pad_right("Quantity", qty_w), bold);
 
     let c_x = q_x + 1 + qty_w as u16;
     buf[(c_x, y)].set_char('│').set_style(sep);
-    buf.set_string(c_x + 1, y, pad_right("Consumable?", CONS_W), bold);
+    buf.set_string(c_x + 1, y, table::pad_right("Consumable?", CONS_W), bold);
 
     if show_desc {
         let d_x = c_x + 1 + CONS_W as u16;
         buf[(d_x, y)].set_char('│').set_style(sep);
-        buf.set_string(d_x + 1, y, truncate_str("Description", desc_w), bold);
-    }
-}
-
-fn draw_separator(buf: &mut Buffer, ox: u16, sep_y: u16, w: u16, sep_xs: &[u16], bg: Color) {
-    let style = Style::default().fg(Color::White).bg(bg);
-
-    buf[(ox, sep_y)].set_char('├').set_style(style);
-    buf[(ox + w - 1, sep_y)].set_char('┤').set_style(style);
-    for dx in 1..w - 1 {
-        buf[(ox + dx, sep_y)].set_char('─').set_style(style);
-    }
-    for &sx in sep_xs {
-        if sx > ox && sx < ox + w - 1 {
-            buf[(sx, sep_y)].set_char('┼').set_style(style);
-        }
+        buf.set_string(d_x + 1, y, table::truncate_str("Description", desc_w), bold);
     }
 }
 
@@ -448,49 +409,35 @@ fn draw_row(
     }
 
     let center_y = start_y + (item_h.saturating_sub(1) / 2) as u16;
-    buf.set_string(x, center_y, pad_right(&item.name, item_w), text_style);
+    buf.set_string(
+        x,
+        center_y,
+        table::pad_right(&item.name, item_w),
+        text_style,
+    );
     buf.set_string(
         q_x + 1,
         center_y,
-        pad_right(&item.qty.to_string(), qty_w),
+        table::pad_right(&item.qty.to_string(), qty_w),
         text_style,
     );
     let cons_val = if item.is_consumable { "Yes" } else { "No" };
-    buf.set_string(c_x + 1, center_y, pad_right(cons_val, CONS_W), text_style);
+    buf.set_string(
+        c_x + 1,
+        center_y,
+        table::pad_right(cons_val, CONS_W),
+        text_style,
+    );
 
     if show_desc {
         for (i, line) in desc_lines.iter().enumerate() {
             let line_y = start_y + i as u16;
-            buf.set_string(d_x + 1, line_y, truncate_str(line, desc_w), text_style);
+            buf.set_string(
+                d_x + 1,
+                line_y,
+                table::truncate_str(line, desc_w),
+                text_style,
+            );
         }
     }
-}
-
-fn truncate_str(s: &str, width: usize) -> String {
-    let mut out = String::new();
-    let mut w = 0;
-    for ch in s.chars() {
-        let cw = UnicodeWidthChar::width(ch).unwrap_or(1);
-        if w + cw > width {
-            break;
-        }
-        out.push(ch);
-        w += cw;
-    }
-    out
-}
-
-fn pad_right(s: &str, width: usize) -> String {
-    let vw = visual_width(s);
-    if vw >= width {
-        s.to_string()
-    } else {
-        format!("{}{}", s, " ".repeat(width - vw))
-    }
-}
-
-fn visual_width(s: &str) -> usize {
-    s.chars()
-        .map(|c| UnicodeWidthChar::width(c).unwrap_or(1))
-        .sum()
 }

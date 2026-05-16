@@ -5,7 +5,6 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::Widget,
 };
-use unicode_width::UnicodeWidthChar;
 
 use crate::entities::{
     fish::{Direction, Fish},
@@ -14,7 +13,10 @@ use crate::entities::{
 use crate::loot::{
     CashValue, ConsumableKind, JunkSprite, LootKind, bait_sprite_rows, coffee_sprite_rows,
 };
-use crate::ui::render_fish_segs;
+use crate::ui::{
+    render_fish_segs, table,
+    text_input::{TextInput, draw_text_cursor},
+};
 
 const BG: Color = Color::Reset;
 const RIGHT_PANEL_W: u16 = 34;
@@ -28,8 +30,7 @@ const BURGER: Color = Color::Rgb(140, 80, 30);
 pub struct CatchState {
     pub loot: LootKind,
     pub fish: Option<Fish>,
-    pub name_input: String,
-    pub cursor_pos: usize,
+    pub name_input: TextInput,
     pub cursor_visible: bool,
     pub item_qty: u32,
     pub anim_phase: bool,
@@ -50,8 +51,7 @@ impl CatchState {
         Self {
             loot,
             fish,
-            name_input: String::new(),
-            cursor_pos: 0,
+            name_input: TextInput::new(),
             cursor_visible: true,
             item_qty: 0,
             anim_phase: false,
@@ -126,13 +126,15 @@ impl Widget for CatchOverlay<'_> {
 
         let panel_sep_x = ox + 1 + left_w;
 
-        draw_border(
+        table::draw_box_border(
             buf,
             ox,
             oy,
             overlay_w,
             OVERLAY_H,
             overlay_title(&state.loot),
+            Color::White,
+            BG,
         );
 
         buf[(panel_sep_x, oy + OVERLAY_H - 1)]
@@ -178,37 +180,6 @@ fn overlay_title(loot: &LootKind) -> &'static str {
         LootKind::Junk(_) => " Junk to the Fishtank! ",
         LootKind::Consumable(_) => " Item to the Fishtank! ",
         LootKind::GoldBar => " Gold Bar! ",
-    }
-}
-
-fn draw_border(buf: &mut Buffer, ox: u16, oy: u16, w: u16, h: u16, title: &str) {
-    if w < 2 || h < 2 {
-        return;
-    }
-    let style = Style::default().fg(Color::White).bg(BG);
-    let title_style = Style::default()
-        .fg(Color::White)
-        .add_modifier(Modifier::BOLD)
-        .bg(BG);
-    let right = ox + w - 1;
-    let bottom = oy + h - 1;
-
-    buf[(ox, oy)].set_char('┌').set_style(style);
-    buf[(right, oy)].set_char('┐').set_style(style);
-    buf[(ox, bottom)].set_char('└').set_style(style);
-    buf[(right, bottom)].set_char('┘').set_style(style);
-
-    for dx in 1..w - 1 {
-        buf[(ox + dx, oy)].set_char('─').set_style(style);
-        buf[(ox + dx, bottom)].set_char('─').set_style(style);
-    }
-    for dy in 1..h - 1 {
-        buf[(ox, oy + dy)].set_char('│').set_style(style);
-        buf[(right, oy + dy)].set_char('│').set_style(style);
-    }
-
-    if (title.len() as u16 + 4) < w {
-        buf.set_string(ox + 2, oy, title, title_style);
     }
 }
 
@@ -510,7 +481,7 @@ fn draw_junk_panel(buf: &mut Buffer, sprite: &JunkSprite, x: u16, y: u16, w: u16
         }
         let mut col = 0u16;
         for (ch, color) in row {
-            let cw = UnicodeWidthChar::width(*ch).unwrap_or(1) as u16;
+            let cw = table::visual_width(&ch.to_string()) as u16;
             if sprite_x + col + cw > x + w {
                 break;
             }
@@ -550,15 +521,23 @@ fn draw_fish_right_panel(
         buf.set_string(
             x,
             y,
-            truncate_to_width(&caught_line, w as usize),
+            table::truncate_str(&caught_line, w as usize),
             white_bold,
         );
     }
     if h > 2 {
-        buf.set_string(x, y + 2, truncate_to_width("Name it", w as usize), white);
+        buf.set_string(x, y + 2, table::truncate_str("Name it", w as usize), white);
     }
     if h > 3 {
-        draw_name_input(buf, state, x, y + 3, w);
+        draw_text_cursor(
+            buf,
+            &state.name_input,
+            state.cursor_visible,
+            x,
+            y + 3,
+            w,
+            BG,
+        );
     }
     if h > 4 {
         let hint = Style::default().fg(Color::DarkGray).bg(BG);
@@ -582,13 +561,13 @@ fn draw_cash_right_panel(buf: &mut Buffer, cv: CashValue, x: u16, y: u16, w: u16
         buf.set_string(
             x,
             y,
-            truncate_to_width("Congratulations!", w as usize),
+            table::truncate_str("Congratulations!", w as usize),
             white_bold,
         );
     }
     if h > 1 {
         let msg = format!("${} found!", cv.amount());
-        buf.set_string(x, y + 1, truncate_to_width(&msg, w as usize), cash_style);
+        buf.set_string(x, y + 1, table::truncate_str(&msg, w as usize), cash_style);
     }
     if h > 3 {
         let text = "Chasing cash, making money.";
@@ -614,13 +593,13 @@ fn draw_food_right_panel(buf: &mut Buffer, amount: u32, x: u16, y: u16, w: u16, 
         buf.set_string(
             x,
             y,
-            truncate_to_width("Congratulations!", w as usize),
+            table::truncate_str("Congratulations!", w as usize),
             white_bold,
         );
     }
     if h > 1 {
         let msg = format!("+{} food!", amount);
-        buf.set_string(x, y + 1, truncate_to_width(&msg, w as usize), white);
+        buf.set_string(x, y + 1, table::truncate_str(&msg, w as usize), white);
     }
     if h > 4 {
         let text = "ESC/q to close";
@@ -644,14 +623,14 @@ fn draw_consumable_item_right_panel(
     let line0 = format!("{}!", item_name);
     let line1 = "Added to inventory.";
     if h > 0 {
-        buf.set_string(x, y, truncate_to_width(&line0, w as usize), white);
+        buf.set_string(x, y, table::truncate_str(&line0, w as usize), white);
     }
     if h > 1 {
-        buf.set_string(x, y + 1, truncate_to_width(line1, w as usize), white);
+        buf.set_string(x, y + 1, table::truncate_str(line1, w as usize), white);
     }
     if h > 3 {
         let qty_msg = format!("You now have {} of {}.", qty, item_name);
-        let qty_msg = truncate_to_width(&qty_msg, (w - 1) as usize);
+        let qty_msg = table::truncate_str(&qty_msg, (w - 1) as usize);
         let tx = x + w - 1 - (qty_msg.len() as u16).min(w - 1);
         buf.set_string(tx, y + 3, qty_msg, hint);
     }
@@ -659,63 +638,6 @@ fn draw_consumable_item_right_panel(
         let text = "ESC/q to close";
         let tx = x + w - 1 - (text.len() as u16).min(w - 1);
         buf.set_string(tx, y + 4, text, hint);
-    }
-}
-
-fn draw_name_input(buf: &mut Buffer, state: &CatchState, x: u16, y: u16, w: u16) {
-    if w < 3 {
-        return;
-    }
-
-    let white = Style::default().fg(Color::White).bg(BG);
-
-    buf[(x, y)].set_char('>').set_style(white);
-    buf[(x + 1, y)].set_char(' ').set_style(white);
-
-    let base_x = x + 2;
-    let input = &state.name_input;
-    let cursor_pos = state.cursor_pos;
-    let at_end = cursor_pos == input.len();
-    let cursor_col = base_x + cursor_pos as u16;
-
-    if cursor_pos > 0 && base_x < x + w {
-        let avail = (x + w - base_x) as usize;
-        buf.set_string(
-            base_x,
-            y,
-            truncate_to_width(&input[..cursor_pos], avail),
-            white,
-        );
-    }
-
-    if cursor_col < x + w {
-        let ch = if at_end {
-            ' '
-        } else {
-            input[cursor_pos..].chars().next().unwrap_or(' ')
-        };
-        if state.cursor_visible {
-            buf[(cursor_col, y)]
-                .set_char(ch)
-                .set_fg(Color::Black)
-                .set_bg(Color::White);
-        } else if !at_end {
-            buf[(cursor_col, y)].set_char(ch).set_style(white);
-        }
-    }
-
-    if !at_end {
-        let char_len = input[cursor_pos..]
-            .chars()
-            .next()
-            .map(|c| c.len_utf8())
-            .unwrap_or(1);
-        let after = &input[cursor_pos + char_len..];
-        let after_col = cursor_col + 1;
-        if !after.is_empty() && after_col < x + w {
-            let avail = (x + w - after_col) as usize;
-            buf.set_string(after_col, y, truncate_to_width(after, avail), white);
-        }
     }
 }
 
@@ -765,33 +687,22 @@ fn draw_goldbar_right_panel(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
     if h < 2 {
         return;
     }
-    buf.set_string(x, y, truncate_to_width("Gold Bar!", w as usize), s_gold);
+    buf.set_string(x, y, table::truncate_str("Gold Bar!", w as usize), s_gold);
     buf.set_string(
         x,
         y + 1,
-        truncate_to_width("Worth $5,000", w as usize),
+        table::truncate_str(
+            &format!("Worth ${}", crate::loot::GOLD_BAR_VALUE),
+            w as usize,
+        ),
         s_white,
     );
     if h >= 5 {
         buf.set_string(
             x,
             y + h - 1,
-            truncate_to_width("ENTER/ESC collect", w as usize),
+            table::truncate_str("ENTER/ESC collect", w as usize),
             s_dim,
         );
     }
-}
-
-fn truncate_to_width(s: &str, max_w: usize) -> String {
-    let mut out = String::new();
-    let mut w = 0;
-    for ch in s.chars() {
-        let cw = UnicodeWidthChar::width(ch).unwrap_or(1);
-        if w + cw > max_w {
-            break;
-        }
-        out.push(ch);
-        w += cw;
-    }
-    out
 }

@@ -3,6 +3,11 @@ use ratatui::style::Color;
 
 use crate::entities::species::FishSpecies;
 
+pub const GOLD_BAR_VALUE: u32 = 5_000;
+pub const FOOD_AMOUNT_MIN: u32 = 20;
+pub const FOOD_AMOUNT_MAX: u32 = 80;
+const JUNK_SLOT_OUTCOMES: u32 = 3;
+
 const JUNK_FILLER_CHARS: &[char] = &['&', '@', '€', '%', '$', '#', 'X', '<', '>'];
 const JUNK_COLORS: &[Color] = &[
     Color::Gray,
@@ -86,6 +91,22 @@ pub enum ConsumableKind {
 }
 
 impl ConsumableKind {
+    pub const fn all() -> &'static [ConsumableKind] {
+        &[ConsumableKind::Coffee, ConsumableKind::Bait]
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            ConsumableKind::Coffee => "Coffee",
+            ConsumableKind::Bait => "Bait",
+        }
+    }
+
+    pub fn lowercase_name(self) -> String {
+        self.display_name().to_ascii_lowercase()
+    }
+
+
     pub fn panel_inner_w(self) -> u16 {
         match self {
             ConsumableKind::Coffee => 8,
@@ -104,13 +125,6 @@ impl ConsumableKind {
         match self {
             ConsumableKind::Coffee => 2,
             ConsumableKind::Bait => 0,
-        }
-    }
-
-    pub fn display_name(self) -> &'static str {
-        match self {
-            ConsumableKind::Coffee => "Coffee",
-            ConsumableKind::Bait => "Bait",
         }
     }
 }
@@ -294,7 +308,7 @@ fn roll_weighted<T: Copy>(table: &[(u32, T)], rng: &mut impl RngExt) -> T {
 }
 
 fn roll_junk_slot(rng: &mut impl RngExt) -> LootKind {
-    match rng.random_range(0..3u32) {
+    match rng.random_range(0..JUNK_SLOT_OUTCOMES) {
         0 => LootKind::Junk(JunkSprite::new(rng)),
         1 => LootKind::Consumable(ConsumableKind::Coffee),
         _ => LootKind::Consumable(ConsumableKind::Bait),
@@ -314,7 +328,9 @@ pub fn roll_loot_no_fish(rng: &mut impl RngExt) -> LootKind {
             return match entry {
                 LootEntry::Fish(_) => unreachable!(),
                 LootEntry::Cash => LootKind::Cash(CashValue::roll(rng)),
-                LootEntry::Food => LootKind::Food(rng.random_range(20..=80u32)),
+                LootEntry::Food => {
+                    LootKind::Food(rng.random_range(FOOD_AMOUNT_MIN..=FOOD_AMOUNT_MAX))
+                }
                 LootEntry::JunkSlot => roll_junk_slot(rng),
                 LootEntry::GoldBar => LootKind::GoldBar,
             };
@@ -341,7 +357,9 @@ pub fn roll_loot(rng: &mut impl RngExt, bait_stacks: u32) -> LootKind {
             return match entry {
                 LootEntry::Fish(s) => LootKind::Fish(*s),
                 LootEntry::Cash => LootKind::Cash(CashValue::roll(rng)),
-                LootEntry::Food => LootKind::Food(rng.random_range(20..=80u32)),
+                LootEntry::Food => {
+                    LootKind::Food(rng.random_range(FOOD_AMOUNT_MIN..=FOOD_AMOUNT_MAX))
+                }
                 LootEntry::JunkSlot => roll_junk_slot(rng),
                 LootEntry::GoldBar => LootKind::GoldBar,
             };
