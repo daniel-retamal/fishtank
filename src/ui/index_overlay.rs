@@ -8,7 +8,7 @@ use ratatui::{
 
 use crate::entities::fish::{Direction, Fish};
 use crate::entities::species::FishSpecies;
-use crate::ui::{render_fish_segs, scroll_list, table};
+use crate::ui::{fields, render_fish_segs, scroll_list, table};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum FantasyKind {
@@ -100,7 +100,7 @@ impl FantasyKind {
             FantasyKind::FavoriteNumber => "Favorite Number",
             FantasyKind::TarotPrediction => "Tarot Prediction",
             FantasyKind::FavoriteQuote => "Favorite Quote",
-            FantasyKind::FavoriteTime => "Favorite time",
+            FantasyKind::FavoriteTime => "Favorite Hour",
             FantasyKind::Lonely => "Lonely?",
             FantasyKind::Gmi => "gmi?",
             FantasyKind::ElOLaPr => "El o La PR?",
@@ -164,11 +164,7 @@ impl IndexState {
                 segments: f.static_left_segments(),
                 display_width: f.display_width,
                 weight_g: f.weight_g,
-                tank_name: if show_tank_col {
-                    Some(tank_name.to_string())
-                } else {
-                    None
-                },
+                tank_name: Some(tank_name.to_string()),
             })
             .collect();
 
@@ -232,7 +228,7 @@ impl IndexState {
             .max("Display".len());
         let max_food_w = snapshots
             .iter()
-            .map(|s| s.weight_g.to_string().len() + 1)
+            .map(|s| fields::format_weight(s.weight_g).len())
             .max()
             .unwrap_or(1)
             .max("Weight".len());
@@ -297,6 +293,17 @@ impl IndexState {
                 .cloned()
                 .map(display_clone);
         }
+    }
+
+    pub fn selected_fish_name(&self) -> Option<&str> {
+        self.snapshots.get(self.selected).map(|s| s.name.as_str())
+    }
+
+    pub fn selected_tank_name(&self) -> &str {
+        self.snapshots
+            .get(self.selected)
+            .and_then(|s| s.tank_name.as_deref())
+            .unwrap_or("")
     }
 
     pub fn scroll_left(&mut self) {
@@ -425,21 +432,30 @@ impl Widget for IndexOverlay<'_> {
         };
         let hint_style = Style::default().fg(Color::DarkGray).bg(bg);
         let right_text = "ESC/q close";
-        let right_w = table::visual_width(right_text);
-        let left_w = table::visual_width(&left_hint);
+        let center_text = if n > 0 { Some("ENTER show") } else { None };
+        let left_w = table::visual_width(&left_hint) as u16;
+        let right_w = table::visual_width(right_text) as u16;
         buf.set_string(
             inner_x,
             footer_y,
             table::truncate_str(&left_hint, inner_w),
             hint_style,
         );
-        if left_w + 4 + right_w <= inner_w {
+        if right_w + 2 <= inner_w as u16 {
             buf.set_string(
-                inner_x + inner_w as u16 - right_w as u16 - 1,
+                inner_x + inner_w as u16 - right_w - 1,
                 footer_y,
                 right_text,
                 hint_style,
             );
+        }
+        if let Some(ct) = center_text {
+            let ct_w = table::visual_width(ct) as u16;
+            let center_x = inner_x + (inner_w as u16 - ct_w) / 2;
+            let right_edge = inner_x + inner_w as u16 - right_w - 2;
+            if center_x > inner_x + left_w + 1 && center_x + ct_w < right_edge {
+                buf.set_string(center_x, footer_y, ct, hint_style);
+            }
         }
     }
 }
@@ -624,7 +640,7 @@ fn draw_data_row(
             }
             2 => render_display_cell(buf, &snap.segments, x, row_y, w.min(avail), base_bg),
             3 => {
-                let s = format!("{}g", snap.weight_g);
+                let s = fields::format_weight(snap.weight_g);
                 put_text(buf, &s, x, row_y, w.min(avail), fg, row_bg);
             }
             4 if state.show_tank_col => {
@@ -723,18 +739,18 @@ fn gen_fantasy(
 
         FantasyKind::ZodiacSign => {
             const S: &[&str] = &[
-                "♈ Aries",
-                "♉ Taurus",
-                "♊ Gemini",
-                "♋ Cancer",
-                "♌ Leo",
-                "♍ Virgo",
-                "♎ Libra",
-                "♏ Scorpio",
-                "♐ Sagittarius",
-                "♑ Capricorn",
-                "♒ Aquarius",
-                "♓ Pisces",
+                "Aries",
+                "Taurus",
+                "Gemini",
+                "Cancer",
+                "Leo",
+                "Virgo",
+                "Libra",
+                "Scorpio",
+                "Sagittarius",
+                "Capricorn",
+                "Aquarius",
+                "Pisces",
             ];
             (0..n)
                 .map(|_| plain(S[rng.random_range(0..S.len())]))
@@ -784,16 +800,19 @@ fn gen_fantasy(
 
         FantasyKind::PickACard => {
             const RANKS: &[&str] = &[
-                "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K",
+                "Ace", "2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King",
             ];
-            const SUITS: &[&str] = &["♤", "♡", "♢", "♧"];
+            const SUITS: &[&str] = &["Spades", "Hearts", "Diamonds", "Clubs"];
             (0..n)
                 .map(|_| {
-                    plain(format!(
-                        "{}{}",
-                        RANKS[rng.random_range(0..RANKS.len())],
-                        SUITS[rng.random_range(0..SUITS.len())]
-                    ))
+                    let roll = rng.random_range(0..54u32);
+                    if roll >= 52 {
+                        plain("Joker")
+                    } else {
+                        let rank = RANKS[(roll % 13) as usize];
+                        let suit = SUITS[(roll / 13) as usize];
+                        plain(format!("{} of {}", rank, suit))
+                    }
                 })
                 .collect()
         }
@@ -842,6 +861,30 @@ fn gen_fantasy(
             .collect(),
 
         FantasyKind::TarotPrediction => {
+            const MUTANT_SPREADS: &[&str] = &[
+                "The Tower + Death + Ten of Swords",
+                "Three of Swords + The Devil + Nine of Swords",
+                "Five of Pentacles + Ten of Wands + The Moon",
+                "The Tower Reversed + Eight of Swords + The Hanged Man",
+                "Death Reversed + Four of Pentacles + Judgement Reversed",
+                "The Devil Reversed + Seven of Swords + Wheel of Fortune Reversed",
+                "Ten of Swords Reversed + The Moon Reversed + Five of Cups",
+                "Five of Cups + Hermit Reversed + Lovers Reversed",
+                "Justice Reversed + The Tower + King of Pentacles Reversed",
+                "Sun Reversed + Star Reversed + Nine of Wands",
+            ];
+            const GOLDEN_SPREADS: &[&str] = &[
+                "The Sun + Ten of Cups + Ace of Pentacles",
+                "The Star + Lovers + The World",
+                "Wheel of Fortune + Six of Wands + The Emperor",
+                "Ace of Cups + The Empress + Four of Wands",
+                "The Magician + The Chariot + The Sun",
+                "Death + The Star + Ace of Wands",
+                "The Devil Reversed + Judgement + The Fool",
+                "Nine of Pentacles + King of Pentacles + The World",
+                "Two of Cups + Ten of Cups + Star Reversed",
+                "Strength + The Hierophant + Sun Reversed",
+            ];
             const CARDS: &[&str] = &[
                 "The Fool",
                 "The Magician",
@@ -869,9 +912,11 @@ fn gen_fantasy(
             (0..n)
                 .map(|i| match species[i] {
                     FishSpecies::Mutantfish => {
-                        plain("The Tower (R), The Devil (R), Three of Swords (R)")
+                        plain(MUTANT_SPREADS[rng.random_range(0..MUTANT_SPREADS.len())])
                     }
-                    FishSpecies::Goldenfish => plain("The Star, The Sun, The World"),
+                    FishSpecies::Goldenfish => {
+                        plain(GOLDEN_SPREADS[rng.random_range(0..GOLDEN_SPREADS.len())])
+                    }
                     _ => {
                         let mut deck: Vec<&str> = CARDS.to_vec();
                         let i1 = rng.random_range(0..deck.len());
@@ -903,7 +948,7 @@ fn gen_fantasy(
         FantasyKind::FavoriteTime => (0..n)
             .map(|_| {
                 plain(format!(
-                    "{:02}{:02}",
+                    "{:02}:{:02}",
                     rng.random_range(0..24u32),
                     rng.random_range(0..60u32)
                 ))

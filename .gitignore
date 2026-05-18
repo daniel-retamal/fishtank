@@ -1,4 +1,5 @@
 /target
 *.txt
 /.claude
+/.vscode
 CLAUDE.md

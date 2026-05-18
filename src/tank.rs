@@ -74,6 +74,43 @@ enum Mutation {
     Mitosis,
 }
 
+impl Mutation {
+    fn display_name(&self) -> &'static str {
+        match self {
+            Mutation::SizeChange(d) => {
+                if *d > 0 {
+                    "size+"
+                } else {
+                    "size-"
+                }
+            }
+            Mutation::ColorPatch => "colorpatch",
+            Mutation::EyeChange { left, delta } => match (*left, *delta > 0) {
+                (true, true) => "eye_left+",
+                (true, false) => "eye_left-",
+                (false, true) => "eye_right+",
+                (false, false) => "eye_right-",
+            },
+            Mutation::EyeColor => "eyecolor",
+            Mutation::GlisteningSpeed { fast } => {
+                if *fast {
+                    "glistenfast"
+                } else {
+                    "glisten_slow"
+                }
+            }
+            Mutation::GlisteningMode => "glistenmode",
+            Mutation::GlisteningColor => "glistencolor",
+            Mutation::BodyColor => "bodycolor",
+            Mutation::BodyVariant => "bodyvariant",
+            Mutation::TailVariant => "tailvariant",
+            Mutation::MouthVariant => "mouthvariant",
+            Mutation::Doublefish => "doublefish",
+            Mutation::Mitosis => "mitosis",
+        }
+    }
+}
+
 pub struct Tank {
     pub name: String,
     pub fish: Vec<Fish>,
@@ -373,6 +410,22 @@ impl Tank {
 
         self.used_names.insert(new_name);
         self.fish.push(new_fish);
+
+        let new_idx = self.fish.len() - 1;
+        let new_fish_name = self.fish[new_idx].name.clone();
+        self.fish[idx]
+            .mutant
+            .as_mut()
+            .unwrap()
+            .mitosis_partners
+            .push(new_fish_name);
+        let orig_name = self.fish[idx].name.clone();
+        self.fish[new_idx]
+            .mutant
+            .as_mut()
+            .unwrap()
+            .mitosis_partners
+            .push(orig_name);
     }
 
     pub fn apply_named_mutation(&mut self, fish_name: &str, mutation_name: &str) {
@@ -662,8 +715,10 @@ fn pick_random_mutation(fish: &Fish, rng: &mut impl RngExt) -> Mutation {
 }
 
 fn apply_mutation_to_fish(fish: &mut Fish, mutation: Mutation, rng: &mut impl RngExt) {
+    let mutation_name = mutation.display_name().to_string();
     let m = fish.mutant.as_mut().unwrap();
     m.mutation_count += 1;
+    m.mutation_history.push(mutation_name);
     match mutation {
         Mutation::SizeChange(delta) => {
             let max_eyes = m.left_eyes.len().max(m.right_eyes.len());

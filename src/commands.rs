@@ -19,6 +19,7 @@ static COMMAND_NAMES: &[&str] = &[
     "mutate",
     "names",
     "shop",
+    "show",
     "spawn",
     "stats",
     "subtract",
@@ -92,6 +93,7 @@ pub fn autocomplete(
             "index" => complete_index(rest, tank_names),
             "move" => complete_move(rest, fish_names, tank_names, fish_in_tanks),
             "mutate" => complete_mutate(rest, fish_names),
+            "show" => complete_show(rest, fish_in_tanks),
             "spawn" => complete_spawn(rest),
             "subtract" => complete_add_subtract("subtract", rest),
             "switch" => complete_switch(rest, tank_names, current_tank),
@@ -569,16 +571,57 @@ fn complete_index(rest: &str, tank_names: &[&str]) -> Option<Completion> {
     Some(Completion { ghost, tab_result })
 }
 
+fn complete_show(rest: &str, fish_in_tanks: &[(&str, &str)]) -> Option<Completion> {
+    let all_names: Vec<&str> = fish_in_tanks.iter().map(|(n, _)| *n).collect();
+    if all_names.is_empty() {
+        return None;
+    }
+    if rest.is_empty() {
+        return Some(Completion {
+            ghost: "\"<name>\"".to_string(),
+            tab_result: None,
+        });
+    }
+    let inner = rest.strip_prefix('"')?;
+    if inner.contains('"') {
+        return None;
+    }
+    let matches: Vec<&str> = all_names
+        .iter()
+        .copied()
+        .filter(|&n| n.starts_with(inner))
+        .collect();
+    if matches.is_empty() {
+        return Some(Completion {
+            ghost: "\"".to_string(),
+            tab_result: None,
+        });
+    }
+    let first = matches[0];
+    let ghost = format!("{}\"", &first[inner.len()..]);
+    let tab_result = if matches.len() == 1 {
+        Some(format!("/show \"{}\"", first))
+    } else {
+        let cp = longest_common_prefix(&matches);
+        if cp.len() > inner.len() {
+            Some(format!("/show \"{}", cp))
+        } else {
+            Some(format!("/show \"{}\"", first))
+        }
+    };
+    Some(Completion { ghost, tab_result })
+}
+
 fn command_args_placeholder(cmd: &str) -> &'static str {
     match cmd {
         "add" | "subtract" => "<resource> <amount>",
         "consume" => "<consumable>",
         "feed" => "<amount>",
         "fps" => "<n>",
+        "index" | "show" | "switch" => "\"<name>\"",
         "move" => "\"<fish>\" \"<tank>\"",
         "mutate" => "\"<name>\" <mutation>",
         "spawn" => "<species> \"<name>\"",
-        "switch" => "\"<name>\"",
         _ => "",
     }
 }
@@ -612,6 +655,10 @@ pub enum Action {
     SetFps(f32),
     Spawn(FishSpecies, String),
     Mutate(String, String),
+    Show {
+        name: String,
+        all: bool,
+    },
     Index {
         all: bool,
         tank_filter: Option<String>,
@@ -653,6 +700,24 @@ fn parse_quoted_arg(rest: &str) -> Option<String> {
     let quote_char = rest.chars().next().unwrap();
     let end = inner.find(quote_char)?;
     Some(inner[..end].to_string())
+}
+
+fn parse_show_args(rest: &str) -> Option<(String, bool)> {
+    let rest = rest.trim();
+    let (quote_char, inner) = if let Some(s) = rest.strip_prefix('"') {
+        ('"', s)
+    } else if let Some(s) = rest.strip_prefix('\'') {
+        ('\'', s)
+    } else {
+        return None;
+    };
+    let end = inner.find(quote_char)?;
+    let name = inner[..end].to_string();
+    if name.is_empty() {
+        return None;
+    }
+    let after = inner[end + 1..].trim();
+    Some((name, after == "all"))
 }
 
 fn parse_two_quoted_args(rest: &str) -> Option<(String, String)> {
@@ -715,6 +780,13 @@ pub fn parse(input: &str) -> Action {
     if let Some(rest) = body.strip_prefix("move ") {
         return match parse_two_quoted_args(rest) {
             Some((fish, tank)) => Action::Move { fish, tank },
+            None => Action::Unknown,
+        };
+    }
+
+    if let Some(rest) = body.strip_prefix("show ") {
+        return match parse_show_args(rest) {
+            Some((name, all)) => Action::Show { name, all },
             None => Action::Unknown,
         };
     }

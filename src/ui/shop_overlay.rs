@@ -506,13 +506,6 @@ impl Widget for ShopOverlay<'_> {
             _ => false,
         };
 
-        for dy in 0..oh {
-            for dx in 0..OVERLAY_W {
-                buf[(ox + dx, oy + dy)].reset();
-                buf[(ox + dx, oy + dy)].set_bg(BG);
-            }
-        }
-
         let fg = if has_popup {
             Color::DarkGray
         } else {
@@ -522,6 +515,17 @@ impl Widget for ShopOverlay<'_> {
         let s_title = Style::default().fg(fg).add_modifier(Modifier::BOLD).bg(BG);
         let sep_x = ox + 1 + PENGUIN_W;
         let right_x = ox + OVERLAY_W - 1;
+
+        for dy in 0..=PENGUIN_BOX_ROW {
+            for dx in 0..OVERLAY_W {
+                buf[(ox + dx, oy + dy)].reset();
+            }
+        }
+        for dy in PENGUIN_BOX_ROW + 1..oh {
+            for dx in PENGUIN_W + 1..OVERLAY_W {
+                buf[(ox + dx, oy + dy)].reset();
+            }
+        }
 
         buf[(ox, oy)].set_char('┌').set_style(s);
         for dx in 1..=PENGUIN_W {
@@ -975,7 +979,6 @@ fn draw_qty_popup(
     for dy in 0..POP_H {
         for dx in 0..POP_W {
             buf[(ox + dx, oy + dy)].reset();
-            buf[(ox + dx, oy + dy)].set_bg(BG);
         }
     }
     table::draw_box_border(buf, ox, oy, POP_W, POP_H, title, Color::White, BG);
@@ -1058,10 +1061,8 @@ fn draw_fish_name_popup(buf: &mut Buffer, popup: &FishNamePopup, cursor_vis: boo
     for dy in 0..POP_H {
         for dx in 0..pop_w {
             buf[(ox + dx, oy + dy)].reset();
-            buf[(ox + dx, oy + dy)].set_bg(BG);
         }
     }
-
     let species = FISH_CATALOG[popup.catalog_idx].name;
     let title = format!(" Buy {} ", species);
     table::draw_box_border(buf, ox, oy, pop_w, POP_H, &title, Color::White, BG);
@@ -1168,10 +1169,8 @@ fn draw_sell_confirm_popup(buf: &mut Buffer, confirm: &SellConfirm, entry: &Sell
     for dy in 0..pop_h {
         for dx in 0..pop_w {
             buf[(ox + dx, oy + dy)].reset();
-            buf[(ox + dx, oy + dy)].set_bg(BG);
         }
     }
-
     let (title, msg) = match entry {
         SellEntry::Fish { name, species, .. } => {
             let t = format!(" Sell {} ", species.display_name());
@@ -1237,10 +1236,8 @@ fn draw_buy_tank_popup(buf: &mut Buffer, popup: &BuyTankPopup, cursor_vis: bool,
     for dy in 0..POP_H {
         for dx in 0..POP_W {
             buf[(ox + dx, oy + dy)].reset();
-            buf[(ox + dx, oy + dy)].set_bg(BG);
         }
     }
-
     table::draw_box_border(
         buf,
         ox,

@@ -152,6 +152,8 @@ pub struct MutantState {
     pub is_double: bool,
     pub double_head_eyes: Vec<EyeState>,
     pub mutation_count: u32,
+    pub mutation_history: Vec<String>,
+    pub mitosis_partners: Vec<String>,
 }
 
 impl MutantState {
@@ -175,6 +177,8 @@ impl MutantState {
             is_double: false,
             double_head_eyes: Vec::new(),
             mutation_count: 0,
+            mutation_history: Vec::new(),
+            mitosis_partners: Vec::new(),
         }
     }
 

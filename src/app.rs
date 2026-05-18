@@ -28,6 +28,7 @@ use crate::{
             ShopPage, ShopState, TANK_BUY_PRICE, buy_cat_first_available, buy_cat_next,
             list_visible_rows,
         },
+        show_overlay::{ShowOverlay, ShowSource, ShowState},
         tank_view::TankView,
         text_input::TextInput,
     },
@@ -54,6 +55,8 @@ pub struct App {
     history_pos: Option<usize>,
     draft: String,
     index_state: Option<IndexState>,
+    backed_index_state: Option<IndexState>,
+    show_state: Option<ShowState>,
     inventory_state: Option<InventoryState>,
     fishing_state: Option<FishingState>,
     catch_state: Option<CatchState>,
@@ -105,6 +108,8 @@ impl App {
             history_pos: None,
             draft: String::new(),
             index_state: None,
+            backed_index_state: None,
+            show_state: None,
             inventory_state: None,
             fishing_state: None,
             catch_state: None,
@@ -199,6 +204,11 @@ impl App {
             return;
         }
 
+        if let Some(ref mut show) = self.show_state {
+            show.tick_animation(1.0 / self.settings.fps);
+            return;
+        }
+
         if let Some(ref mut idx) = self.index_state {
             idx.tick_animation(1.0 / self.settings.fps);
             return;
@@ -233,6 +243,10 @@ impl App {
         }
         if self.fishing_state.is_some() {
             self.handle_fishing_input(event);
+            return;
+        }
+        if self.show_state.is_some() {
+            self.handle_show_input(event);
             return;
         }
         if self.index_state.is_some() {
@@ -384,6 +398,40 @@ impl App {
         }
     }
 
+    fn handle_show_input(&mut self, event: Event) {
+        let Event::Key(key) = event else { return };
+        if key.kind != KeyEventKind::Press {
+            return;
+        }
+        match key.code {
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.running = false;
+            }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                if self
+                    .show_state
+                    .as_ref()
+                    .is_some_and(|s| matches!(s.source, ShowSource::FromIndex))
+                {
+                    self.index_state = self.backed_index_state.take();
+                }
+                self.show_state = None;
+            }
+            KeyCode::Up => {
+                if let Some(ref mut s) = self.show_state {
+                    s.scroll_up();
+                }
+            }
+            KeyCode::Down => {
+                let visible = self.show_visible_count();
+                if let Some(ref mut s) = self.show_state {
+                    s.scroll_down(visible);
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn handle_index_input(&mut self, event: Event) {
         let Event::Key(key) = event else { return };
         if key.kind != KeyEventKind::Press {
@@ -416,6 +464,43 @@ impl App {
                 let tw = self.terminal_width;
                 if let Some(ref mut s) = self.index_state {
                     s.scroll_right(tw);
+                }
+            }
+            KeyCode::Enter => {
+                let fish_name = self
+                    .index_state
+                    .as_ref()
+                    .and_then(|s| s.selected_fish_name())
+                    .map(|s| s.to_string());
+                let tank_name = self
+                    .index_state
+                    .as_ref()
+                    .map(|s| s.selected_tank_name().to_string())
+                    .unwrap_or_default();
+                if let Some(fish_name) = fish_name {
+                    let fish = self
+                        .tanks
+                        .iter()
+                        .flat_map(|t| t.fish.iter())
+                        .find(|f| f.name == fish_name)
+                        .cloned();
+                    if let Some(fish) = fish {
+                        let all_names: Vec<String> = self
+                            .tanks
+                            .iter()
+                            .flat_map(|t| t.fish.iter().map(|f| f.name.clone()))
+                            .collect();
+                        let mut rng = rand::rng();
+                        self.backed_index_state = self.index_state.take();
+                        self.show_state = Some(ShowState::new(
+                            &fish,
+                            &tank_name,
+                            &all_names,
+                            ShowSource::FromIndex,
+                            false,
+                            &mut rng,
+                        ));
+                    }
                 }
             }
             _ => {}
@@ -1040,6 +1125,14 @@ impl App {
         (self.tank_height() as usize).saturating_sub(6).max(1)
     }
 
+    fn show_visible_count(&self) -> usize {
+        if let Some(ref s) = self.show_state {
+            ShowState::visible_count(s.overlay_h(self.tank_height(), self.terminal_width))
+        } else {
+            0
+        }
+    }
+
     fn inventory_visible_rows(&self) -> usize {
         (self.tank_height() as usize).saturating_sub(6).max(1)
     }
@@ -1111,6 +1204,10 @@ impl App {
 
         if let Some(ref state) = self.index_state {
             frame.render_widget(IndexOverlay::new(state), tank_area);
+        }
+
+        if let Some(ref state) = self.show_state {
+            frame.render_widget(ShowOverlay::new(state), tank_area);
         }
 
         if let Some(ref state) = self.inventory_state {
@@ -1304,6 +1401,33 @@ impl App {
                 let visible = self.fishtanks_visible_rows();
                 self.fishtanks_state =
                     Some(FishtanksState::new(&self.tanks, self.current_tank, visible));
+            }
+            commands::Action::Show {
+                name: fish_name,
+                all,
+            } => {
+                let found = self
+                    .tanks
+                    .iter()
+                    .flat_map(|t| t.fish.iter().map(move |f| (f, t.name.as_str())))
+                    .find(|(f, _)| f.name.eq_ignore_ascii_case(&fish_name))
+                    .map(|(f, tn)| (f.clone(), tn.to_string()));
+                if let Some((fish, tank_name)) = found {
+                    let all_names: Vec<String> = self
+                        .tanks
+                        .iter()
+                        .flat_map(|t| t.fish.iter().map(|f| f.name.clone()))
+                        .collect();
+                    let mut rng = rand::rng();
+                    self.show_state = Some(ShowState::new(
+                        &fish,
+                        &tank_name,
+                        &all_names,
+                        ShowSource::FromCommand,
+                        all,
+                        &mut rng,
+                    ));
+                }
             }
             commands::Action::Exit => self.running = false,
             commands::Action::Unknown => {}

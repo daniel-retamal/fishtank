@@ -106,7 +106,6 @@ impl ConsumableKind {
         self.display_name().to_ascii_lowercase()
     }
 
-
     pub fn panel_inner_w(self) -> u16 {
         match self {
             ConsumableKind::Coffee => 8,

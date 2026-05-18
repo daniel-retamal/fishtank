@@ -92,4 +92,3 @@ pub fn draw_box_separator(
         }
     }
 }
-
