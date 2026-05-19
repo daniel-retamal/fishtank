@@ -5,11 +5,12 @@ use ratatui::{
     widgets::Widget,
 };
 
-use crate::tank::{TANK_CAPACITY, Tank};
+use crate::tank::{TANK_CAPACITY, Tank, TankKind};
 use crate::ui::{scroll_list, table};
 
 struct FishtanksEntry {
     name: String,
+    kind: TankKind,
     fish_count: usize,
 }
 
@@ -26,6 +27,7 @@ impl FishtanksState {
             .iter()
             .map(|t| FishtanksEntry {
                 name: t.name.clone(),
+                kind: t.kind,
                 fish_count: t.fish.len(),
             })
             .collect();
@@ -79,9 +81,16 @@ impl Widget for FishtanksOverlay<'_> {
             .max()
             .unwrap_or(4)
             .max(table::visual_width("Name"));
+        let type_w = state
+            .entries
+            .iter()
+            .map(|e| table::visual_width(e.kind.display_name()))
+            .max()
+            .unwrap_or(4)
+            .max(table::visual_width("Type"));
         let count_str_max = format!("{}/{}", TANK_CAPACITY, TANK_CAPACITY);
         let fishes_w = table::visual_width(&count_str_max).max(table::visual_width("Fishes"));
-        let content_inner_w = name_w + 1 + fishes_w;
+        let content_inner_w = name_w + 1 + type_w + 1 + fishes_w;
 
         let visible_data_rows = n.min(area.height.saturating_sub(6) as usize).max(1);
         let scrollable = n > visible_data_rows;
@@ -132,9 +141,10 @@ impl Widget for FishtanksOverlay<'_> {
 
         let inner_x = ox + 1;
         let sep_x = inner_x + name_w as u16;
+        let sep2_x = sep_x + 1 + type_w as u16;
 
-        draw_header(buf, inner_x, oy + 1, name_w, fishes_w, sep_x, bg);
-        table::draw_box_separator(buf, ox, oy + 2, overlay_w, &[sep_x], Color::White, bg);
+        draw_header(buf, inner_x, oy + 1, name_w, type_w, fishes_w, sep_x, sep2_x, bg);
+        table::draw_box_separator(buf, ox, oy + 2, overlay_w, &[sep_x, sep2_x], Color::White, bg);
 
         let data_start_y = oy + 3;
         let data_end_y = oy + overlay_h.saturating_sub(4);
@@ -151,8 +161,10 @@ impl Widget for FishtanksOverlay<'_> {
                 inner_x,
                 row_y,
                 name_w,
+                type_w,
                 fishes_w,
                 sep_x,
+                sep2_x,
                 inner_w,
                 selected,
                 bg,
@@ -179,13 +191,16 @@ impl Widget for FishtanksOverlay<'_> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_header(
     buf: &mut Buffer,
     x: u16,
     y: u16,
     name_w: usize,
+    type_w: usize,
     fishes_w: usize,
     sep_x: u16,
+    sep2_x: u16,
     bg: Color,
 ) {
     let bold = Style::default()
@@ -196,7 +211,9 @@ fn draw_header(
 
     buf.set_string(x, y, table::pad_right("Name", name_w), bold);
     buf[(sep_x, y)].set_char('│').set_style(sep);
-    buf.set_string(sep_x + 1, y, table::pad_right("Fishes", fishes_w), bold);
+    buf.set_string(sep_x + 1, y, table::pad_right("Type", type_w), bold);
+    buf[(sep2_x, y)].set_char('│').set_style(sep);
+    buf.set_string(sep2_x + 1, y, table::pad_right("Fishes", fishes_w), bold);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -206,8 +223,10 @@ fn draw_row(
     x: u16,
     y: u16,
     name_w: usize,
+    type_w: usize,
     fishes_w: usize,
     sep_x: u16,
+    sep2_x: u16,
     total_inner_w: usize,
     selected: bool,
     base_bg: Color,
@@ -226,12 +245,18 @@ fn draw_row(
         buf[(x + dx, y)].set_bg(row_bg);
     }
 
-    buf[(sep_x, y)].set_char('│').set_style(sep_style);
     buf.set_string(x, y, table::pad_right(&entry.name, name_w), text_style);
-
-    let count_str = format!("{}/{}", entry.fish_count, TANK_CAPACITY);
+    buf[(sep_x, y)].set_char('│').set_style(sep_style);
     buf.set_string(
         sep_x + 1,
+        y,
+        table::pad_right(entry.kind.display_name(), type_w),
+        text_style,
+    );
+    buf[(sep2_x, y)].set_char('│').set_style(sep_style);
+    let count_str = format!("{}/{}", entry.fish_count, TANK_CAPACITY);
+    buf.set_string(
+        sep2_x + 1,
         y,
         table::pad_right(&count_str, fishes_w),
         text_style,

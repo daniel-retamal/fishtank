@@ -1,5 +1,6 @@
 pub mod bubble;
 pub mod components;
+pub mod coral;
 pub mod fish;
 pub mod food;
 pub mod mutant;

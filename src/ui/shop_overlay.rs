@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use crate::{
     entities::{fish::Fish, species::FishSpecies},
+    tank::TankKind,
     ui::{
         render_fish_segs, table,
         text_input::{TextInput, draw_text_cursor},
@@ -33,7 +34,27 @@ pub const COFFEE_SELL_PRICE: u32 = 8;
 pub const BAIT_BUY_PRICE: u32 = 15;
 pub const BAIT_SELL_PRICE: u32 = 12;
 pub const TANK_BUY_PRICE: u32 = 3000;
+pub const CORAL_TANK_BUY_PRICE: u32 = 5000;
 pub const TANK_SELL_PRICE: u32 = 2500;
+
+pub struct TankCatalogEntry {
+    pub kind: TankKind,
+    pub price: u32,
+    pub name: &'static str,
+}
+
+pub const TANK_CATALOG: &[TankCatalogEntry] = &[
+    TankCatalogEntry {
+        kind: TankKind::Base,
+        price: TANK_BUY_PRICE,
+        name: "Base Fishtank",
+    },
+    TankCatalogEntry {
+        kind: TankKind::CoralReef,
+        price: CORAL_TANK_BUY_PRICE,
+        name: "Coral Reef Fishtank",
+    },
+];
 
 pub struct BuyEntry {
     pub species: FishSpecies,
@@ -141,6 +162,7 @@ pub struct BuyCategoryPopup {
 }
 
 pub struct BuyTankPopup {
+    pub catalog_idx: usize,
     pub name_input: TextInput,
 }
 
@@ -150,7 +172,7 @@ pub fn buy_cat_available(idx: usize, money: u32) -> bool {
         1 => money >= COFFEE_BUY_PRICE,
         2 => money >= BAIT_BUY_PRICE,
         3 => money >= FOOD_BUY_PRICE,
-        4 => money >= TANK_BUY_PRICE,
+        4 => TANK_CATALOG.iter().any(|e| e.price <= money),
         _ => false,
     }
 }
@@ -402,6 +424,58 @@ impl FishListState {
     }
 }
 
+pub struct TankListState {
+    pub selected: usize,
+    pub scroll: usize,
+    pub popup: Option<BuyTankPopup>,
+}
+
+impl TankListState {
+    pub fn new(money: u32) -> Self {
+        let selected = TANK_CATALOG
+            .iter()
+            .position(|e| e.price <= money)
+            .unwrap_or(0);
+        Self {
+            selected,
+            scroll: 0,
+            popup: None,
+        }
+    }
+
+    pub fn scroll_up(&mut self, money: u32) {
+        let mut idx = self.selected;
+        while idx > 0 {
+            idx -= 1;
+            if TANK_CATALOG[idx].price <= money {
+                self.selected = idx;
+                if self.selected < self.scroll {
+                    self.scroll = self.selected;
+                }
+                return;
+            }
+        }
+    }
+
+    pub fn scroll_down(&mut self, money: u32, visible: usize) {
+        let n = TANK_CATALOG.len();
+        let mut idx = self.selected;
+        loop {
+            idx += 1;
+            if idx >= n {
+                return;
+            }
+            if TANK_CATALOG[idx].price <= money {
+                self.selected = idx;
+                if self.selected >= self.scroll + visible {
+                    self.scroll = self.selected + 1 - visible;
+                }
+                return;
+            }
+        }
+    }
+}
+
 pub enum ShopPage {
     Main {
         selected: usize,
@@ -409,9 +483,9 @@ pub enum ShopPage {
     BuyCategory {
         selected: usize,
         buy_popup: Option<BuyCategoryPopup>,
-        buy_tank_popup: Option<BuyTankPopup>,
     },
     BuyFishList(FishListState),
+    BuyTankList(TankListState),
     Sell(SellMenuState),
 }
 
@@ -471,6 +545,10 @@ fn overlay_h(state: &ShopState, area_h: u16) -> u16 {
             let visible = FISH_CATALOG.len().min(MAX_LIST_VISIBLE);
             ((visible as u16) + 6).clamp(MIN_OH, MAX_OH).min(area_h)
         }
+        ShopPage::BuyTankList(_) => {
+            let visible = TANK_CATALOG.len().min(MAX_LIST_VISIBLE);
+            ((visible as u16) + 6).clamp(MIN_OH, MAX_OH).min(area_h)
+        }
         ShopPage::Sell(sm) => {
             let visible = sm.items.len().min(MAX_LIST_VISIBLE);
             ((visible as u16) + 6).clamp(MIN_OH, MAX_OH).min(area_h)
@@ -496,12 +574,9 @@ impl Widget for ShopOverlay<'_> {
         let oy = area.y + (area.height - oh) / 2;
 
         let has_popup = match &state.page {
-            ShopPage::BuyCategory {
-                buy_popup,
-                buy_tank_popup,
-                ..
-            } => buy_popup.is_some() || buy_tank_popup.is_some(),
+            ShopPage::BuyCategory { buy_popup, .. } => buy_popup.is_some(),
             ShopPage::BuyFishList(fl) => fl.popup.is_some(),
+            ShopPage::BuyTankList(tl) => tl.popup.is_some(),
             ShopPage::Sell(sm) => sm.confirm.is_some(),
             _ => false,
         };
@@ -538,7 +613,9 @@ impl Widget for ShopOverlay<'_> {
         buf[(right_x, oy)].set_char('┐').set_style(s);
         let page_title = match &state.page {
             ShopPage::Main { .. } => " Shop ",
-            ShopPage::BuyCategory { .. } | ShopPage::BuyFishList(_) => " Buy ",
+            ShopPage::BuyCategory { .. }
+            | ShopPage::BuyFishList(_)
+            | ShopPage::BuyTankList(_) => " Buy ",
             ShopPage::Sell(_) => " Sell ",
         };
         buf.set_string(ox + 2, oy, page_title, s_title);
@@ -598,11 +675,7 @@ impl Widget for ShopOverlay<'_> {
                     "ESC/q close",
                 );
             }
-            ShopPage::BuyCategory {
-                selected,
-                buy_popup,
-                buy_tank_popup,
-            } => {
+            ShopPage::BuyCategory { selected, buy_popup } => {
                 let content_h = oh.saturating_sub(3);
                 let available = [
                     buy_cat_available(0, self.money),
@@ -634,10 +707,40 @@ impl Widget for ShopOverlay<'_> {
                     " \u{2191}\u{2193} navigate".to_string()
                 };
                 draw_footer_text(buf, rx, footer_y, footer_w, &footer_left, "ESC/q back");
-                if let Some(popup) = buy_tank_popup {
-                    draw_buy_tank_popup(buf, popup, state.cursor_visible, area);
-                } else if let Some(popup) = buy_popup {
+                if let Some(popup) = buy_popup {
                     draw_category_buy_popup(buf, popup, area);
+                }
+            }
+            ShopPage::BuyTankList(tl) => {
+                let visible = oh.saturating_sub(6) as usize;
+                let right_border_x = ox + OVERLAY_W - 1;
+                draw_tank_list(
+                    buf,
+                    tl,
+                    self.money,
+                    state.cursor_visible,
+                    sep_x,
+                    content_y,
+                    right_border_x,
+                    RIGHT_INNER_W,
+                    visible,
+                    has_popup,
+                );
+                let affordable_count = TANK_CATALOG
+                    .iter()
+                    .filter(|e| e.price <= self.money)
+                    .count();
+                let affordable_pos = TANK_CATALOG[..=tl.selected]
+                    .iter()
+                    .filter(|e| e.price <= self.money)
+                    .count();
+                let footer_left = format!(
+                    " \u{2191}\u{2193} scroll ({}/{})",
+                    affordable_pos, affordable_count
+                );
+                draw_footer_text(buf, rx, footer_y, footer_w, &footer_left, "ESC/q back");
+                if let Some(ref popup) = tl.popup {
+                    draw_buy_tank_name_popup(buf, popup, state.cursor_visible, area);
                 }
             }
             ShopPage::BuyFishList(fl) => {
@@ -1222,32 +1325,105 @@ fn draw_sell_confirm_popup(buf: &mut Buffer, confirm: &SellConfirm, entry: &Sell
     }
 }
 
-fn draw_buy_tank_popup(buf: &mut Buffer, popup: &BuyTankPopup, cursor_vis: bool, area: Rect) {
-    const POP_W: u16 = 36;
-    const POP_H: u16 = 7;
+#[allow(clippy::too_many_arguments)]
+fn draw_tank_list(
+    buf: &mut Buffer,
+    state: &TankListState,
+    money: u32,
+    cursor_vis: bool,
+    sep_x: u16,
+    content_y: u16,
+    right_border_x: u16,
+    right_w: u16,
+    visible: usize,
+    dim: bool,
+) {
+    let rx = sep_x + 1;
+    let hdr_fg = if dim { Color::DarkGray } else { Color::White };
+    let s_bold = Style::default()
+        .fg(hdr_fg)
+        .add_modifier(Modifier::BOLD)
+        .bg(BG);
+    let s_sep = Style::default().fg(hdr_fg).bg(BG);
 
-    if area.width < POP_W || area.height < POP_H {
+    buf.set_string(
+        rx,
+        content_y,
+        table::pad_right("Name", (right_w / 2) as usize),
+        s_bold,
+    );
+    let price_hdr = "Price/unit";
+    buf.set_string(
+        right_border_x.saturating_sub(1 + price_hdr.len() as u16),
+        content_y,
+        price_hdr,
+        s_bold,
+    );
+
+    let sep_y = content_y + 1;
+    buf[(sep_x, sep_y)].set_char('├').set_style(s_sep);
+    for dx in 1..right_w + 1 {
+        buf[(sep_x + dx, sep_y)].set_char('─').set_style(s_sep);
+    }
+    buf[(right_border_x, sep_y)].set_char('┤').set_style(s_sep);
+
+    let data_y = sep_y + 1;
+    let n = TANK_CATALOG.len();
+    let eff_cursor_vis = dim || cursor_vis;
+
+    for row in 0..visible {
+        let idx = state.scroll + row;
+        if idx >= n {
+            break;
+        }
+        let entry = &TANK_CATALOG[idx];
+        let row_y = data_y + row as u16;
+        let affordable = entry.price <= money;
+        let is_sel = idx == state.selected;
+
+        let price_str = format!("${}", entry.price);
+        let price_x = right_border_x.saturating_sub(1 + price_str.len() as u16);
+        let name_max = price_x.saturating_sub(rx + 2) as usize;
+
+        let item_fg = if dim || !affordable {
+            Color::DarkGray
+        } else {
+            Color::White
+        };
+        let s = Style::default().fg(item_fg).bg(BG);
+
+        let prefix = if is_sel && eff_cursor_vis { "> " } else { "  " };
+        let label = format!("{}{}", prefix, table::truncate_str(entry.name, name_max));
+        buf.set_string(rx, row_y, label, s);
+        buf.set_string(price_x, row_y, &price_str, s);
+    }
+}
+
+fn draw_buy_tank_name_popup(buf: &mut Buffer, popup: &BuyTankPopup, cursor_vis: bool, area: Rect) {
+    const POP_H: u16 = 7;
+    const LEFT_HINT: &str = "ESC/q cancel";
+    const RIGHT_HINT: &str = "ENTER buy";
+
+    let entry = &TANK_CATALOG[popup.catalog_idx];
+    let header = format!("{} for sale! Only ${}", entry.name, entry.price);
+    let min_hints_w = (LEFT_HINT.len() + RIGHT_HINT.len() + 2) as u16;
+    let inner_w = (header.len() as u16).max(min_hints_w);
+    let pop_w = inner_w + 4;
+
+    if area.width < pop_w || area.height < POP_H {
         return;
     }
 
-    let ox = area.x + (area.width - POP_W) / 2;
+    let ox = area.x + (area.width - pop_w) / 2;
     let oy = area.y + (area.height - POP_H) / 2;
 
     for dy in 0..POP_H {
-        for dx in 0..POP_W {
+        for dx in 0..pop_w {
             buf[(ox + dx, oy + dy)].reset();
         }
     }
-    table::draw_box_border(
-        buf,
-        ox,
-        oy,
-        POP_W,
-        POP_H,
-        " Buy Fishtank ",
-        Color::White,
-        BG,
-    );
+    let title = format!(" Buy {} ", entry.name);
+    table::draw_box_border(buf, ox, oy, pop_w, POP_H, &title, Color::White, BG);
 
     let s_bold = Style::default()
         .fg(Color::White)
@@ -1256,41 +1432,20 @@ fn draw_buy_tank_popup(buf: &mut Buffer, popup: &BuyTankPopup, cursor_vis: bool,
     let s_white = Style::default().fg(Color::White).bg(BG);
     let s_dim = Style::default().fg(Color::DarkGray).bg(BG);
     let inner_x = ox + 2;
-    let inner_w = (POP_W - 4) as usize;
+    let inner_w_usize = inner_w as usize;
 
-    let header = format!("Fishtank for sale! Only ${}", TANK_BUY_PRICE);
-    buf.set_string(
-        inner_x,
-        oy + 1,
-        table::truncate_str(&header, inner_w),
-        s_bold,
-    );
+    buf.set_string(inner_x, oy + 1, &header, s_bold);
     buf.set_string(inner_x, oy + 3, "Name it", s_white);
-    draw_text_cursor(
-        buf,
-        &popup.name_input,
-        cursor_vis,
-        inner_x,
-        oy + 4,
-        POP_W - 4,
-        BG,
-    );
+    draw_text_cursor(buf, &popup.name_input, cursor_vis, inner_x, oy + 4, inner_w, BG);
 
-    let left_hint = "ESC/q cancel";
-    let right_hint = "ENTER buy";
     buf.set_string(
         inner_x,
         oy + POP_H - 2,
-        table::truncate_str(left_hint, inner_w),
+        table::truncate_str(LEFT_HINT, inner_w_usize),
         s_dim,
     );
-    let rw = right_hint.len() as u16;
-    if (left_hint.len() as u16 + rw + 2) <= inner_w as u16 {
-        buf.set_string(
-            inner_x + inner_w as u16 - rw,
-            oy + POP_H - 2,
-            right_hint,
-            s_dim,
-        );
+    let rw = RIGHT_HINT.len() as u16;
+    if (LEFT_HINT.len() as u16 + rw + 2) <= inner_w {
+        buf.set_string(inner_x + inner_w - rw, oy + POP_H - 2, RIGHT_HINT, s_dim);
     }
 }

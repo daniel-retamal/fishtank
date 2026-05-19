@@ -33,6 +33,7 @@ pub fn truncate_str(s: &str, max_width: usize) -> String {
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_box_border(
     buf: &mut Buffer,
     ox: u16,

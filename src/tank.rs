@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use rand::RngExt;
 
 use crate::entities::bubble::Bubble;
+use crate::entities::coral::{CoralStructure, FloorAlgae, extend_coral_reef};
 use crate::entities::fish::{Direction, EATING_DURATION, Fish, FishState};
 use crate::entities::food::Food;
 use crate::entities::mutant::{
@@ -14,6 +15,21 @@ use crate::loot::ConsumableKind;
 use crate::names;
 use crate::settings::Settings;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TankKind {
+    Base,
+    CoralReef,
+}
+
+impl TankKind {
+    pub fn display_name(self) -> &'static str {
+        match self {
+            TankKind::Base => "Base",
+            TankKind::CoralReef => "Coral Reef",
+        }
+    }
+}
+
 pub struct ActiveConsumable {
     pub kind: ConsumableKind,
     pub stacks: u32,
@@ -22,7 +38,6 @@ pub struct ActiveConsumable {
 
 pub const TANK_CAPACITY: usize = 50;
 
-const PLANT_FIELD_WIDTH: i32 = 600;
 const PLANT_SPACING_MIN: i32 = 3;
 const PLANT_SPACING_MAX: i32 = 6;
 const PLANT_HEIGHT_MIN: usize = 8;
@@ -35,6 +50,8 @@ const SEEK_DX_DEADZONE: f32 = 0.5;
 const SEEK_NORM_MIN: f32 = 0.01;
 const SEEK_DY_MULTIPLIER: f32 = 1.2;
 const SEEK_BOOST_INITIAL_MAX: f32 = 0.2;
+const CORAL_SPAWN_LOOKAHEAD: i32 = 130;
+const PLANT_SPAWN_LOOKAHEAD: i32 = 30;
 const BUBBLE_BOTTOM_SPAWN_RATE_MIN: f32 = 0.3;
 const BUBBLE_BOTTOM_SPAWN_RATE_MAX: f32 = 1.5;
 const BUBBLE_SURFACE_SPAWN_RATE_MIN: f32 = 1.0;
@@ -113,9 +130,12 @@ impl Mutation {
 
 pub struct Tank {
     pub name: String,
+    pub kind: TankKind,
     pub fish: Vec<Fish>,
     pub food: Vec<Food>,
     pub plants: Vec<Plant>,
+    pub corals: Vec<CoralStructure>,
+    pub floor_algae: Vec<FloorAlgae>,
     pub bubbles: Vec<Bubble>,
     pub width: u16,
     pub height: u16,
@@ -127,13 +147,30 @@ pub struct Tank {
 }
 
 impl Tank {
-    pub fn new(name: String) -> Self {
+    pub fn new(name: String, kind: TankKind) -> Self {
         let mut rng = rand::rng();
+        let mut plants = Vec::new();
+        let mut corals = Vec::new();
+        let mut floor_algae = Vec::new();
+        match kind {
+            TankKind::Base => {
+                extend_plants(&mut plants, INITIAL_WIDTH as i32 + PLANT_SPAWN_LOOKAHEAD, &mut rng)
+            }
+            TankKind::CoralReef => extend_coral_reef(
+                &mut corals,
+                &mut floor_algae,
+                INITIAL_WIDTH as i32 + CORAL_SPAWN_LOOKAHEAD,
+                &mut rng,
+            ),
+        }
         Self {
             name,
+            kind,
             fish: Vec::new(),
             food: Vec::new(),
-            plants: Self::generate_plants(),
+            plants,
+            corals,
+            floor_algae,
             bubbles: Vec::new(),
             width: INITIAL_WIDTH,
             height: INITIAL_HEIGHT,
@@ -152,6 +189,7 @@ impl Tank {
     }
 
     pub fn resize(&mut self, width: u16, height: u16) {
+        let old_width = self.width;
         self.width = width;
         self.height = height;
         let max_y = height as f32 - 1.0;
@@ -167,6 +205,24 @@ impl Tank {
             if food.position.y > max_y {
                 food.position.y = max_y;
             }
+        }
+        if width > old_width {
+            let mut rng = rand::rng();
+            self.extend_environment(&mut rng);
+        }
+    }
+
+    fn extend_environment(&mut self, rng: &mut impl RngExt) {
+        match self.kind {
+            TankKind::Base => {
+                extend_plants(&mut self.plants, self.width as i32 + PLANT_SPAWN_LOOKAHEAD, rng)
+            }
+            TankKind::CoralReef => extend_coral_reef(
+                &mut self.corals,
+                &mut self.floor_algae,
+                self.width as i32 + CORAL_SPAWN_LOOKAHEAD,
+                rng,
+            ),
         }
     }
 
@@ -224,9 +280,16 @@ impl Tank {
 
     pub fn tick(&mut self, settings: &Settings, coffee: u32) {
         let dt = 1.0 / settings.fps;
+        let mut rng = rand::rng();
 
         for plant in &mut self.plants {
             plant.tick();
+        }
+        for coral in &mut self.corals {
+            coral.tick(dt, &mut rng);
+        }
+        for fa in &mut self.floor_algae {
+            fa.tick(dt);
         }
         for food in &mut self.food {
             food.tick(settings, self.width, self.height);
@@ -487,18 +550,6 @@ impl Tank {
         apply_mutation_to_fish(&mut self.fish[fish_idx], mutation, &mut rng);
     }
 
-    fn generate_plants() -> Vec<Plant> {
-        let mut rng = rand::rng();
-        let mut plants = Vec::new();
-        let mut x = rng.random_range(PLANT_SPACING_MIN..=PLANT_SPACING_MAX);
-        while x < PLANT_FIELD_WIDTH {
-            let height = rng.random_range(PLANT_HEIGHT_MIN..=PLANT_HEIGHT_MAX);
-            plants.push(Plant::new(x, height));
-            x += rng.random_range(PLANT_SPACING_MIN..=PLANT_SPACING_MAX);
-        }
-        plants
-    }
-
     fn unique_name(&self, requested: &str) -> String {
         names::unique_name_in(&self.used_names, requested)
     }
@@ -671,6 +722,19 @@ impl Tank {
                 self.fish[i].state = FishState::SeekingFood(idx, approach_right);
             }
         }
+    }
+}
+
+fn extend_plants(plants: &mut Vec<Plant>, to_width: i32, rng: &mut impl RngExt) {
+    let mut next_x = if plants.is_empty() {
+        rng.random_range(PLANT_SPACING_MIN..=PLANT_SPACING_MAX)
+    } else {
+        plants.last().unwrap().x + rng.random_range(PLANT_SPACING_MIN..=PLANT_SPACING_MAX)
+    };
+    while next_x < to_width {
+        let height = rng.random_range(PLANT_HEIGHT_MIN..=PLANT_HEIGHT_MAX);
+        plants.push(Plant::new(next_x, height));
+        next_x += rng.random_range(PLANT_SPACING_MIN..=PLANT_SPACING_MAX);
     }
 }
 

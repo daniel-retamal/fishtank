@@ -8,6 +8,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthChar;
 
 use crate::entities::fish::{Direction, Fish};
+use crate::tank::TankKind;
 use crate::ui::{
     fields::{self, FieldKind},
     render_fish_segs, table,
@@ -43,6 +44,7 @@ impl ShowState {
     pub fn new(
         fish: &Fish,
         tank_name: &str,
+        tank_kind: TankKind,
         all_names: &[String],
         source: ShowSource,
         all: bool,
@@ -70,6 +72,11 @@ impl ShowState {
             ShowField {
                 label: "Fishtank",
                 value: tank_name.to_string(),
+                swatch: None,
+            },
+            ShowField {
+                label: "Tank Type",
+                value: tank_kind.display_name().to_string(),
                 swatch: None,
             },
         ];

@@ -14,7 +14,7 @@ use crate::{
     loot::{ConsumableKind, LootKind, roll_loot, roll_loot_no_fish},
     names,
     settings::{FPS_MAX, FPS_MIN, Settings},
-    tank::{ActiveConsumable, Tank},
+    tank::{ActiveConsumable, Tank, TankKind},
     ui::{
         catch_overlay::{CatchOverlay, CatchState},
         command_bar::{self, CommandBar},
@@ -25,8 +25,8 @@ use crate::{
         shop_overlay::{
             BAIT_BUY_PRICE, BuyCategoryPopup, BuyTankPopup, COFFEE_BUY_PRICE, FISH_CATALOG,
             FishListState, FishNamePopup, SellConfirm, SellEntry, SellMenuState, ShopOverlay,
-            ShopPage, ShopState, TANK_BUY_PRICE, buy_cat_first_available, buy_cat_next,
-            list_visible_rows,
+            ShopPage, ShopState, TANK_CATALOG, TankListState, buy_cat_first_available,
+            buy_cat_next, list_visible_rows,
         },
         show_overlay::{ShowOverlay, ShowSource, ShowState},
         tank_view::TankView,
@@ -74,7 +74,7 @@ impl App {
         let initial_name = names::unique_name_in(&HashSet::new(), "Fishtank");
         let mut used_tank_names = HashSet::new();
         used_tank_names.insert(initial_name.clone());
-        let mut first_tank = Tank::new(initial_name);
+        let mut first_tank = Tank::new(initial_name, TankKind::Base);
 
         for (species, name) in [
             (FishSpecies::Merluza, "merluza"),
@@ -485,6 +485,12 @@ impl App {
                         .find(|f| f.name == fish_name)
                         .cloned();
                     if let Some(fish) = fish {
+                        let tank_kind = self
+                            .tanks
+                            .iter()
+                            .find(|t| t.name == tank_name)
+                            .map(|t| t.kind)
+                            .unwrap_or(TankKind::Base);
                         let all_names: Vec<String> = self
                             .tanks
                             .iter()
@@ -495,6 +501,7 @@ impl App {
                         self.show_state = Some(ShowState::new(
                             &fish,
                             &tank_name,
+                            tank_kind,
                             &all_names,
                             ShowSource::FromIndex,
                             false,
@@ -761,7 +768,6 @@ impl App {
                             shop.page = ShopPage::BuyCategory {
                                 selected: init_sel,
                                 buy_popup: None,
-                                buy_tank_popup: None,
                             };
                         }
                         _ => {
@@ -778,30 +784,8 @@ impl App {
             ShopPage::BuyCategory {
                 ref mut selected,
                 ref mut buy_popup,
-                ref mut buy_tank_popup,
             } => {
-                if let Some(popup) = buy_tank_popup {
-                    match key.code {
-                        KeyCode::Esc | KeyCode::Char('q') => {
-                            *buy_tank_popup = None;
-                        }
-                        KeyCode::Enter if !popup.name_input.is_empty() => {
-                            let name = names::title_case(popup.name_input.as_str());
-                            let actual_name = names::unique_name_in(&self.used_tank_names, &name);
-                            if self.money >= TANK_BUY_PRICE {
-                                self.money = self.money.saturating_sub(TANK_BUY_PRICE);
-                                self.used_tank_names.insert(actual_name.clone());
-                                self.tanks.push(Tank::new(actual_name));
-                                self.current_tank = self.tanks.len() - 1;
-                            }
-                            *buy_tank_popup = None;
-                        }
-                        _ => {
-                            popup.name_input.handle_key(key.code);
-                        }
-                    }
-                    shop.reset_blink();
-                } else if let Some(popup) = buy_popup {
+                if let Some(popup) = buy_popup {
                     match key.code {
                         KeyCode::Esc | KeyCode::Char('q') => {
                             *buy_popup = None;
@@ -860,11 +844,8 @@ impl App {
                                     shop.page = ShopPage::BuyFishList(FishListState::new(money));
                                 }
                                 4 => {
-                                    if money >= TANK_BUY_PRICE {
-                                        *buy_tank_popup = Some(BuyTankPopup {
-                                            name_input: TextInput::new(),
-                                        });
-                                    }
+                                    shop.page =
+                                        ShopPage::BuyTankList(TankListState::new(money));
                                 }
                                 idx => {
                                     let unit_price = match idx {
@@ -933,7 +914,6 @@ impl App {
                         shop.page = ShopPage::BuyCategory {
                             selected: buy_cat_first_available(money),
                             buy_popup: None,
-                            buy_tank_popup: None,
                         };
                     }
                     KeyCode::Up => {
@@ -955,6 +935,77 @@ impl App {
                             fl.popup = Some(FishNamePopup {
                                 catalog_idx: idx,
                                 fish,
+                                name_input: TextInput::new(),
+                            });
+                        }
+                        shop.reset_blink();
+                    }
+                    _ => {}
+                }
+            }
+
+            ShopPage::BuyTankList(ref mut tl) => {
+                let should_commit = tl
+                    .popup
+                    .as_ref()
+                    .is_some_and(|p| key.code == KeyCode::Enter && !p.name_input.is_empty());
+
+                if should_commit {
+                    if let Some(BuyTankPopup {
+                        catalog_idx,
+                        name_input,
+                    }) = tl.popup.take()
+                    {
+                        let entry = &TANK_CATALOG[catalog_idx];
+                        if money >= entry.price {
+                            let name = names::title_case(name_input.as_str());
+                            let actual_name =
+                                names::unique_name_in(&self.used_tank_names, &name);
+                            self.money = self.money.saturating_sub(entry.price);
+                            self.used_tank_names.insert(actual_name.clone());
+                            self.tanks.push(Tank::new(actual_name, entry.kind));
+                            self.current_tank = self.tanks.len() - 1;
+                        }
+                    }
+                    self.shop_state = Some(shop);
+                    return;
+                }
+
+                if let Some(ref mut popup) = tl.popup {
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('q') => {
+                            tl.popup = None;
+                        }
+                        _ => {
+                            popup.name_input.handle_key(key.code);
+                        }
+                    }
+                    shop.reset_blink();
+                    self.shop_state = Some(shop);
+                    return;
+                }
+
+                match key.code {
+                    KeyCode::Esc | KeyCode::Char('q') => {
+                        shop.page = ShopPage::BuyCategory {
+                            selected: 4,
+                            buy_popup: None,
+                        };
+                    }
+                    KeyCode::Up => {
+                        tl.scroll_up(money);
+                        shop.reset_blink();
+                    }
+                    KeyCode::Down => {
+                        tl.scroll_down(money, visible);
+                        shop.reset_blink();
+                    }
+                    KeyCode::Enter => {
+                        let idx = tl.selected;
+                        let entry = &TANK_CATALOG[idx];
+                        if entry.price <= money {
+                            tl.popup = Some(BuyTankPopup {
+                                catalog_idx: idx,
                                 name_input: TextInput::new(),
                             });
                         }
@@ -1413,6 +1464,12 @@ impl App {
                     .find(|(f, _)| f.name.eq_ignore_ascii_case(&fish_name))
                     .map(|(f, tn)| (f.clone(), tn.to_string()));
                 if let Some((fish, tank_name)) = found {
+                    let tank_kind = self
+                        .tanks
+                        .iter()
+                        .find(|t| t.name == tank_name)
+                        .map(|t| t.kind)
+                        .unwrap_or(TankKind::Base);
                     let all_names: Vec<String> = self
                         .tanks
                         .iter()
@@ -1422,6 +1479,7 @@ impl App {
                     self.show_state = Some(ShowState::new(
                         &fish,
                         &tank_name,
+                        tank_kind,
                         &all_names,
                         ShowSource::FromCommand,
                         all,

@@ -692,10 +692,8 @@ fn parse_quoted_arg(rest: &str) -> Option<String> {
     let rest = rest.trim();
     let inner = if let Some(s) = rest.strip_prefix('"') {
         s
-    } else if let Some(s) = rest.strip_prefix('\'') {
-        s
     } else {
-        return None;
+        rest.strip_prefix('\'')?
     };
     let quote_char = rest.chars().next().unwrap();
     let end = inner.find(quote_char)?;
