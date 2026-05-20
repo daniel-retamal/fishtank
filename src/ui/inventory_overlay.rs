@@ -26,11 +26,15 @@ pub struct InventoryState {
 fn item_desc(name: &str, rng: &mut impl RngExt) -> String {
     match name {
         "Coffee" => {
-            "Nectar-enabling work-communion. Gives fishes something to believe in. Faster reeling."
+            "Work-communion-enabling percolated Breverage. Allows terminal-humanii connection. Gives fishes something to believe in. Faster reeling"
                 .to_string()
         }
         "Bait" => {
-            "Lesser-blood sacrifice for higher entropy lifeforms. Bait mindset. Get better fishes"
+            "Lesser-blood sacrifice for higher-entropy lifeforms. Bait Mindset. Even they wish for the Heavens. Get better fishes"
+                .to_string()
+        }
+        "Necronomicon" => {
+            "An Image [or Picture] of the Law of the Dead. Image and pre-image. Summons a Gate to Hell, The Helltank. The devil has a lot of money"
                 .to_string()
         }
         "Junk" => {
@@ -52,7 +56,7 @@ impl InventoryState {
             .map(|(name, qty)| InventoryItem {
                 name: name.clone(),
                 qty: *qty,
-                is_consumable: matches!(name.as_str(), "Coffee" | "Bait"),
+                is_consumable: matches!(name.as_str(), "Coffee" | "Bait" | "Necronomicon"),
                 desc: item_desc(name, rng),
             })
             .collect();
@@ -85,7 +89,7 @@ impl InventoryState {
                 InventoryItem {
                     name: name.clone(),
                     qty: *qty,
-                    is_consumable: matches!(name.as_str(), "Coffee" | "Bait"),
+                    is_consumable: matches!(name.as_str(), "Coffee" | "Bait" | "Necronomicon"),
                     desc,
                 }
             })

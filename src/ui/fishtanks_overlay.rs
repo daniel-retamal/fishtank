@@ -143,8 +143,26 @@ impl Widget for FishtanksOverlay<'_> {
         let sep_x = inner_x + name_w as u16;
         let sep2_x = sep_x + 1 + type_w as u16;
 
-        draw_header(buf, inner_x, oy + 1, name_w, type_w, fishes_w, sep_x, sep2_x, bg);
-        table::draw_box_separator(buf, ox, oy + 2, overlay_w, &[sep_x, sep2_x], Color::White, bg);
+        draw_header(
+            buf,
+            inner_x,
+            oy + 1,
+            name_w,
+            type_w,
+            fishes_w,
+            sep_x,
+            sep2_x,
+            bg,
+        );
+        table::draw_box_separator(
+            buf,
+            ox,
+            oy + 2,
+            overlay_w,
+            &[sep_x, sep2_x],
+            Color::White,
+            bg,
+        );
 
         let data_start_y = oy + 3;
         let data_end_y = oy + overlay_h.saturating_sub(4);

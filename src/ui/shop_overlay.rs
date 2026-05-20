@@ -35,7 +35,10 @@ pub const BAIT_BUY_PRICE: u32 = 15;
 pub const BAIT_SELL_PRICE: u32 = 12;
 pub const TANK_BUY_PRICE: u32 = 3000;
 pub const CORAL_TANK_BUY_PRICE: u32 = 5000;
+pub const HELL_TANK_BUY_PRICE: u32 = 8000;
 pub const TANK_SELL_PRICE: u32 = 2500;
+pub const HELL_TANK_SELL_PRICE: u32 = 7_000;
+pub const NECRONOMICON_SELL_PRICE: u32 = HELL_TANK_SELL_PRICE;
 
 pub struct TankCatalogEntry {
     pub kind: TankKind,
@@ -53,6 +56,11 @@ pub const TANK_CATALOG: &[TankCatalogEntry] = &[
         kind: TankKind::CoralReef,
         price: CORAL_TANK_BUY_PRICE,
         name: "Coral Reef Fishtank",
+    },
+    TankCatalogEntry {
+        kind: TankKind::Hell,
+        price: HELL_TANK_BUY_PRICE,
+        name: "Helltank",
     },
 ];
 
@@ -216,6 +224,10 @@ pub enum SellEntry {
     },
     Tank {
         name: String,
+        sell_price: u32,
+    },
+    Necronomicon {
+        qty: u32,
     },
 }
 
@@ -228,7 +240,8 @@ impl SellEntry {
             SellEntry::Junk { qty } => format!("Junk ({})", qty),
             SellEntry::Coffee { qty } => format!("Coffee ({})", qty),
             SellEntry::Bait { qty } => format!("Bait ({})", qty),
-            SellEntry::Tank { name } => format!("{} (Fishtank)", name),
+            SellEntry::Tank { name, .. } => format!("{} (Fishtank)", name),
+            SellEntry::Necronomicon { qty } => format!("Necronomicon ({})", qty),
         }
     }
 
@@ -238,7 +251,8 @@ impl SellEntry {
             SellEntry::Junk { .. } => format!("${}", JUNK_SELL_PRICE),
             SellEntry::Coffee { .. } => format!("${}", COFFEE_SELL_PRICE),
             SellEntry::Bait { .. } => format!("${}", BAIT_SELL_PRICE),
-            SellEntry::Tank { .. } => format!("${}", TANK_SELL_PRICE),
+            SellEntry::Tank { sell_price, .. } => format!("${}", sell_price),
+            SellEntry::Necronomicon { .. } => format!("${}", NECRONOMICON_SELL_PRICE),
         }
     }
 
@@ -248,16 +262,18 @@ impl SellEntry {
             SellEntry::Junk { .. } => JUNK_SELL_PRICE,
             SellEntry::Coffee { .. } => COFFEE_SELL_PRICE,
             SellEntry::Bait { .. } => BAIT_SELL_PRICE,
-            SellEntry::Tank { .. } => TANK_SELL_PRICE,
+            SellEntry::Tank { sell_price, .. } => *sell_price,
+            SellEntry::Necronomicon { .. } => NECRONOMICON_SELL_PRICE,
         }
     }
 
     pub fn max_qty(&self) -> u32 {
         match self {
             SellEntry::Fish { .. } | SellEntry::Tank { .. } => 1,
-            SellEntry::Junk { qty } => *qty,
-            SellEntry::Coffee { qty } => *qty,
-            SellEntry::Bait { qty } => *qty,
+            SellEntry::Junk { qty }
+            | SellEntry::Coffee { qty }
+            | SellEntry::Bait { qty }
+            | SellEntry::Necronomicon { qty } => *qty,
         }
     }
 }
@@ -292,7 +308,7 @@ impl SellMenuState {
     pub fn new(
         tank_fish: &[(String, FishSpecies, u32)],
         inventory: &HashMap<String, u32>,
-        sellable_tanks: &[String],
+        sellable_tanks: &[(String, u32)],
     ) -> Option<Self> {
         let mut items: Vec<SellEntry> = Vec::new();
         let junk = inventory.get("Junk").copied().unwrap_or(0);
@@ -307,9 +323,14 @@ impl SellMenuState {
         if bait > 0 {
             items.push(SellEntry::Bait { qty: bait });
         }
-        for tank_name in sellable_tanks {
+        let necro_qty = inventory.get("Necronomicon").copied().unwrap_or(0);
+        if necro_qty > 0 {
+            items.push(SellEntry::Necronomicon { qty: necro_qty });
+        }
+        for (tank_name, sell_price) in sellable_tanks {
             items.push(SellEntry::Tank {
                 name: tank_name.clone(),
+                sell_price: *sell_price,
             });
         }
         let mut fish_entries: Vec<SellEntry> = tank_fish
@@ -613,9 +634,9 @@ impl Widget for ShopOverlay<'_> {
         buf[(right_x, oy)].set_char('┐').set_style(s);
         let page_title = match &state.page {
             ShopPage::Main { .. } => " Shop ",
-            ShopPage::BuyCategory { .. }
-            | ShopPage::BuyFishList(_)
-            | ShopPage::BuyTankList(_) => " Buy ",
+            ShopPage::BuyCategory { .. } | ShopPage::BuyFishList(_) | ShopPage::BuyTankList(_) => {
+                " Buy "
+            }
             ShopPage::Sell(_) => " Sell ",
         };
         buf.set_string(ox + 2, oy, page_title, s_title);
@@ -675,7 +696,10 @@ impl Widget for ShopOverlay<'_> {
                     "ESC/q close",
                 );
             }
-            ShopPage::BuyCategory { selected, buy_popup } => {
+            ShopPage::BuyCategory {
+                selected,
+                buy_popup,
+            } => {
                 let content_h = oh.saturating_sub(3);
                 let available = [
                     buy_cat_available(0, self.money),
@@ -1208,7 +1232,7 @@ fn draw_fish_name_popup(buf: &mut Buffer, popup: &FishNamePopup, cursor_vis: boo
     draw_text_cursor(buf, &popup.name_input, cursor_vis, rx, oy + 4, RIGHT_W, BG);
 
     let s_dim = Style::default().fg(Color::DarkGray).bg(BG);
-    let left_hint = "ESC/q cancel";
+    let left_hint = "ESC cancel";
     let right_hint = "ENTER buy";
     buf.set_string(
         rx,
@@ -1259,6 +1283,18 @@ fn draw_sell_confirm_popup(buf: &mut Buffer, confirm: &SellConfirm, entry: &Sell
         );
         return;
     }
+    if let SellEntry::Necronomicon { qty } = entry {
+        draw_qty_popup(
+            buf,
+            " Sell Necronomicon ",
+            confirm.sell_qty,
+            *qty,
+            NECRONOMICON_SELL_PRICE,
+            "ENTER sell",
+            area,
+        );
+        return;
+    }
 
     let pop_h: u16 = 5;
     let pop_w: u16 = 40;
@@ -1286,7 +1322,7 @@ fn draw_sell_confirm_popup(buf: &mut Buffer, confirm: &SellConfirm, entry: &Sell
             );
             (t, m)
         }
-        SellEntry::Tank { name } => {
+        SellEntry::Tank { name, .. } => {
             let t = " Sell Fishtank ".to_string();
             let inner_w = (pop_w - 4) as usize;
             let total = confirm.sell_qty * entry.unit_price();
@@ -1297,9 +1333,10 @@ fn draw_sell_confirm_popup(buf: &mut Buffer, confirm: &SellConfirm, entry: &Sell
             );
             (t, m)
         }
-        SellEntry::Junk { .. } | SellEntry::Coffee { .. } | SellEntry::Bait { .. } => {
-            unreachable!()
-        }
+        SellEntry::Junk { .. }
+        | SellEntry::Coffee { .. }
+        | SellEntry::Bait { .. }
+        | SellEntry::Necronomicon { .. } => unreachable!(),
     };
     table::draw_box_border(buf, ox, oy, pop_w, pop_h, &title, Color::White, BG);
 
@@ -1401,7 +1438,7 @@ fn draw_tank_list(
 
 fn draw_buy_tank_name_popup(buf: &mut Buffer, popup: &BuyTankPopup, cursor_vis: bool, area: Rect) {
     const POP_H: u16 = 7;
-    const LEFT_HINT: &str = "ESC/q cancel";
+    const LEFT_HINT: &str = "ESC cancel";
     const RIGHT_HINT: &str = "ENTER buy";
 
     let entry = &TANK_CATALOG[popup.catalog_idx];
@@ -1436,7 +1473,78 @@ fn draw_buy_tank_name_popup(buf: &mut Buffer, popup: &BuyTankPopup, cursor_vis: 
 
     buf.set_string(inner_x, oy + 1, &header, s_bold);
     buf.set_string(inner_x, oy + 3, "Name it", s_white);
-    draw_text_cursor(buf, &popup.name_input, cursor_vis, inner_x, oy + 4, inner_w, BG);
+    draw_text_cursor(
+        buf,
+        &popup.name_input,
+        cursor_vis,
+        inner_x,
+        oy + 4,
+        inner_w,
+        BG,
+    );
+
+    buf.set_string(
+        inner_x,
+        oy + POP_H - 2,
+        table::truncate_str(LEFT_HINT, inner_w_usize),
+        s_dim,
+    );
+    let rw = RIGHT_HINT.len() as u16;
+    if (LEFT_HINT.len() as u16 + rw + 2) <= inner_w {
+        buf.set_string(inner_x + inner_w - rw, oy + POP_H - 2, RIGHT_HINT, s_dim);
+    }
+}
+
+pub struct NecroPopupWidget<'a> {
+    pub input: &'a TextInput,
+    pub cursor_visible: bool,
+}
+
+impl Widget for NecroPopupWidget<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        draw_necro_tank_name_popup(buf, self.input, self.cursor_visible, area);
+    }
+}
+
+pub fn draw_necro_tank_name_popup(
+    buf: &mut Buffer,
+    input: &TextInput,
+    cursor_vis: bool,
+    area: Rect,
+) {
+    const POP_H: u16 = 6;
+    const LEFT_HINT: &str = "ESC cancel";
+    const RIGHT_HINT: &str = "ENTER summon";
+    const HEADER: &str = "Name your Helltank";
+
+    let min_hints_w = (LEFT_HINT.len() + RIGHT_HINT.len() + 2) as u16;
+    let inner_w = (HEADER.len() as u16).max(min_hints_w);
+    let pop_w = inner_w + 4;
+
+    if area.width < pop_w || area.height < POP_H {
+        return;
+    }
+
+    let ox = area.x + (area.width - pop_w) / 2;
+    let oy = area.y + (area.height - POP_H) / 2;
+
+    for dy in 0..POP_H {
+        for dx in 0..pop_w {
+            buf[(ox + dx, oy + dy)].reset();
+        }
+    }
+    table::draw_box_border(buf, ox, oy, pop_w, POP_H, " Necronomicon ", Color::Red, BG);
+
+    let s_bold = Style::default()
+        .fg(Color::White)
+        .add_modifier(Modifier::BOLD)
+        .bg(BG);
+    let s_dim = Style::default().fg(Color::DarkGray).bg(BG);
+    let inner_x = ox + 2;
+    let inner_w_usize = inner_w as usize;
+
+    buf.set_string(inner_x, oy + 1, HEADER, s_bold);
+    draw_text_cursor(buf, input, cursor_vis, inner_x, oy + 2, inner_w, BG);
 
     buf.set_string(
         inner_x,

@@ -8,6 +8,7 @@ use ratatui::{
 use crate::loot::ConsumableKind;
 use crate::tank::ActiveConsumable;
 
+#[allow(clippy::too_many_arguments)]
 pub fn height(
     show_stats: bool,
     width: u16,
@@ -15,19 +16,24 @@ pub fn height(
     money: u32,
     food_supply: u32,
     fish_count: usize,
+    fish_capacity: usize,
     tank_name: &str,
+    devils_luck: u32,
 ) -> u16 {
     if !show_stats {
         return 3;
     }
-    if !active_consumables.is_empty()
+    let has_statuses = !active_consumables.is_empty() || devils_luck > 0;
+    if has_statuses
         && !inline_fits(
             width,
             active_consumables,
             money,
             food_supply,
             fish_count,
+            fish_capacity,
             tank_name,
+            devils_luck,
         )
     {
         5
@@ -42,11 +48,13 @@ pub struct CommandBar<'a> {
     pub cursor_visible: bool,
     pub ghost: &'a str,
     pub fish_count: usize,
+    pub fish_capacity: usize,
     pub food_supply: u32,
     pub money: u32,
     pub show_stats: bool,
     pub active_consumables: &'a [ActiveConsumable],
     pub tank_name: &'a str,
+    pub devils_luck: u32,
 }
 
 fn format_metric(n: u32) -> String {
@@ -70,7 +78,7 @@ fn format_mm_ss(secs: f32) -> String {
     format!("{:02}:{:02}", total / 60, total % 60)
 }
 
-fn consumables_total_len(active_consumables: &[ActiveConsumable]) -> usize {
+fn consumables_total_len(active_consumables: &[ActiveConsumable], devils_luck: u32) -> usize {
     let mut total = 0;
     for (i, ac) in active_consumables.iter().enumerate() {
         if i > 0 {
@@ -82,32 +90,45 @@ fn consumables_total_len(active_consumables: &[ActiveConsumable]) -> usize {
         };
         total += name_len + 1 + crate::names::to_roman(ac.stacks).len() + 2 + 5;
     }
+    if devils_luck > 0 {
+        if !active_consumables.is_empty() {
+            total += 2;
+        }
+        total += "devil's luck ".len() + crate::names::to_roman(devils_luck).len();
+    }
     total
 }
 
-fn stats_str(money: u32, food_supply: u32, fish_count: usize) -> String {
+fn stats_str(money: u32, food_supply: u32, fish_count: usize, fish_capacity: usize) -> String {
     format!(
-        "cash: {}  food: {}  fishes: {}/50",
+        "cash: {}  food: {}  fishes: {}/{}",
         format_metric(money),
         format_metric(food_supply),
-        fish_count
+        fish_count,
+        fish_capacity,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn inline_fits(
     width: u16,
     active_consumables: &[ActiveConsumable],
     money: u32,
     food_supply: u32,
     fish_count: usize,
+    fish_capacity: usize,
     tank_name: &str,
+    devils_luck: u32,
 ) -> bool {
-    if active_consumables.is_empty() {
+    let has_statuses = !active_consumables.is_empty() || devils_luck > 0;
+    if !has_statuses {
         return true;
     }
     let title_len = tank_name.len();
-    let cons_len = consumables_total_len(active_consumables);
-    let s_len = stats_str(money, food_supply, fish_count).chars().count();
+    let cons_len = consumables_total_len(active_consumables, devils_luck);
+    let s_len = stats_str(money, food_supply, fish_count, fish_capacity)
+        .chars()
+        .count();
     title_len + 2 + cons_len + 2 + s_len <= width as usize
 }
 
@@ -193,25 +214,33 @@ impl Widget for CommandBar<'_> {
             let stats_row = area.y + 3;
             buf.set_string(area.x, stats_row, self.tank_name, white);
 
-            let has_consumables = !self.active_consumables.is_empty();
-            let stats = stats_str(self.money, self.food_supply, self.fish_count);
+            let has_statuses = !self.active_consumables.is_empty() || self.devils_luck > 0;
+            let stats = stats_str(
+                self.money,
+                self.food_supply,
+                self.fish_count,
+                self.fish_capacity,
+            );
             let stats_width = stats.chars().count() as u16;
             let stats_x = area.right().saturating_sub(stats_width);
             if stats_width <= area.width {
                 buf.set_string(stats_x, stats_row, &stats, white);
             }
 
-            if has_consumables {
+            if has_statuses {
                 let fits_inline = inline_fits(
                     area.width,
                     self.active_consumables,
                     self.money,
                     self.food_supply,
                     self.fish_count,
+                    self.fish_capacity,
                     self.tank_name,
+                    self.devils_luck,
                 );
                 let cons_row = if fits_inline { stats_row } else { area.y + 4 };
-                let cons_total = consumables_total_len(self.active_consumables) as u16;
+                let cons_total =
+                    consumables_total_len(self.active_consumables, self.devils_luck) as u16;
                 let start_x = if fits_inline {
                     stats_x.saturating_sub(cons_total + 2)
                 } else {
@@ -236,6 +265,17 @@ impl Widget for CommandBar<'_> {
                     if x + text_w <= area.right() {
                         buf.set_string(x, cons_row, &text, white);
                         x += text_w;
+                    }
+                }
+                if self.devils_luck > 0 {
+                    if !self.active_consumables.is_empty() {
+                        x += 2;
+                    }
+                    let dl_text =
+                        format!("devil's luck {}", crate::names::to_roman(self.devils_luck));
+                    let dl_w = dl_text.chars().count() as u16;
+                    if x + dl_w <= area.right() {
+                        buf.set_string(x, cons_row, &dl_text, white);
                     }
                 }
             }

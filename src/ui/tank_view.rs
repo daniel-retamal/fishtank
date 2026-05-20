@@ -9,12 +9,16 @@ use unicode_width::UnicodeWidthChar;
 use crate::{
     entities::bubble::Bubble,
     entities::coral::{
-        CORAL_A_LINES, CORAL_A_ROWS, CORAL_COLOR, FLOOR_ALGAE_A, FLOOR_ALGAE_COLOR,
-        CoralAlgaeInstance, CoralStructure, FloorAlgae, algae_art, algae_row_shift, mirror_char,
+        CORAL_A_LINES, CORAL_A_ROWS, CORAL_COLOR, CoralAlgaeInstance, CoralStructure,
+        FLOOR_ALGAE_A, FLOOR_ALGAE_COLOR, FloorAlgae, algae_art, algae_row_shift, mirror_char,
         query_anim_char, vert_wave_char,
     },
     entities::fish::Fish,
     entities::food::Food,
+    entities::hell::{
+        FACE_COLOR, H_WAVE_AMPLITUDE, H_WAVE_ROW_SPREAD, HellBackground, HellPlant,
+        RANDOM_FACE_COLOR,
+    },
     entities::plant::Plant,
     tank::{Tank, TankKind},
 };
@@ -53,6 +57,17 @@ impl Widget for TankView<'_> {
                         break;
                     }
                     render_coral_algae_all(coral, area, buf);
+                }
+            }
+            TankKind::Hell => {
+                if let Some(bg) = &self.tank.hell_bg {
+                    render_hell_background(bg, area, buf);
+                }
+                for plant in &self.tank.hell_plants {
+                    if plant.x >= area.width as i32 {
+                        break;
+                    }
+                    render_hell_plant(plant, area, buf);
                 }
             }
         }
@@ -128,7 +143,12 @@ fn render_coral_line(
         let effective_x = start_x + canvas_w - line_w;
         let pairs: Vec<(char, i32)> = line
             .chars()
-            .map(|c| (mirror_char(c), UnicodeWidthChar::width(c).unwrap_or(1) as i32))
+            .map(|c| {
+                (
+                    mirror_char(c),
+                    UnicodeWidthChar::width(c).unwrap_or(1) as i32,
+                )
+            })
             .rev()
             .collect();
         let mut col = 0i32;
@@ -136,7 +156,9 @@ fn render_coral_line(
             if ch != ' ' && ch != 'X' {
                 let sx = effective_x + col;
                 if sx >= area.x as i32 && sx < area.right() as i32 {
-                    buf[(sx as u16, screen_y as u16)].set_char(ch).set_style(style);
+                    buf[(sx as u16, screen_y as u16)]
+                        .set_char(ch)
+                        .set_style(style);
                 }
             }
             col += w;
@@ -148,7 +170,9 @@ fn render_coral_line(
             if ch != ' ' && ch != 'X' {
                 let sx = start_x + col;
                 if sx >= area.x as i32 && sx < area.right() as i32 {
-                    buf[(sx as u16, screen_y as u16)].set_char(ch).set_style(style);
+                    buf[(sx as u16, screen_y as u16)]
+                        .set_char(ch)
+                        .set_style(style);
                 }
             }
             col += w;
@@ -159,8 +183,7 @@ fn render_coral_line(
 fn render_coral_structure(coral: &CoralStructure, area: Rect, buf: &mut Buffer) {
     let canvas_w = art_canvas_w(CORAL_A_LINES);
     for (row_idx, line) in CORAL_A_LINES.iter().enumerate() {
-        let screen_y =
-            area.y as i32 + area.height as i32 - CORAL_A_ROWS as i32 + row_idx as i32;
+        let screen_y = area.y as i32 + area.height as i32 - CORAL_A_ROWS as i32 + row_idx as i32;
         if screen_y < area.y as i32 || screen_y >= area.bottom() as i32 {
             continue;
         }
@@ -206,7 +229,9 @@ fn render_algae_line(
             if ch != ' ' {
                 let sx = effective_x + col;
                 if sx >= area.x as i32 && sx < area.right() as i32 {
-                    buf[(sx as u16, screen_y as u16)].set_char(ch).set_style(style);
+                    buf[(sx as u16, screen_y as u16)]
+                        .set_char(ch)
+                        .set_style(style);
                 }
             }
             col += w;
@@ -231,10 +256,8 @@ fn render_algae_line(
 
 fn render_coral_algae_all(coral: &CoralStructure, area: Rect, buf: &mut Buffer) {
     for instance in &coral.algae {
-        let anchor_screen_y = area.y as i32
-            + area.height as i32
-            - CORAL_A_ROWS as i32
-            + instance.art_row as i32;
+        let anchor_screen_y =
+            area.y as i32 + area.height as i32 - CORAL_A_ROWS as i32 + instance.art_row as i32;
         let art = algae_art(instance.algae_idx);
         let n = art.len();
         let bottom_w: i32 = art[n - 1]
@@ -286,7 +309,10 @@ fn render_floor_algae(fa: &FloorAlgae, area: Rect, buf: &mut Buffer) {
                 .chars()
                 .map(|c| {
                     let ac = vert_wave_char(c, li, fa.phase);
-                    (mirror_char(ac), UnicodeWidthChar::width(c).unwrap_or(1) as i32)
+                    (
+                        mirror_char(ac),
+                        UnicodeWidthChar::width(c).unwrap_or(1) as i32,
+                    )
                 })
                 .rev()
                 .collect();
@@ -295,7 +321,9 @@ fn render_floor_algae(fa: &FloorAlgae, area: Rect, buf: &mut Buffer) {
                 if ch != ' ' {
                     let sx = effective_x + col;
                     if sx >= area.x as i32 && sx < area.right() as i32 {
-                        buf[(sx as u16, screen_y as u16)].set_char(ch).set_style(style);
+                        buf[(sx as u16, screen_y as u16)]
+                            .set_char(ch)
+                            .set_style(style);
                     }
                 }
                 col += w;
@@ -308,7 +336,9 @@ fn render_floor_algae(fa: &FloorAlgae, area: Rect, buf: &mut Buffer) {
                 if ac != ' ' {
                     let sx = start_x + col;
                     if sx >= area.x as i32 && sx < area.right() as i32 {
-                        buf[(sx as u16, screen_y as u16)].set_char(ac).set_style(style);
+                        buf[(sx as u16, screen_y as u16)]
+                            .set_char(ac)
+                            .set_style(style);
                     }
                 }
                 col += w;
@@ -385,5 +415,76 @@ fn render_fish(fish: &Fish, area: Rect, buf: &mut Buffer) {
             .set_char(*ch)
             .set_style(Style::new().fg(*color).remove_modifier(Modifier::all()));
         col += UnicodeWidthChar::width(*ch).unwrap_or(1) as u16;
+    }
+}
+
+fn render_hell_background(bg: &HellBackground, area: Rect, buf: &mut Buffer) {
+    if bg.is_random {
+        let w = area.width as usize;
+        for y in 0..area.height {
+            for x in 0..area.width {
+                let idx = y as usize * w + x as usize;
+                if idx < bg.random_buffer.len() {
+                    let ch = bg.random_buffer[idx];
+                    if ch != ' ' {
+                        buf[(area.x + x, area.y + y)]
+                            .set_char(ch)
+                            .set_fg(RANDOM_FACE_COLOR);
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    let face_grid = &bg.face_grid;
+    let face_h = face_grid.len();
+    if face_h == 0 {
+        return;
+    }
+    let face_w = face_grid[0].len();
+    if face_w == 0 {
+        return;
+    }
+
+    for y in 0..area.height {
+        let world_y = bg.offset_y + y as f32;
+        let tile_row_f = (world_y / face_h as f32).floor();
+        let face_row = world_y.rem_euclid(face_h as f32) as usize;
+        let face_row = face_row.min(face_h - 1);
+        let beehive_shift = if (tile_row_f as i64).rem_euclid(2) == 1 {
+            face_w / 2
+        } else {
+            0
+        };
+
+        let h_wave_shift: i32 =
+            (H_WAVE_AMPLITUDE * (bg.h_phase - y as f32 * H_WAVE_ROW_SPREAD).sin()).round() as i32;
+
+        for x in 0..area.width {
+            let world_x = bg.offset_x + x as f32 + h_wave_shift as f32;
+            let face_col = (world_x + beehive_shift as f32).rem_euclid(face_w as f32) as usize;
+            let face_col = face_col.min(face_w - 1);
+            let ch = face_grid[face_row][face_col];
+            if ch != ' ' {
+                buf[(area.x + x, area.y + y)]
+                    .set_char(ch)
+                    .set_fg(FACE_COLOR);
+            }
+        }
+    }
+}
+
+fn render_hell_plant(plant: &HellPlant, area: Rect, buf: &mut Buffer) {
+    let base_x = plant.x;
+    for h in 0..plant.height {
+        let (x_offset, ch) = plant.segment_at(h);
+        let x = base_x + x_offset;
+        let y = area.height as i32 - 1 - h as i32;
+        if x >= 0 && x < area.width as i32 && y >= 0 {
+            buf[(area.x + x as u16, area.y + y as u16)]
+                .set_char(ch)
+                .set_fg(plant.color);
+        }
     }
 }

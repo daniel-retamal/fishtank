@@ -6,6 +6,7 @@ use crate::entities::bubble::Bubble;
 use crate::entities::coral::{CoralStructure, FloorAlgae, extend_coral_reef};
 use crate::entities::fish::{Direction, EATING_DURATION, Fish, FishState};
 use crate::entities::food::Food;
+use crate::entities::hell::{HELL_BUBBLE_COLOR, HellBackground, HellPlant, extend_hell_plants};
 use crate::entities::mutant::{
     EXTRA_BODY_FOR_DOUBLE, EyeState, MIN_BODY_CHARS, MutantTail, random_rgb,
 };
@@ -19,6 +20,7 @@ use crate::settings::Settings;
 pub enum TankKind {
     Base,
     CoralReef,
+    Hell,
 }
 
 impl TankKind {
@@ -26,6 +28,7 @@ impl TankKind {
         match self {
             TankKind::Base => "Base",
             TankKind::CoralReef => "Coral Reef",
+            TankKind::Hell => "Helltank",
         }
     }
 }
@@ -37,6 +40,7 @@ pub struct ActiveConsumable {
 }
 
 pub const TANK_CAPACITY: usize = 50;
+pub const HELL_TANK_CAPACITY: usize = 100;
 
 const PLANT_SPACING_MIN: i32 = 3;
 const PLANT_SPACING_MAX: i32 = 6;
@@ -137,6 +141,8 @@ pub struct Tank {
     pub corals: Vec<CoralStructure>,
     pub floor_algae: Vec<FloorAlgae>,
     pub bubbles: Vec<Bubble>,
+    pub hell_bg: Option<HellBackground>,
+    pub hell_plants: Vec<HellPlant>,
     pub width: u16,
     pub height: u16,
     pub used_names: HashSet<String>,
@@ -152,16 +158,28 @@ impl Tank {
         let mut plants = Vec::new();
         let mut corals = Vec::new();
         let mut floor_algae = Vec::new();
+        let mut hell_bg = None;
+        let mut hell_plants = Vec::new();
         match kind {
-            TankKind::Base => {
-                extend_plants(&mut plants, INITIAL_WIDTH as i32 + PLANT_SPAWN_LOOKAHEAD, &mut rng)
-            }
+            TankKind::Base => extend_plants(
+                &mut plants,
+                INITIAL_WIDTH as i32 + PLANT_SPAWN_LOOKAHEAD,
+                &mut rng,
+            ),
             TankKind::CoralReef => extend_coral_reef(
                 &mut corals,
                 &mut floor_algae,
                 INITIAL_WIDTH as i32 + CORAL_SPAWN_LOOKAHEAD,
                 &mut rng,
             ),
+            TankKind::Hell => {
+                hell_bg = Some(HellBackground::new(&mut rng));
+                extend_hell_plants(
+                    &mut hell_plants,
+                    INITIAL_WIDTH as i32 + PLANT_SPAWN_LOOKAHEAD,
+                    &mut rng,
+                );
+            }
         }
         Self {
             name,
@@ -172,6 +190,8 @@ impl Tank {
             corals,
             floor_algae,
             bubbles: Vec::new(),
+            hell_bg,
+            hell_plants,
             width: INITIAL_WIDTH,
             height: INITIAL_HEIGHT,
             used_names: HashSet::new(),
@@ -184,8 +204,16 @@ impl Tank {
         }
     }
 
+    pub fn capacity(&self) -> usize {
+        if self.kind == TankKind::Hell {
+            HELL_TANK_CAPACITY
+        } else {
+            TANK_CAPACITY
+        }
+    }
+
     pub fn is_full(&self) -> bool {
-        self.fish.len() >= TANK_CAPACITY
+        self.fish.len() >= self.capacity()
     }
 
     pub fn resize(&mut self, width: u16, height: u16) {
@@ -214,13 +242,20 @@ impl Tank {
 
     fn extend_environment(&mut self, rng: &mut impl RngExt) {
         match self.kind {
-            TankKind::Base => {
-                extend_plants(&mut self.plants, self.width as i32 + PLANT_SPAWN_LOOKAHEAD, rng)
-            }
+            TankKind::Base => extend_plants(
+                &mut self.plants,
+                self.width as i32 + PLANT_SPAWN_LOOKAHEAD,
+                rng,
+            ),
             TankKind::CoralReef => extend_coral_reef(
                 &mut self.corals,
                 &mut self.floor_algae,
                 self.width as i32 + CORAL_SPAWN_LOOKAHEAD,
+                rng,
+            ),
+            TankKind::Hell => extend_hell_plants(
+                &mut self.hell_plants,
+                self.width as i32 + PLANT_SPAWN_LOOKAHEAD,
                 rng,
             ),
         }
@@ -240,7 +275,10 @@ impl Tank {
         let y_max = (self.height as f32 - FISH_SPAWN_Y_MAX_OFFSET).max(FISH_SPAWN_Y_SAFE_MIN);
         let x = rng.random_range(FISH_SPAWN_X_MIN..x_max);
         let y = rng.random_range(FISH_SPAWN_Y_MIN..y_max);
-        let fish = Fish::new(species, actual_name.clone(), x, y, rng);
+        let mut fish = Fish::new(species, actual_name.clone(), x, y, rng);
+        if self.kind == TankKind::Hell {
+            fish.devil_marked = true;
+        }
         self.used_names.insert(actual_name);
         self.fish.push(fish);
         true
@@ -253,6 +291,9 @@ impl Tank {
         fish.position.x = rng.random_range(FISH_SPAWN_X_MIN..x_max);
         fish.position.y = rng.random_range(FISH_SPAWN_Y_MIN..y_max);
         fish.name = actual_name.clone();
+        if self.kind == TankKind::Hell {
+            fish.devil_marked = true;
+        }
         self.used_names.insert(actual_name);
         self.fish.push(fish);
     }
@@ -284,6 +325,12 @@ impl Tank {
 
         for plant in &mut self.plants {
             plant.tick();
+        }
+        if let Some(bg) = &mut self.hell_bg {
+            bg.tick(dt, &mut rng, self.width, self.height);
+        }
+        for plant in &mut self.hell_plants {
+            plant.tick(dt, &mut rng);
         }
         for coral in &mut self.corals {
             coral.tick(dt, &mut rng);
@@ -470,6 +517,9 @@ impl Tank {
             m.mutation_count = orig_mutation_count;
         }
         new_fish.display_width = new_fish.mutant.as_ref().unwrap().display_width(other_half);
+        if self.kind == TankKind::Hell {
+            new_fish.devil_marked = true;
+        }
 
         self.used_names.insert(new_name);
         self.fish.push(new_fish);
@@ -564,7 +614,12 @@ impl Tank {
         if self.bubble_bottom_timer <= 0.0 {
             let x = rng.random_range(0.0..self.width as f32);
             let y = (self.height as f32 - 1.0).max(0.0);
-            self.bubbles.push(Bubble::new_rising(x, y));
+            let bubble = if self.kind == TankKind::Hell {
+                Bubble::new_rising_colored(x, y, HELL_BUBBLE_COLOR)
+            } else {
+                Bubble::new_rising(x, y)
+            };
+            self.bubbles.push(bubble);
             self.bubble_bottom_timer =
                 rng.random_range(BUBBLE_BOTTOM_SPAWN_RATE_MIN..BUBBLE_BOTTOM_SPAWN_RATE_MAX);
         }
@@ -574,7 +629,12 @@ impl Tank {
             let x = rng.random_range(0.0..self.width as f32);
             let max_y = (self.height as f32 * 0.25).max(1.0);
             let y = rng.random_range(0.0..max_y);
-            self.bubbles.push(Bubble::new_surface(x, y));
+            let bubble = if self.kind == TankKind::Hell {
+                Bubble::new_surface_colored(x, y, HELL_BUBBLE_COLOR)
+            } else {
+                Bubble::new_surface(x, y)
+            };
+            self.bubbles.push(bubble);
             self.bubble_surface_timer =
                 rng.random_range(BUBBLE_SURFACE_SPAWN_RATE_MIN..BUBBLE_SURFACE_SPAWN_RATE_MAX);
         }
@@ -602,7 +662,13 @@ impl Tank {
                     FishSpecies::Mutantfish => {
                         Bubble::new_rising_custom(tail_x, fish.position.y, '†', fish.color)
                     }
-                    _ => Bubble::new_rising(tail_x, fish.position.y),
+                    _ => {
+                        if self.kind == TankKind::Hell {
+                            Bubble::new_rising_colored(tail_x, fish.position.y, HELL_BUBBLE_COLOR)
+                        } else {
+                            Bubble::new_rising(tail_x, fish.position.y)
+                        }
+                    }
                 };
                 self.bubbles.push(bubble);
             }

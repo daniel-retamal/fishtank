@@ -97,38 +97,15 @@ const ALGAE_B: &[&str] = &[
     "  |_||_||_|",
 ];
 
-const ALGAE_C: &[&str] = &[
-    ".__._.__.",
-    "(;;););;)",
-    "|;;|;|;;|",
-    "|;;|;|;;|",
-];
+const ALGAE_C: &[&str] = &[".__._.__.", "(;;););;)", "|;;|;|;;|", "|;;|;|;;|"];
 
-const ALGAE_D: &[&str] = &[
-    "((()))",
-    " ((()())",
-    "((())))",
-];
+const ALGAE_D: &[&str] = &["((()))", " ((()())", "((())))"];
 
-const ALGAE_E: &[&str] = &[
-    "  ...  .",
-    " .|||_/.",
-    r#" \\//_/"#,
-    r#"  \\|/"#,
-];
+const ALGAE_E: &[&str] = &["  ...  .", " .|||_/.", r#" \\//_/"#, r#"  \\|/"#];
 
-const ALGAE_F: &[&str] = &[
-    "  .",
-    ". |/.  .",
-    r#"\_|/|_/."#,
-    r#" \||/_/"#,
-];
+const ALGAE_F: &[&str] = &["  .", ". |/.  .", r#"\_|/|_/."#, r#" \||/_/"#];
 
-const ALGAE_G: &[&str] = &[
-    ".__._.__.",
-    "|;;|;|;;|",
-    "|;;|;|;;|",
-];
+const ALGAE_G: &[&str] = &[".__._.__.", "|;;|;|;;|", "|;;|;|;;|"];
 
 const ALGAE_H: &[&str] = &[
     r#". \_ | @ |  ."#,
@@ -137,11 +114,7 @@ const ALGAE_H: &[&str] = &[
     r#"      \||"#,
 ];
 
-const ALGAE_I: &[&str] = &[
-    " {}{ {{}{ ",
-    "}{}}{{}{}}{",
-    " {{}}{{ {} ",
-];
+const ALGAE_I: &[&str] = &[" {}{ {{}{ ", "}{}}{{}{}}{", " {{}}{{ {} "];
 
 const ALGAE_K: &[&str] = &[
     " {}{{}}{{}{}}{}",
@@ -455,19 +428,14 @@ pub fn extend_coral_reef(
         let fa_frontier = floor_algae
             .last()
             .map(|fa| {
-                fa.base_x
-                    + FLOOR_ALGAE_ORIGIN_COL
-                    + floor_canvas_w
-                    + FLOOR_ALGAE_EXTRA_SPACING_MIN
+                fa.base_x + FLOOR_ALGAE_ORIGIN_COL + floor_canvas_w + FLOOR_ALGAE_EXTRA_SPACING_MIN
             })
             .unwrap_or(0);
         let coral_frontier = corals
             .last()
             .map(|c| c.base_x + canvas_w + FLOOR_ALGAE_CORAL_CLEARANCE)
             .unwrap_or(0);
-        fa_frontier
-            .max(coral_frontier)
-            .max(FLOOR_ALGAE_ORIGIN_COL)
+        fa_frontier.max(coral_frontier).max(FLOOR_ALGAE_ORIGIN_COL)
     };
 
     while coral_x < to_width {

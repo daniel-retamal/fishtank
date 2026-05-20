@@ -77,6 +77,44 @@ impl Bubble {
         }
     }
 
+    pub fn new_rising_colored(x: f32, y: f32, color: Color) -> Self {
+        let mut rng = rand::rng();
+        Self {
+            position: Position { x, y },
+            sway: SwayState {
+                phase: rng.random::<f32>() * TAU,
+            },
+            base_x: x,
+            rise_speed: rng.random_range(RISE_SPEED_MIN..RISE_SPEED_MAX),
+            bubble_char: BUBBLE_CHARS[rng.random_range(0..BUBBLE_CHARS.len())],
+            color,
+            dead: false,
+            money_value: None,
+            phase: BubblePhase::Rising {
+                hover_time: rng.random_range(HOVER_TIME_MIN..HOVER_TIME_MAX),
+            },
+        }
+    }
+
+    pub fn new_surface_colored(x: f32, y: f32, color: Color) -> Self {
+        let mut rng = rand::rng();
+        Self {
+            position: Position { x, y },
+            sway: SwayState {
+                phase: rng.random::<f32>() * TAU,
+            },
+            base_x: x,
+            rise_speed: rng.random_range(SURFACE_RISE_SPEED_MIN..SURFACE_RISE_SPEED_MAX),
+            bubble_char: BUBBLE_CHARS[rng.random_range(0..BUBBLE_CHARS.len())],
+            color,
+            dead: false,
+            money_value: None,
+            phase: BubblePhase::Surface {
+                remaining: rng.random_range(SURFACE_LIFETIME_MIN..SURFACE_LIFETIME_MAX),
+            },
+        }
+    }
+
     pub fn new_surface(x: f32, y: f32) -> Self {
         let mut rng = rand::rng();
         Self {

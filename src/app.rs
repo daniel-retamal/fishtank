@@ -24,9 +24,10 @@ use crate::{
         inventory_overlay::{InventoryOverlay, InventoryState},
         shop_overlay::{
             BAIT_BUY_PRICE, BuyCategoryPopup, BuyTankPopup, COFFEE_BUY_PRICE, FISH_CATALOG,
-            FishListState, FishNamePopup, SellConfirm, SellEntry, SellMenuState, ShopOverlay,
-            ShopPage, ShopState, TANK_CATALOG, TankListState, buy_cat_first_available,
-            buy_cat_next, list_visible_rows,
+            FishListState, FishNamePopup, HELL_TANK_SELL_PRICE, NecroPopupWidget, SellConfirm,
+            SellEntry, SellMenuState, ShopOverlay, ShopPage, ShopState, TANK_CATALOG,
+            TANK_SELL_PRICE, TankListState, buy_cat_first_available, buy_cat_next,
+            list_visible_rows,
         },
         show_overlay::{ShowOverlay, ShowSource, ShowState},
         tank_view::TankView,
@@ -62,6 +63,7 @@ pub struct App {
     catch_state: Option<CatchState>,
     shop_state: Option<ShopState>,
     fishtanks_state: Option<FishtanksState>,
+    necronomicon_popup: Option<TextInput>,
     terminal_height: u16,
     terminal_width: u16,
 }
@@ -95,9 +97,15 @@ impl App {
             tanks: vec![first_tank],
             current_tank: 0,
             used_tank_names,
-            money: 0,
+            money: 40_000,
             food_supply: 0,
-            inventory: HashMap::new(),
+            inventory: {
+                let mut inv = HashMap::new();
+                inv.insert("Coffee".to_string(), 1);
+                inv.insert("Bait".to_string(), 1);
+                inv.insert("Necronomicon".to_string(), 1);
+                inv
+            },
             active_consumables: Vec::new(),
             command_input: String::new(),
             running: true,
@@ -115,6 +123,7 @@ impl App {
             catch_state: None,
             shop_state: None,
             fishtanks_state: None,
+            necronomicon_popup: None,
             terminal_height: TERMINAL_HEIGHT_DEFAULT,
             terminal_width: TERMINAL_WIDTH_DEFAULT,
         }
@@ -144,6 +153,14 @@ impl App {
             .sum()
     }
 
+    fn devils_luck(&self) -> u32 {
+        if self.tank().kind == TankKind::Hell {
+            self.tank().fish.len() as u32
+        } else {
+            0
+        }
+    }
+
     fn consume_item(&mut self, kind: ConsumableKind) {
         let duration = match kind {
             ConsumableKind::Coffee => COFFEE_DURATION,
@@ -167,6 +184,10 @@ impl App {
             return;
         }
 
+        if self.necronomicon_popup.is_some() {
+            return;
+        }
+
         if self.fishing_state.is_some() {
             let coffee = self.coffee_stacks();
             self.fishing_state
@@ -181,10 +202,11 @@ impl App {
                 let mut rng = rand::rng();
                 let bait = self.bait_stacks();
                 let all_tanks_full = self.tanks.iter().all(|t| t.is_full());
+                let devils_luck = self.devils_luck();
                 let loot = if all_tanks_full {
-                    roll_loot_no_fish(&mut rng)
+                    roll_loot_no_fish(&mut rng, devils_luck)
                 } else {
-                    roll_loot(&mut rng, bait)
+                    roll_loot(&mut rng, bait, devils_luck)
                 };
                 let item_qty = match &loot {
                     LootKind::Junk(_) => self.inventory.get("Junk").copied().unwrap_or(0) + 1,
@@ -193,6 +215,9 @@ impl App {
                     }
                     LootKind::Consumable(ConsumableKind::Bait) => {
                         self.inventory.get("Bait").copied().unwrap_or(0) + 1
+                    }
+                    LootKind::Necronomicon => {
+                        self.inventory.get("Necronomicon").copied().unwrap_or(0) + 1
                     }
                     _ => 0,
                 };
@@ -239,6 +264,10 @@ impl App {
     pub fn handle_input(&mut self, event: Event) {
         if self.catch_state.is_some() {
             self.handle_catch_input(event);
+            return;
+        }
+        if self.necronomicon_popup.is_some() {
+            self.handle_necro_popup_input(event);
             return;
         }
         if self.fishing_state.is_some() {
@@ -627,6 +656,12 @@ impl App {
             LootKind::GoldBar => {
                 self.money += crate::loot::GOLD_BAR_VALUE;
             }
+            LootKind::Necronomicon => {
+                *self
+                    .inventory
+                    .entry("Necronomicon".to_string())
+                    .or_insert(0) += 1;
+            }
             LootKind::Fish(_) => {}
         }
     }
@@ -661,29 +696,87 @@ impl App {
                     .and_then(|s| s.items.get(s.selected))
                     .map(|item| item.name.clone());
                 if let Some(name) = selected_name {
-                    let kind = match name.as_str() {
-                        "Coffee" => Some(ConsumableKind::Coffee),
-                        "Bait" => Some(ConsumableKind::Bait),
-                        _ => None,
-                    };
-                    if let Some(kind) = kind {
-                        self.consume_item(kind);
-                        let entry = self.inventory.entry(name).or_insert(0);
-                        *entry = entry.saturating_sub(1);
-                        self.inventory.retain(|_, v| *v > 0);
-                        if let Some(ref mut state) = self.inventory_state {
-                            state.update_from(&self.inventory, &mut rand::rng());
-                            if state.items.is_empty() {
-                                self.inventory_state = None;
+                    match name.as_str() {
+                        "Necronomicon" => {
+                            self.inventory_state = None;
+                            self.necronomicon_popup = Some(TextInput::new());
+                        }
+                        consumable_name => {
+                            let kind = match consumable_name {
+                                "Coffee" => Some(ConsumableKind::Coffee),
+                                "Bait" => Some(ConsumableKind::Bait),
+                                _ => None,
+                            };
+                            if let Some(kind) = kind {
+                                self.consume_item(kind);
+                                let entry = self.inventory.entry(name).or_insert(0);
+                                *entry = entry.saturating_sub(1);
+                                self.inventory.retain(|_, v| *v > 0);
+                                if let Some(ref mut state) = self.inventory_state {
+                                    state.update_from(&self.inventory, &mut rand::rng());
+                                    if state.items.is_empty() {
+                                        self.inventory_state = None;
+                                    }
+                                }
+                                let bh = self.bar_height();
+                                self.tanks[self.current_tank].resize(
+                                    self.terminal_width,
+                                    self.terminal_height.saturating_sub(bh),
+                                );
                             }
                         }
-                        let bh = self.bar_height();
-                        self.tanks[self.current_tank]
-                            .resize(self.terminal_width, self.terminal_height.saturating_sub(bh));
                     }
                 }
             }
             _ => {}
+        }
+    }
+
+    fn handle_necro_popup_input(&mut self, event: Event) {
+        let Event::Key(key) = event else { return };
+        if key.kind != KeyEventKind::Press {
+            return;
+        }
+        match key.code {
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.running = false;
+            }
+            KeyCode::Esc => {
+                self.necronomicon_popup = None;
+                let mut rng = rand::rng();
+                if let Some(mut state) = InventoryState::new(&self.inventory, &mut rng) {
+                    if let Some(pos) = state.items.iter().position(|i| i.name == "Necronomicon") {
+                        state.selected = pos;
+                    }
+                    self.inventory_state = Some(state);
+                }
+            }
+            KeyCode::Enter => {
+                if self
+                    .necronomicon_popup
+                    .as_ref()
+                    .is_some_and(|i| !i.is_empty())
+                {
+                    let name =
+                        names::title_case(self.necronomicon_popup.as_ref().unwrap().as_str());
+                    let actual_name = names::unique_name_in(&self.used_tank_names, &name);
+                    let entry = self
+                        .inventory
+                        .entry("Necronomicon".to_string())
+                        .or_insert(0);
+                    *entry = entry.saturating_sub(1);
+                    self.inventory.retain(|_, v| *v > 0);
+                    self.used_tank_names.insert(actual_name.clone());
+                    self.tanks.push(Tank::new(actual_name, TankKind::Hell));
+                    self.current_tank = self.tanks.len() - 1;
+                    self.necronomicon_popup = None;
+                }
+            }
+            _ => {
+                if let Some(ref mut input) = self.necronomicon_popup {
+                    input.handle_key(key.code);
+                }
+            }
         }
     }
 
@@ -844,8 +937,7 @@ impl App {
                                     shop.page = ShopPage::BuyFishList(FishListState::new(money));
                                 }
                                 4 => {
-                                    shop.page =
-                                        ShopPage::BuyTankList(TankListState::new(money));
+                                    shop.page = ShopPage::BuyTankList(TankListState::new(money));
                                 }
                                 idx => {
                                     let unit_price = match idx {
@@ -897,7 +989,7 @@ impl App {
 
                 if let Some(ref mut popup) = fl.popup {
                     match key.code {
-                        KeyCode::Esc | KeyCode::Char('q') => {
+                        KeyCode::Esc => {
                             fl.popup = None;
                         }
                         _ => {
@@ -959,8 +1051,7 @@ impl App {
                         let entry = &TANK_CATALOG[catalog_idx];
                         if money >= entry.price {
                             let name = names::title_case(name_input.as_str());
-                            let actual_name =
-                                names::unique_name_in(&self.used_tank_names, &name);
+                            let actual_name = names::unique_name_in(&self.used_tank_names, &name);
                             self.money = self.money.saturating_sub(entry.price);
                             self.used_tank_names.insert(actual_name.clone());
                             self.tanks.push(Tank::new(actual_name, entry.kind));
@@ -973,7 +1064,7 @@ impl App {
 
                 if let Some(ref mut popup) = tl.popup {
                     match key.code {
-                        KeyCode::Esc | KeyCode::Char('q') => {
+                        KeyCode::Esc => {
                             tl.popup = None;
                         }
                         _ => {
@@ -1061,7 +1152,15 @@ impl App {
                                     let qty = self.inventory.entry("Bait".to_string()).or_insert(0);
                                     *qty = qty.saturating_sub(sell_qty);
                                 }
-                                SellEntry::Tank { name } => {
+                                SellEntry::Necronomicon { .. } => {
+                                    let sell_qty = confirm.sell_qty;
+                                    let qty = self
+                                        .inventory
+                                        .entry("Necronomicon".to_string())
+                                        .or_insert(0);
+                                    *qty = qty.saturating_sub(sell_qty);
+                                }
+                                SellEntry::Tank { name, .. } => {
                                     let tank_name = name.clone();
                                     if let Some(pos) =
                                         self.tanks.iter().position(|t| t.name == tank_name)
@@ -1128,7 +1227,7 @@ impl App {
                 })
             })
             .collect();
-        let sellable_tanks = self.sellable_tank_names();
+        let sellable_tanks = self.sellable_tanks_with_price();
         SellMenuState::new(&fish, &self.inventory, &sellable_tanks)
     }
 
@@ -1145,14 +1244,21 @@ impl App {
         self.tanks[target_idx].place_fish(fish, name, &mut rng);
     }
 
-    fn sellable_tank_names(&self) -> Vec<String> {
+    fn sellable_tanks_with_price(&self) -> Vec<(String, u32)> {
         if self.tanks.len() <= 1 {
             return vec![];
         }
         self.tanks
             .iter()
             .filter(|t| t.fish.is_empty())
-            .map(|t| t.name.clone())
+            .map(|t| {
+                let price = if t.kind == TankKind::Hell {
+                    HELL_TANK_SELL_PRICE
+                } else {
+                    TANK_SELL_PRICE
+                };
+                (t.name.clone(), price)
+            })
             .collect()
     }
 
@@ -1164,7 +1270,9 @@ impl App {
             self.money,
             self.food_supply,
             self.tank().fish.len(),
+            self.tank().capacity(),
             &self.tank().name,
+            self.devils_luck(),
         )
     }
 
@@ -1237,6 +1345,7 @@ impl App {
         )
         .map(|c| c.ghost)
         .unwrap_or_default();
+        let devils_luck = self.devils_luck();
         frame.render_widget(
             CommandBar {
                 input: &self.command_input,
@@ -1244,11 +1353,13 @@ impl App {
                 cursor_visible: self.cursor_visible,
                 ghost: &ghost,
                 fish_count: self.tank().fish.len(),
+                fish_capacity: self.tank().capacity(),
                 food_supply: self.food_supply,
                 money: self.money,
                 show_stats: self.settings.show_stats,
                 active_consumables: &self.active_consumables,
                 tank_name: &self.tank().name,
+                devils_luck,
             },
             command_area,
         );
@@ -1279,6 +1390,16 @@ impl App {
 
         if let Some(ref state) = self.shop_state {
             frame.render_widget(ShopOverlay::new(state, self.money), tank_area);
+        }
+
+        if let Some(ref input) = self.necronomicon_popup {
+            frame.render_widget(
+                NecroPopupWidget {
+                    input,
+                    cursor_visible: self.cursor_visible,
+                },
+                tank_area,
+            );
         }
     }
 

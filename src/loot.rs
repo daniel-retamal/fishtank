@@ -7,6 +7,9 @@ pub const GOLD_BAR_VALUE: u32 = 5_000;
 pub const FOOD_AMOUNT_MIN: u32 = 20;
 pub const FOOD_AMOUNT_MAX: u32 = 80;
 const JUNK_SLOT_OUTCOMES: u32 = 3;
+const DEVILS_LUCK_CASH_BONUS: u32 = 30;
+const CASH_TIER_SHIFT: u32 = 12;
+const CASH_CENTER_IDX: usize = 3;
 
 const JUNK_FILLER_CHARS: &[char] = &['&', '@', '€', '%', '$', '#', 'X', '<', '>'];
 const JUNK_COLORS: &[Color] = &[
@@ -254,6 +257,7 @@ pub enum LootKind {
     Junk(JunkSprite),
     Consumable(ConsumableKind),
     GoldBar,
+    Necronomicon,
 }
 
 #[derive(Clone, Copy)]
@@ -263,15 +267,18 @@ enum LootEntry {
     Food,
     JunkSlot,
     GoldBar,
+    Necronomicon,
 }
 
-const LEGENDARY: u32 = 3;
-const RARE: u32 = 20;
-const COMMON: u32 = 64;
+const ULTRA_LEGENDARY: u32 = 2;
+const LEGENDARY: u32 = 4;
+const RARE: u32 = 22;
+const COMMON: u32 = 62;
 
 const LOOT_TABLE: &[(u32, LootEntry)] = &[
     (LEGENDARY, LootEntry::Fish(FishSpecies::Mutantfish)),
     (LEGENDARY, LootEntry::Fish(FishSpecies::Goldenfish)),
+    (LEGENDARY, LootEntry::Necronomicon),
     (RARE, LootEntry::Fish(FishSpecies::Turbofish)),
     (RARE, LootEntry::Fish(FishSpecies::Jellyfish)),
     (RARE, LootEntry::Fish(FishSpecies::Deadfish)),
@@ -291,7 +298,7 @@ const LOOT_TABLE: &[(u32, LootEntry)] = &[
     (COMMON, LootEntry::Fish(FishSpecies::Kuro)),
     (COMMON, LootEntry::Food),
     (COMMON, LootEntry::JunkSlot),
-    (2, LootEntry::GoldBar),
+    (ULTRA_LEGENDARY, LootEntry::GoldBar),
 ];
 
 fn roll_weighted<T: Copy>(table: &[(u32, T)], rng: &mut impl RngExt) -> T {
@@ -306,6 +313,27 @@ fn roll_weighted<T: Copy>(table: &[(u32, T)], rng: &mut impl RngExt) -> T {
     table.last().unwrap().1
 }
 
+fn roll_cash_with_luck(rng: &mut impl RngExt, devils_luck: u32) -> CashValue {
+    if devils_luck == 0 {
+        return CashValue::roll(rng);
+    }
+    let shifted: Vec<(u32, CashValue)> = CASH_TABLE
+        .iter()
+        .enumerate()
+        .map(|(i, (w, v))| {
+            let rank_dist = (i as i32 - CASH_CENTER_IDX as i32).unsigned_abs();
+            let shift = CASH_TIER_SHIFT * devils_luck * rank_dist;
+            let new_w = if i < CASH_CENTER_IDX {
+                w.saturating_sub(shift).max(1)
+            } else {
+                w + shift
+            };
+            (new_w, *v)
+        })
+        .collect();
+    roll_weighted(&shifted, rng)
+}
+
 fn roll_junk_slot(rng: &mut impl RngExt) -> LootKind {
     match rng.random_range(0..JUNK_SLOT_OUTCOMES) {
         0 => LootKind::Junk(JunkSprite::new(rng)),
@@ -314,11 +342,18 @@ fn roll_junk_slot(rng: &mut impl RngExt) -> LootKind {
     }
 }
 
-pub fn roll_loot_no_fish(rng: &mut impl RngExt) -> LootKind {
+pub fn roll_loot_no_fish(rng: &mut impl RngExt, devils_luck: u32) -> LootKind {
     let non_fish: Vec<(u32, LootEntry)> = LOOT_TABLE
         .iter()
         .filter(|(_, e)| !matches!(e, LootEntry::Fish(_)))
-        .copied()
+        .map(|(w, e)| {
+            let eff_w = if matches!(e, LootEntry::Cash) {
+                w + DEVILS_LUCK_CASH_BONUS * devils_luck
+            } else {
+                *w
+            };
+            (eff_w, *e)
+        })
         .collect();
     let total: u32 = non_fish.iter().map(|(w, _)| w).sum();
     let mut v = rng.random_range(0..total);
@@ -326,12 +361,13 @@ pub fn roll_loot_no_fish(rng: &mut impl RngExt) -> LootKind {
         if v < *weight {
             return match entry {
                 LootEntry::Fish(_) => unreachable!(),
-                LootEntry::Cash => LootKind::Cash(CashValue::roll(rng)),
+                LootEntry::Cash => LootKind::Cash(roll_cash_with_luck(rng, devils_luck)),
                 LootEntry::Food => {
                     LootKind::Food(rng.random_range(FOOD_AMOUNT_MIN..=FOOD_AMOUNT_MAX))
                 }
                 LootEntry::JunkSlot => roll_junk_slot(rng),
                 LootEntry::GoldBar => LootKind::GoldBar,
+                LootEntry::Necronomicon => LootKind::Necronomicon,
             };
         }
         v -= weight;
@@ -339,28 +375,41 @@ pub fn roll_loot_no_fish(rng: &mut impl RngExt) -> LootKind {
     roll_junk_slot(rng)
 }
 
-pub fn roll_loot(rng: &mut impl RngExt, bait_stacks: u32) -> LootKind {
+pub fn roll_loot(rng: &mut impl RngExt, bait_stacks: u32, devils_luck: u32) -> LootKind {
     let bait_mult = 1u32 + bait_stacks;
     let total: u32 = LOOT_TABLE
         .iter()
-        .map(|(w, _)| if *w < COMMON { w * bait_mult } else { *w })
+        .map(|(w, e)| {
+            let base = if *w < COMMON { w * bait_mult } else { *w };
+            if matches!(e, LootEntry::Cash) {
+                base + DEVILS_LUCK_CASH_BONUS * devils_luck
+            } else {
+                base
+            }
+        })
         .sum();
     let mut v = rng.random_range(0..total);
     for (weight, entry) in LOOT_TABLE {
-        let eff_weight = if *weight < COMMON {
+        let base_eff = if *weight < COMMON {
             weight * bait_mult
         } else {
             *weight
         };
+        let eff_weight = if matches!(entry, LootEntry::Cash) {
+            base_eff + DEVILS_LUCK_CASH_BONUS * devils_luck
+        } else {
+            base_eff
+        };
         if v < eff_weight {
             return match entry {
                 LootEntry::Fish(s) => LootKind::Fish(*s),
-                LootEntry::Cash => LootKind::Cash(CashValue::roll(rng)),
+                LootEntry::Cash => LootKind::Cash(roll_cash_with_luck(rng, devils_luck)),
                 LootEntry::Food => {
                     LootKind::Food(rng.random_range(FOOD_AMOUNT_MIN..=FOOD_AMOUNT_MAX))
                 }
                 LootEntry::JunkSlot => roll_junk_slot(rng),
                 LootEntry::GoldBar => LootKind::GoldBar,
+                LootEntry::Necronomicon => LootKind::Necronomicon,
             };
         }
         v -= eff_weight;

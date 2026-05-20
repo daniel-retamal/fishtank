@@ -3,6 +3,7 @@ pub mod components;
 pub mod coral;
 pub mod fish;
 pub mod food;
+pub mod hell;
 pub mod mutant;
 pub mod plant;
 pub mod species;

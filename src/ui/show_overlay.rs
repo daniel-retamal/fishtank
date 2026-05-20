@@ -8,6 +8,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthChar;
 
 use crate::entities::fish::{Direction, Fish};
+use crate::entities::species::FishSpecies;
 use crate::tank::TankKind;
 use crate::ui::{
     fields::{self, FieldKind},
@@ -80,6 +81,14 @@ impl ShowState {
                 swatch: None,
             },
         ];
+
+        if fish.devil_marked {
+            show_fields.push(ShowField {
+                label: "Marked by the Devil",
+                value: "Yes".to_string(),
+                swatch: None,
+            });
+        }
 
         if all {
             for &kind in FieldKind::all() {
@@ -323,7 +332,12 @@ impl Widget for ShowOverlay<'_> {
             }
         }
 
-        let border_style = Style::default().fg(Color::White).bg(BG);
+        let border_color = match state.fish.species {
+            FishSpecies::Goldenfish => Color::LightYellow,
+            FishSpecies::Mutantfish => state.fish.color,
+            _ => Color::White,
+        };
+        let border_style = Style::default().fg(border_color).bg(BG);
         let title_style = Style::default()
             .fg(Color::White)
             .add_modifier(Modifier::BOLD)

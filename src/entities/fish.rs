@@ -86,6 +86,7 @@ pub struct Fish {
     pub body_chars_override: Option<BodyChars>,
     pub weight_g: u32,
     pub size_category: SizeCategory,
+    pub devil_marked: bool,
     direction_timer: u32,
     zoomie_timer: f32,
 }
@@ -187,6 +188,7 @@ impl Fish {
             body_chars_override,
             weight_g,
             size_category: size_cat,
+            devil_marked: false,
         }
     }
 
@@ -247,6 +249,7 @@ impl Fish {
             body_chars_override,
             weight_g,
             size_category: size_cat,
+            devil_marked: false,
         }
     }
 
