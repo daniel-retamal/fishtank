@@ -14,7 +14,7 @@ pub fn height(
     show_stats: bool,
     width: u16,
     active_consumables: &[ActiveConsumable],
-    money: u32,
+    cash: u32,
     food_supply: u32,
     fish_count: usize,
     fish_capacity: usize,
@@ -29,7 +29,7 @@ pub fn height(
         && !inline_fits(
             width,
             active_consumables,
-            money,
+            cash,
             food_supply,
             fish_count,
             fish_capacity,
@@ -51,7 +51,7 @@ pub struct CommandBar<'a> {
     pub fish_count: usize,
     pub fish_capacity: usize,
     pub food_supply: u32,
-    pub money: u32,
+    pub cash: u32,
     pub show_stats: bool,
     pub active_consumables: &'a [ActiveConsumable],
     pub tank_name: &'a str,
@@ -100,10 +100,10 @@ fn consumables_total_len(active_consumables: &[ActiveConsumable], devils_luck: u
     total
 }
 
-fn stats_str(money: u32, food_supply: u32, fish_count: usize, fish_capacity: usize) -> String {
+fn stats_str(cash: u32, food_supply: u32, fish_count: usize, fish_capacity: usize) -> String {
     format!(
         "cash: {}  food: {}  fishes: {}/{}",
-        format_metric(money),
+        format_metric(cash),
         format_metric(food_supply),
         fish_count,
         fish_capacity,
@@ -114,7 +114,7 @@ fn stats_str(money: u32, food_supply: u32, fish_count: usize, fish_capacity: usi
 fn inline_fits(
     width: u16,
     active_consumables: &[ActiveConsumable],
-    money: u32,
+    cash: u32,
     food_supply: u32,
     fish_count: usize,
     fish_capacity: usize,
@@ -127,7 +127,7 @@ fn inline_fits(
     }
     let title_len = tank_name.len();
     let cons_len = consumables_total_len(active_consumables, devils_luck);
-    let s_len = stats_str(money, food_supply, fish_count, fish_capacity)
+    let s_len = stats_str(cash, food_supply, fish_count, fish_capacity)
         .chars()
         .count();
     title_len + 2 + cons_len + 2 + s_len <= width as usize
@@ -218,7 +218,7 @@ impl Widget for CommandBar<'_> {
 
             let has_statuses = !self.active_consumables.is_empty() || self.devils_luck > 0;
             let stats = stats_str(
-                self.money,
+                self.cash,
                 self.food_supply,
                 self.fish_count,
                 self.fish_capacity,
@@ -233,7 +233,7 @@ impl Widget for CommandBar<'_> {
                 let fits_inline = inline_fits(
                     area.width,
                     self.active_consumables,
-                    self.money,
+                    self.cash,
                     self.food_supply,
                     self.fish_count,
                     self.fish_capacity,
@@ -254,8 +254,8 @@ impl Widget for CommandBar<'_> {
                         x += 2;
                     }
                     let name = match ac.kind {
-                        ConsumableKind::Coffee => "coffee",
-                        ConsumableKind::Bait => "bait",
+                        ConsumableKind::Coffee => "caffeinated",
+                        ConsumableKind::Bait => "baiting",
                     };
                     let text = format!(
                         "{} {}: {}",

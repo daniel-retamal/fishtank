@@ -47,7 +47,7 @@ pub struct App {
     pub tanks: Vec<Tank>,
     pub current_tank: usize,
     used_tank_names: HashSet<String>,
-    pub money: u32,
+    pub cash: u32,
     pub food_supply: u32,
     pub inventory: HashMap<String, u32>,
     pub active_consumables: Vec<ActiveConsumable>,
@@ -106,7 +106,7 @@ impl App {
             tanks: vec![first_tank],
             current_tank: 0,
             used_tank_names,
-            money: 40_000,
+            cash: 40_000,
             food_supply: 0,
             inventory: {
                 let mut inv = HashMap::new();
@@ -279,8 +279,8 @@ impl App {
         let coffee = self.coffee_stacks();
         for i in 0..self.tanks.len() {
             let events = self.tanks[i].tick(&self.settings, coffee);
-            self.money += self.tanks[i].pending_star_money;
-            self.tanks[i].pending_star_money = 0;
+            self.cash += self.tanks[i].pending_star_cash;
+            self.tanks[i].pending_star_cash = 0;
             for event in events {
                 match event {
                     TankEvent::PhantomCrossTank { fish_name } => {
@@ -687,7 +687,7 @@ impl App {
     fn apply_non_fish_loot(&mut self, loot: LootKind) {
         match loot {
             LootKind::Cash(cv) => {
-                self.money += cv.amount();
+                self.cash += cv.amount();
             }
             LootKind::Food(amount) => {
                 self.food_supply += amount;
@@ -703,7 +703,7 @@ impl App {
                 *self.inventory.entry(name.to_string()).or_insert(0) += 1;
             }
             LootKind::GoldBar => {
-                self.money += crate::loot::GOLD_BAR_VALUE;
+                self.cash += crate::loot::GOLD_BAR_VALUE;
             }
             LootKind::Necronomicon => {
                 *self
@@ -879,7 +879,7 @@ impl App {
             None => return,
         };
 
-        let money = self.money;
+        let cash = self.cash;
         let visible = list_visible_rows(&shop, self.tank_height());
 
         match shop.page {
@@ -890,7 +890,7 @@ impl App {
                 KeyCode::Up => {
                     if *selected > 0 {
                         let new_sel = selected.saturating_sub(1);
-                        if new_sel == 0 && money == 0 {
+                        if new_sel == 0 && cash == 0 {
                         } else {
                             *selected = new_sel;
                         }
@@ -906,7 +906,7 @@ impl App {
                 KeyCode::Enter => {
                     match *selected {
                         0 => {
-                            let init_sel = buy_cat_first_available(money);
+                            let init_sel = buy_cat_first_available(cash);
                             shop.page = ShopPage::BuyCategory {
                                 selected: init_sel,
                                 buy_popup: None,
@@ -946,7 +946,7 @@ impl App {
                                 _ => crate::ui::shop_overlay::FOOD_BUY_PRICE,
                             };
                             let cost = qty * unit_price;
-                            if money >= cost {
+                            if cash >= cost {
                                 match popup.option_idx {
                                     1 => {
                                         *self.inventory.entry("Coffee".to_string()).or_insert(0) +=
@@ -960,7 +960,7 @@ impl App {
                                         self.food_supply += qty;
                                     }
                                 }
-                                self.money = self.money.saturating_sub(cost);
+                                self.cash = self.cash.saturating_sub(cost);
                             }
                             *buy_popup = None;
                         }
@@ -973,20 +973,20 @@ impl App {
                             shop.page = ShopPage::Main { selected: 0 };
                         }
                         KeyCode::Up => {
-                            *selected = buy_cat_next(*selected, false, money);
+                            *selected = buy_cat_next(*selected, false, cash);
                             shop.reset_blink();
                         }
                         KeyCode::Down => {
-                            *selected = buy_cat_next(*selected, true, money);
+                            *selected = buy_cat_next(*selected, true, cash);
                             shop.reset_blink();
                         }
                         KeyCode::Enter => {
                             match *selected {
                                 0 => {
-                                    shop.page = ShopPage::BuyFishList(FishListState::new(money));
+                                    shop.page = ShopPage::BuyFishList(FishListState::new(cash));
                                 }
                                 4 => {
-                                    shop.page = ShopPage::BuyTankList(TankListState::new(money));
+                                    shop.page = ShopPage::BuyTankList(TankListState::new(cash));
                                 }
                                 idx => {
                                     let unit_price = match idx {
@@ -994,8 +994,8 @@ impl App {
                                         2 => BAIT_BUY_PRICE,
                                         _ => crate::ui::shop_overlay::FOOD_BUY_PRICE,
                                     };
-                                    if money >= unit_price {
-                                        let max_qty = money / unit_price;
+                                    if cash >= unit_price {
+                                        let max_qty = cash / unit_price;
                                         *buy_popup = Some(BuyCategoryPopup {
                                             option_idx: idx,
                                             qty: 1,
@@ -1026,9 +1026,9 @@ impl App {
                     }) = fl.popup.take()
                     {
                         let price = FISH_CATALOG[catalog_idx].price;
-                        if money >= price {
+                        if cash >= price {
                             let name = names::title_case(name_input.as_str());
-                            self.money = self.money.saturating_sub(price);
+                            self.cash = self.cash.saturating_sub(price);
                             self.place_purchased_fish(fish, name);
                         }
                     }
@@ -1053,22 +1053,22 @@ impl App {
                 match key.code {
                     KeyCode::Esc | KeyCode::Char('q') => {
                         shop.page = ShopPage::BuyCategory {
-                            selected: buy_cat_first_available(money),
+                            selected: buy_cat_first_available(cash),
                             buy_popup: None,
                         };
                     }
                     KeyCode::Up => {
-                        fl.scroll_up(money);
+                        fl.scroll_up(cash);
                         shop.reset_blink();
                     }
                     KeyCode::Down => {
-                        fl.scroll_down(money, visible);
+                        fl.scroll_down(cash, visible);
                         shop.reset_blink();
                     }
                     KeyCode::Enter => {
                         let idx = fl.selected;
                         let entry = &FISH_CATALOG[idx];
-                        if entry.price <= money {
+                        if entry.price <= cash {
                             let species = entry.species;
                             let mut rng = rand::rng();
                             let fish =
@@ -1098,10 +1098,10 @@ impl App {
                     }) = tl.popup.take()
                     {
                         let entry = &TANK_CATALOG[catalog_idx];
-                        if money >= entry.price {
+                        if cash >= entry.price {
                             let name = names::title_case(name_input.as_str());
                             let actual_name = names::unique_name_in(&self.used_tank_names, &name);
-                            self.money = self.money.saturating_sub(entry.price);
+                            self.cash = self.cash.saturating_sub(entry.price);
                             self.used_tank_names.insert(actual_name.clone());
                             self.tanks.push(Tank::new(actual_name, entry.kind));
                             self.current_tank = self.tanks.len() - 1;
@@ -1133,17 +1133,17 @@ impl App {
                         };
                     }
                     KeyCode::Up => {
-                        tl.scroll_up(money);
+                        tl.scroll_up(cash);
                         shop.reset_blink();
                     }
                     KeyCode::Down => {
-                        tl.scroll_down(money, visible);
+                        tl.scroll_down(cash, visible);
                         shop.reset_blink();
                     }
                     KeyCode::Enter => {
                         let idx = tl.selected;
                         let entry = &TANK_CATALOG[idx];
-                        if entry.price <= money {
+                        if entry.price <= cash {
                             tl.popup = Some(BuyTankPopup {
                                 catalog_idx: idx,
                                 name_input: TextInput::new(),
@@ -1229,7 +1229,7 @@ impl App {
                                 }
                             }
                             self.inventory.retain(|_, v| *v > 0);
-                            self.money += earned;
+                            self.cash += earned;
 
                             match self.build_sell_menu_state() {
                                 Some(new_sm) => shop.page = ShopPage::Sell(new_sm),
@@ -1320,7 +1320,7 @@ impl App {
             self.settings.show_stats,
             self.terminal_width,
             &self.active_consumables,
-            self.money,
+            self.cash,
             self.food_supply,
             self.tank().fish.len(),
             self.tank().capacity(),
@@ -1415,7 +1415,7 @@ impl App {
                 fish_count: self.tank().fish.len(),
                 fish_capacity: self.tank().capacity(),
                 food_supply: self.food_supply,
-                money: self.money,
+                cash: self.cash,
                 show_stats: self.settings.show_stats,
                 active_consumables: &self.active_consumables,
                 tank_name: &self.tank().name,
@@ -1449,7 +1449,7 @@ impl App {
         }
 
         if let Some(ref state) = self.shop_state {
-            frame.render_widget(ShopOverlay::new(state, self.money), tank_area);
+            frame.render_widget(ShopOverlay::new(state, self.cash), tank_area);
         }
 
         if let Some(ref input) = self.necronomicon_popup {
@@ -1727,7 +1727,7 @@ impl App {
                 let mut rng = rand::rng();
                 for _ in 0..2 {
                     match rng.random_range(0..4u32) {
-                        0 => self.money += void_ritual::GIVE_RESOURCE_AMOUNT,
+                        0 => self.cash += void_ritual::GIVE_RESOURCE_AMOUNT,
                         1 => self.food_supply += void_ritual::GIVE_RESOURCE_AMOUNT,
                         2 => {
                             *self.inventory.entry("Coffee".to_string()).or_insert(0) +=
@@ -1748,7 +1748,7 @@ impl App {
 
     fn execute_give(&mut self, target: GiveTarget) {
         match target {
-            GiveTarget::Money => self.money += void_ritual::GIVE_RESOURCE_AMOUNT,
+            GiveTarget::Cash => self.cash += void_ritual::GIVE_RESOURCE_AMOUNT,
             GiveTarget::Food => self.food_supply += void_ritual::GIVE_RESOURCE_AMOUNT,
             GiveTarget::Item { name, qty } => {
                 *self.inventory.entry(name.to_string()).or_insert(0) += qty;
@@ -1790,8 +1790,8 @@ impl App {
                     .resize(self.terminal_width, self.terminal_height.saturating_sub(bh));
             }
             commands::Action::ModResource { name, delta } => match name.to_lowercase().as_str() {
-                "money" => {
-                    self.money = (self.money as i64 + delta as i64).max(0) as u32;
+                "cash" => {
+                    self.cash = (self.cash as i64 + delta as i64).max(0) as u32;
                 }
                 "food" => {
                     self.food_supply = (self.food_supply as i64 + delta as i64).max(0) as u32;
@@ -1845,9 +1845,9 @@ impl App {
                 }
             }
             commands::Action::Shop => {
-                let money = self.money;
+                let cash = self.cash;
                 let mut state = ShopState::new();
-                if money == 0
+                if cash == 0
                     && let ShopPage::Main { ref mut selected } = state.page
                 {
                     *selected = 1;

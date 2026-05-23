@@ -38,8 +38,8 @@ pub enum TankKind {
 impl TankKind {
     pub fn display_name(self) -> &'static str {
         match self {
-            TankKind::Base => "Base",
-            TankKind::CoralReef => "Coral Reef",
+            TankKind::Base => "Fishtank",
+            TankKind::CoralReef => "Coralreeftank",
             TankKind::Hell => "Helltank",
             TankKind::Void => "Voidtank",
         }
@@ -168,7 +168,7 @@ pub struct Tank {
     pub width: u16,
     pub height: u16,
     pub used_names: HashSet<String>,
-    pub pending_star_money: u32,
+    pub pending_star_cash: u32,
     pub extra_capacity: u32,
     bubble_bottom_timer: f32,
     bubble_surface_timer: f32,
@@ -224,7 +224,7 @@ impl Tank {
             width: INITIAL_WIDTH,
             height: INITIAL_HEIGHT,
             used_names: HashSet::new(),
-            pending_star_money: 0,
+            pending_star_cash: 0,
             extra_capacity: 0,
             bubble_bottom_timer: rng
                 .random_range(BUBBLE_BOTTOM_SPAWN_RATE_MIN..BUBBLE_BOTTOM_SPAWN_RATE_MAX),
@@ -386,7 +386,7 @@ impl Tank {
             .iter_mut()
             .map(|b| b.tick(settings, self.width))
             .sum();
-        self.pending_star_money += star;
+        self.pending_star_cash += star;
         self.bubbles.retain(|b| !b.dead);
 
         self.steer_seeking_fish();
@@ -1198,11 +1198,11 @@ impl Tank {
                             '☆',
                             ratatui::style::Color::Rgb(255, 255, 80),
                         );
-                        b.money_value = Some(5);
+                        b.cash_value = Some(5);
                         b
                     }
                     FishSpecies::Mutantfish => {
-                        Bubble::new_rising_custom(tail_x, fish.position.y, '†', fish.color)
+                        Bubble::new_rising_custom(tail_x, fish.position.y, 'X', fish.color)
                     }
                     _ => {
                         if self.kind == TankKind::Hell {

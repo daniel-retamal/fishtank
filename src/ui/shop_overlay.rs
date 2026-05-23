@@ -180,26 +180,26 @@ pub struct BuyTankPopup {
     pub name_input: TextInput,
 }
 
-pub fn buy_cat_available(idx: usize, money: u32) -> bool {
+pub fn buy_cat_available(idx: usize, cash: u32) -> bool {
     match idx {
-        0 => FISH_CATALOG.iter().any(|e| e.price <= money),
-        1 => money >= COFFEE_BUY_PRICE,
-        2 => money >= BAIT_BUY_PRICE,
-        3 => money >= FOOD_BUY_PRICE,
-        4 => TANK_CATALOG.iter().any(|e| e.price <= money),
+        0 => FISH_CATALOG.iter().any(|e| e.price <= cash),
+        1 => cash >= COFFEE_BUY_PRICE,
+        2 => cash >= BAIT_BUY_PRICE,
+        3 => cash >= FOOD_BUY_PRICE,
+        4 => TANK_CATALOG.iter().any(|e| e.price <= cash),
         _ => false,
     }
 }
 
-pub fn buy_cat_first_available(money: u32) -> usize {
-    (0..5).find(|&i| buy_cat_available(i, money)).unwrap_or(0)
+pub fn buy_cat_first_available(cash: u32) -> usize {
+    (0..5).find(|&i| buy_cat_available(i, cash)).unwrap_or(0)
 }
 
-pub fn buy_cat_next(current: usize, down: bool, money: u32) -> usize {
+pub fn buy_cat_next(current: usize, down: bool, cash: u32) -> usize {
     let step: i32 = if down { 1 } else { -1 };
     let mut idx = current as i32 + step;
     while (0..5).contains(&idx) {
-        if buy_cat_available(idx as usize, money) {
+        if buy_cat_available(idx as usize, cash) {
             return idx as usize;
         }
         idx += step;
@@ -406,10 +406,10 @@ pub struct FishListState {
 }
 
 impl FishListState {
-    pub fn new(money: u32) -> Self {
+    pub fn new(cash: u32) -> Self {
         let selected = FISH_CATALOG
             .iter()
-            .position(|e| e.price <= money)
+            .position(|e| e.price <= cash)
             .unwrap_or(0);
         Self {
             selected,
@@ -418,11 +418,11 @@ impl FishListState {
         }
     }
 
-    pub fn scroll_up(&mut self, money: u32) {
+    pub fn scroll_up(&mut self, cash: u32) {
         let mut idx = self.selected;
         while idx > 0 {
             idx -= 1;
-            if FISH_CATALOG[idx].price <= money {
+            if FISH_CATALOG[idx].price <= cash {
                 self.selected = idx;
                 if self.selected < self.scroll {
                     self.scroll = self.selected;
@@ -432,7 +432,7 @@ impl FishListState {
         }
     }
 
-    pub fn scroll_down(&mut self, money: u32, visible: usize) {
+    pub fn scroll_down(&mut self, cash: u32, visible: usize) {
         let n = FISH_CATALOG.len();
         let mut idx = self.selected;
         loop {
@@ -440,7 +440,7 @@ impl FishListState {
             if idx >= n {
                 return;
             }
-            if FISH_CATALOG[idx].price <= money {
+            if FISH_CATALOG[idx].price <= cash {
                 self.selected = idx;
                 if self.selected >= self.scroll + visible {
                     self.scroll = self.selected + 1 - visible;
@@ -458,10 +458,10 @@ pub struct TankListState {
 }
 
 impl TankListState {
-    pub fn new(money: u32) -> Self {
+    pub fn new(cash: u32) -> Self {
         let selected = TANK_CATALOG
             .iter()
-            .position(|e| e.price <= money)
+            .position(|e| e.price <= cash)
             .unwrap_or(0);
         Self {
             selected,
@@ -470,11 +470,11 @@ impl TankListState {
         }
     }
 
-    pub fn scroll_up(&mut self, money: u32) {
+    pub fn scroll_up(&mut self, cash: u32) {
         let mut idx = self.selected;
         while idx > 0 {
             idx -= 1;
-            if TANK_CATALOG[idx].price <= money {
+            if TANK_CATALOG[idx].price <= cash {
                 self.selected = idx;
                 if self.selected < self.scroll {
                     self.scroll = self.selected;
@@ -484,7 +484,7 @@ impl TankListState {
         }
     }
 
-    pub fn scroll_down(&mut self, money: u32, visible: usize) {
+    pub fn scroll_down(&mut self, cash: u32, visible: usize) {
         let n = TANK_CATALOG.len();
         let mut idx = self.selected;
         loop {
@@ -492,7 +492,7 @@ impl TankListState {
             if idx >= n {
                 return;
             }
-            if TANK_CATALOG[idx].price <= money {
+            if TANK_CATALOG[idx].price <= cash {
                 self.selected = idx;
                 if self.selected >= self.scroll + visible {
                     self.scroll = self.selected + 1 - visible;
@@ -553,12 +553,12 @@ impl ShopState {
 
 pub struct ShopOverlay<'a> {
     pub state: &'a ShopState,
-    pub money: u32,
+    pub cash: u32,
 }
 
 impl<'a> ShopOverlay<'a> {
-    pub fn new(state: &'a ShopState, money: u32) -> Self {
-        Self { state, money }
+    pub fn new(state: &'a ShopState, cash: u32) -> Self {
+        Self { state, cash }
     }
 }
 
@@ -708,11 +708,11 @@ impl Widget for ShopOverlay<'_> {
             } => {
                 let content_h = oh.saturating_sub(3);
                 let available = [
-                    buy_cat_available(0, self.money),
-                    buy_cat_available(1, self.money),
-                    buy_cat_available(2, self.money),
-                    buy_cat_available(3, self.money),
-                    buy_cat_available(4, self.money),
+                    buy_cat_available(0, self.cash),
+                    buy_cat_available(1, self.cash),
+                    buy_cat_available(2, self.cash),
+                    buy_cat_available(3, self.cash),
+                    buy_cat_available(4, self.cash),
                 ];
                 let draw_h = content_h.saturating_sub(1);
                 draw_buy_category_right(
@@ -747,7 +747,7 @@ impl Widget for ShopOverlay<'_> {
                 draw_tank_list(
                     buf,
                     tl,
-                    self.money,
+                    self.cash,
                     state.cursor_visible,
                     sep_x,
                     content_y,
@@ -758,11 +758,11 @@ impl Widget for ShopOverlay<'_> {
                 );
                 let affordable_count = TANK_CATALOG
                     .iter()
-                    .filter(|e| e.price <= self.money)
+                    .filter(|e| e.price <= self.cash)
                     .count();
                 let affordable_pos = TANK_CATALOG[..=tl.selected]
                     .iter()
-                    .filter(|e| e.price <= self.money)
+                    .filter(|e| e.price <= self.cash)
                     .count();
                 let footer_left = format!(
                     " \u{2191}\u{2193} scroll ({}/{})",
@@ -779,7 +779,7 @@ impl Widget for ShopOverlay<'_> {
                 draw_fish_list(
                     buf,
                     fl,
-                    self.money,
+                    self.cash,
                     state.cursor_visible,
                     sep_x,
                     content_y,
@@ -790,11 +790,11 @@ impl Widget for ShopOverlay<'_> {
                 );
                 let affordable_count = FISH_CATALOG
                     .iter()
-                    .filter(|e| e.price <= self.money)
+                    .filter(|e| e.price <= self.cash)
                     .count();
                 let affordable_pos = FISH_CATALOG[..=fl.selected]
                     .iter()
-                    .filter(|e| e.price <= self.money)
+                    .filter(|e| e.price <= self.cash)
                     .count();
                 let footer_left = format!(
                     " \u{2191}\u{2193} scroll ({}/{})",
@@ -912,7 +912,7 @@ fn draw_buy_category_right(
 fn draw_fish_list(
     buf: &mut Buffer,
     state: &FishListState,
-    money: u32,
+    cash: u32,
     cursor_vis: bool,
     sep_x: u16,
     content_y: u16,
@@ -961,7 +961,7 @@ fn draw_fish_list(
         }
         let entry = &FISH_CATALOG[idx];
         let row_y = data_y + row as u16;
-        let affordable = entry.price <= money;
+        let affordable = entry.price <= cash;
         let is_sel = idx == state.selected;
 
         let price_str = format!("${}", entry.price);
@@ -1372,7 +1372,7 @@ fn draw_sell_confirm_popup(buf: &mut Buffer, confirm: &SellConfirm, entry: &Sell
 fn draw_tank_list(
     buf: &mut Buffer,
     state: &TankListState,
-    money: u32,
+    cash: u32,
     cursor_vis: bool,
     sep_x: u16,
     content_y: u16,
@@ -1421,7 +1421,7 @@ fn draw_tank_list(
         }
         let entry = &TANK_CATALOG[idx];
         let row_y = data_y + row as u16;
-        let affordable = entry.price <= money;
+        let affordable = entry.price <= cash;
         let is_sel = idx == state.selected;
 
         let price_str = format!("${}", entry.price);

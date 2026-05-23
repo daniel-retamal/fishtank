@@ -93,7 +93,7 @@ pub fn ritual_mean_secs(nothing_stacks: u32) -> f32 {
 }
 
 pub enum GiveTarget {
-    Money,
+    Cash,
     Food,
     Item { name: &'static str, qty: u32 },
     Fish(FishSpecies),
@@ -194,7 +194,7 @@ pub fn parse_wish(input: &str, ctx: &WishCtx) -> Option<WishAction> {
 
 fn parse_give_target(rest: &str) -> Option<GiveTarget> {
     match rest.trim() {
-        "money" => return Some(GiveTarget::Money),
+        "cash" => return Some(GiveTarget::Cash),
         "food" => return Some(GiveTarget::Food),
         "coffee" => {
             return Some(GiveTarget::Item {

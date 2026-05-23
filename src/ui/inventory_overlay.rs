@@ -34,7 +34,7 @@ fn item_desc(name: &str, rng: &mut impl RngExt) -> String {
                 .to_string()
         }
         "Necronomicon" => {
-            "An Image [or Picture] of the Law of the Dead. Image and pre-image. Summons a Gate to Hell, The Helltank. The devil has a lot of money"
+            "An Image [or Picture] of the Law of the Dead. Image and pre-image. Summons a Gate to Hell, The Helltank. The devil has a lot of cash"
                 .to_string()
         }
         "Junk" => {

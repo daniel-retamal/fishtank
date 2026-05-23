@@ -27,7 +27,7 @@ static COMMAND_NAMES: &[&str] = &[
     "voidspawn",
 ];
 
-static RESOURCE_NAMES: &[&str] = &["food", "junk", "money"];
+static RESOURCE_NAMES: &[&str] = &["food", "junk", "cash"];
 
 static MUTATION_NAMES: &[&str] = &[
     "bodycolor",
@@ -1484,8 +1484,8 @@ mod tests {
     fn parse_subtract_resource() {
         let (fish, tanks) = no_names();
         assert!(matches!(
-            parse("/subtract money 5", fish, tanks),
-            Action::ModResource { ref name, delta: -5 } if name == "Money"
+            parse("/subtract cash 5", fish, tanks),
+            Action::ModResource { ref name, delta: -5 } if name == "Cash"
         ));
     }
 
