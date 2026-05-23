@@ -2,18 +2,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::event;
-
-mod app;
-mod commands;
-mod consumable;
-mod entities;
-mod loot;
-mod names;
-mod settings;
-mod tank;
-mod ui;
-
-use app::App;
+use fishtank::app::App;
 
 fn main() -> Result<()> {
     let mut terminal = ratatui::init();

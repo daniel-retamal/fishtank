@@ -36,6 +36,7 @@ pub const BAIT_SELL_PRICE: u32 = 12;
 pub const TANK_BUY_PRICE: u32 = 3000;
 pub const CORAL_TANK_BUY_PRICE: u32 = 5000;
 pub const HELL_TANK_BUY_PRICE: u32 = 8000;
+pub const VOID_TANK_BUY_PRICE: u32 = 8000;
 pub const TANK_SELL_PRICE: u32 = 2500;
 pub const HELL_TANK_SELL_PRICE: u32 = 7_000;
 pub const NECRONOMICON_SELL_PRICE: u32 = HELL_TANK_SELL_PRICE;
@@ -61,6 +62,11 @@ pub const TANK_CATALOG: &[TankCatalogEntry] = &[
         kind: TankKind::Hell,
         price: HELL_TANK_BUY_PRICE,
         name: "Helltank",
+    },
+    TankCatalogEntry {
+        kind: TankKind::Void,
+        price: VOID_TANK_BUY_PRICE,
+        name: "Voidtank",
     },
 ];
 

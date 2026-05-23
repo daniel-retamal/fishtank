@@ -13,29 +13,50 @@ use crate::{
         FLOOR_ALGAE_A, FLOOR_ALGAE_COLOR, FloorAlgae, algae_art, algae_row_shift, mirror_char,
         query_anim_char, vert_wave_char,
     },
-    entities::fish::Fish,
+    entities::fish::{Fish, color_for_glisten},
     entities::food::Food,
     entities::hell::{
         FACE_COLOR, H_WAVE_AMPLITUDE, H_WAVE_ROW_SPREAD, HellBackground, HellPlant,
         RANDOM_FACE_COLOR,
     },
+    entities::mutant::derive_glistening_palette,
     entities::plant::Plant,
+    entities::species::FishSpecies,
+    entities::unfish::{
+        BALL_BASE, BALL_CENTER_ROW, BALL_EYE_COL, BALL_EYE_ROW, BALL_WIDTH, SKULL_CENTER_ROW,
+        SKULL_CLOSED, SKULL_OPEN, SKULL_WIDTH, UNFISH_BODY_COLOR, UNFISH_EYE_COLOR, UnfishKind,
+        is_multi_row,
+    },
+    entities::void::{VOID_EYE_CENTER_X, VOID_EYE_VERTICAL_OFFSET, VoidBackground},
     tank::{Tank, TankKind},
+    void_ritual::VOID_TEXT_BELOW_EYE_OFFSET,
 };
 
 pub struct TankView<'a> {
     tank: &'a Tank,
     show_names: bool,
+    ritual_text: Option<[Option<String>; 2]>,
 }
 
 impl<'a> TankView<'a> {
     pub fn new(tank: &'a Tank, show_names: bool) -> Self {
-        Self { tank, show_names }
+        Self {
+            tank,
+            show_names,
+            ritual_text: None,
+        }
+    }
+
+    pub fn with_ritual(mut self, text: [Option<String>; 2]) -> Self {
+        self.ritual_text = Some(text);
+        self
     }
 }
 
 impl Widget for TankView<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let ritual_active = self.ritual_text.is_some() && self.tank.kind == TankKind::Void;
+
         match self.tank.kind {
             TankKind::Base => {
                 for plant in &self.tank.plants {
@@ -70,6 +91,15 @@ impl Widget for TankView<'_> {
                     render_hell_plant(plant, area, buf);
                 }
             }
+            TankKind::Void => {
+                if let Some(bg) = &self.tank.void_bg {
+                    if ritual_active {
+                        render_void_background_at(bg, 0, area, buf);
+                    } else {
+                        render_void_background(bg, area, buf);
+                    }
+                }
+            }
         }
         for bubble in &self.tank.bubbles {
             render_bubble(bubble, area, buf);
@@ -91,6 +121,20 @@ impl Widget for TankView<'_> {
         if self.show_names {
             for fish in &self.tank.fish {
                 render_fish_name(fish, area, buf);
+            }
+        }
+
+        if ritual_active {
+            for y in area.y..area.bottom() {
+                for x in area.x..area.right() {
+                    buf[(x, y)].set_style(Style::default().add_modifier(Modifier::DIM));
+                }
+            }
+            if let Some(bg) = &self.tank.void_bg {
+                render_void_background_at(bg, 0, area, buf);
+            }
+            if let Some(text) = &self.ritual_text {
+                render_ritual_text(text, area, buf);
             }
         }
     }
@@ -370,11 +414,35 @@ fn render_food(food: &Food, area: Rect, buf: &mut Buffer) {
 }
 
 fn render_fish_name(fish: &Fish, area: Rect, buf: &mut Buffer) {
-    let fish_y = area.y + fish.position.y as u16;
-    if fish_y <= area.y || fish_y >= area.bottom() {
+    if fish.is_invisible() {
         return;
     }
-    let name_y = fish_y - 1;
+    if let Some(ref us) = fish.unfish_state
+        && us.kind == UnfishKind::Worm
+    {
+        render_worm_name_portal(fish, area, buf);
+        return;
+    }
+
+    let name_y_i32 = if fish.species == FishSpecies::Unfish {
+        if let Some(ref us) = fish.unfish_state {
+            if is_multi_row(us.kind) {
+                let center_row = unfish_center_row(us.kind);
+                area.y as i32 + fish.position.y as i32 - center_row - 1
+            } else {
+                area.y as i32 + fish.position.y as i32 - 1
+            }
+        } else {
+            area.y as i32 + fish.position.y as i32 - 1
+        }
+    } else {
+        area.y as i32 + fish.position.y as i32 - 1
+    };
+
+    if name_y_i32 < area.y as i32 || name_y_i32 >= area.bottom() as i32 {
+        return;
+    }
+    let name_y = name_y_i32 as u16;
 
     let fish_center = fish.position.x as i32 + fish.display_width as i32 / 2;
     let name_start = fish_center - fish.name.len() as i32 / 2;
@@ -397,6 +465,22 @@ fn render_fish_name(fish: &Fish, area: Rect, buf: &mut Buffer) {
 }
 
 fn render_fish(fish: &Fish, area: Rect, buf: &mut Buffer) {
+    if fish.is_invisible() {
+        return;
+    }
+    if fish.species == FishSpecies::Unfish
+        && let Some(ref us) = fish.unfish_state
+    {
+        if is_multi_row(us.kind) {
+            render_multi_row_unfish(fish, area, buf);
+            return;
+        }
+        if us.kind == UnfishKind::Worm {
+            render_worm_portal(fish, area, buf);
+            return;
+        }
+    }
+
     let segs = fish.segments();
     let y = area.y + fish.position.y as u16;
 
@@ -415,6 +499,231 @@ fn render_fish(fish: &Fish, area: Rect, buf: &mut Buffer) {
             .set_char(*ch)
             .set_style(Style::new().fg(*color).remove_modifier(Modifier::all()));
         col += UnicodeWidthChar::width(*ch).unwrap_or(1) as u16;
+    }
+}
+
+fn unfish_center_row(kind: UnfishKind) -> i32 {
+    match kind {
+        UnfishKind::Skull => SKULL_CENTER_ROW,
+        _ => BALL_CENTER_ROW,
+    }
+}
+
+fn interior_col_range(line: &str) -> Option<(usize, usize)> {
+    let first = line
+        .chars()
+        .enumerate()
+        .find(|(_, c)| *c != ' ')
+        .map(|(i, _)| i)?;
+    let last = line
+        .chars()
+        .rev()
+        .position(|c| c != ' ')
+        .map(|rev_pos| line.chars().count() - 1 - rev_pos)?;
+    if last <= first + 1 {
+        return None;
+    }
+    Some((first + 1, last - 1))
+}
+
+fn render_sprite_row(
+    line: &str,
+    base_x: i32,
+    screen_y: i32,
+    area: Rect,
+    buf: &mut Buffer,
+    eye_overrides: &[(usize, char, Color)],
+    body_color: Color,
+    interior_fg: Option<Color>,
+    glisten_colors: &[Color],
+    color_patches: &[(usize, Color)],
+) {
+    let sy = screen_y as u16;
+    let interior = interior_col_range(line);
+    for (char_idx, ch) in line.chars().enumerate() {
+        let override_entry = eye_overrides.iter().find(|(col, _, _)| *col == char_idx);
+        if ch == ' ' && override_entry.is_none() {
+            if let Some((inner_start, inner_end)) = interior
+                && char_idx >= inner_start
+                && char_idx <= inner_end
+            {
+                let sx = base_x + char_idx as i32;
+                if sx >= area.x as i32 && sx < area.right() as i32 {
+                    let style = match interior_fg {
+                        Some(c) => Style::default().fg(c).add_modifier(Modifier::DIM),
+                        None => Style::default().add_modifier(Modifier::DIM),
+                    };
+                    buf[(sx as u16, sy)].set_style(style);
+                }
+            }
+            continue;
+        }
+        let sx = base_x + char_idx as i32;
+        if sx < area.x as i32 || sx >= area.right() as i32 {
+            continue;
+        }
+        let (draw_ch, color) = override_entry
+            .map(|&(_, ec, c)| (ec, c))
+            .unwrap_or_else(|| {
+                let c = glisten_colors
+                    .get(char_idx)
+                    .copied()
+                    .or_else(|| {
+                        color_patches
+                            .iter()
+                            .rev()
+                            .find(|&&(pos, _)| pos == char_idx)
+                            .map(|&(_, c)| c)
+                    })
+                    .unwrap_or(body_color);
+                (ch, c)
+            });
+        buf[(sx as u16, sy)].set_char(draw_ch).set_fg(color);
+    }
+}
+
+pub(crate) fn render_multi_row_unfish_at(
+    fish: &Fish,
+    base_x: i32,
+    base_y: i32,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    let us = match fish.unfish_state.as_ref() {
+        Some(s) => s,
+        None => return,
+    };
+    let eye_ch = if us.eye.is_open { '0' } else { 'U' };
+
+    match us.kind {
+        UnfishKind::Ball | UnfishKind::Skull => {
+            let body_color = us.slime_body_color.unwrap_or(UNFISH_BODY_COLOR);
+            let interior_fg = us.slime_body_color.filter(|&c| c != UNFISH_BODY_COLOR);
+            let sprite_w = if us.kind == UnfishKind::Ball {
+                BALL_WIDTH as usize
+            } else {
+                SKULL_WIDTH as usize
+            };
+            let glisten_colors: Vec<Color> = if us.slime_glisten_enabled {
+                let (base, mid, peak_default) = derive_glistening_palette(body_color);
+                let peak = us.slime_glisten_color.unwrap_or(peak_default);
+                (0..sprite_w)
+                    .map(|i| {
+                        color_for_glisten(
+                            us.slime_glisten_mode,
+                            us.slime_glisten_phase,
+                            i,
+                            sprite_w,
+                            base,
+                            mid,
+                            peak,
+                        )
+                    })
+                    .collect()
+            } else {
+                vec![]
+            };
+            let lines: &[&str] = if us.kind == UnfishKind::Ball {
+                &BALL_BASE
+            } else if us.wings.is_open {
+                &SKULL_OPEN
+            } else {
+                &SKULL_CLOSED
+            };
+            for (row_idx, line) in lines.iter().enumerate() {
+                let screen_y = base_y + row_idx as i32;
+                if screen_y < area.y as i32 || screen_y >= area.bottom() as i32 {
+                    continue;
+                }
+                let mut eye_overrides: Vec<(usize, char, Color)> = Vec::new();
+                let eye_color = us.slime_eye_color.unwrap_or(UNFISH_EYE_COLOR);
+                if us.kind == UnfishKind::Ball && us.ball_has_center_eye && row_idx == BALL_EYE_ROW
+                {
+                    eye_overrides.push((BALL_EYE_COL - 1, '(', eye_color));
+                    eye_overrides.push((BALL_EYE_COL, eye_ch, eye_color));
+                    eye_overrides.push((BALL_EYE_COL + 1, ')', eye_color));
+                }
+                for eye in &us.floating_eyes {
+                    if eye.row != row_idx {
+                        continue;
+                    }
+                    let col = eye.col.round() as i32;
+                    let ec = if eye.blink.is_open { '0' } else { 'U' };
+                    if col >= 1 {
+                        eye_overrides.push(((col - 1) as usize, '(', eye_color));
+                    }
+                    if col >= 0 {
+                        eye_overrides.push((col as usize, ec, eye_color));
+                    }
+                    if col + 1 < line.len() as i32 {
+                        eye_overrides.push(((col + 1) as usize, ')', eye_color));
+                    }
+                }
+                render_sprite_row(
+                    line,
+                    base_x,
+                    screen_y,
+                    area,
+                    buf,
+                    &eye_overrides,
+                    body_color,
+                    interior_fg,
+                    &glisten_colors,
+                    &us.slime_color_patches,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+fn render_multi_row_unfish(fish: &Fish, area: Rect, buf: &mut Buffer) {
+    let us = match fish.unfish_state.as_ref() {
+        Some(s) => s,
+        None => return,
+    };
+    let base_x = area.x as i32 + fish.position.x as i32;
+    let center_row = unfish_center_row(us.kind);
+    let base_y = area.y as i32 + fish.position.y as i32 - center_row;
+    render_multi_row_unfish_at(fish, base_x, base_y, area, buf);
+}
+
+fn render_worm_portal(fish: &Fish, area: Rect, buf: &mut Buffer) {
+    let segs = fish.segments();
+    let tank_h = area.height as i32;
+    let tank_w = area.width as i32;
+    let y_wrapped = (fish.position.y as i32).rem_euclid(tank_h);
+    let sy = (area.y as i32 + y_wrapped) as u16;
+    if sy < area.y || sy >= area.bottom() {
+        return;
+    }
+    for (i, (ch, color)) in segs.iter().enumerate() {
+        let tank_x = (fish.position.x as i32 + i as i32).rem_euclid(tank_w);
+        let screen_x = area.x as i32 + tank_x;
+        buf[(screen_x as u16, sy)]
+            .set_char(*ch)
+            .set_style(Style::new().fg(*color).remove_modifier(Modifier::all()));
+    }
+}
+
+fn render_worm_name_portal(fish: &Fish, area: Rect, buf: &mut Buffer) {
+    let tank_h = area.height as i32;
+    let tank_w = area.width as i32;
+    let name_y_wrapped = (fish.position.y as i32 - 1).rem_euclid(tank_h);
+    let name_sy = (area.y as i32 + name_y_wrapped) as u16;
+    if name_sy < area.y || name_sy >= area.bottom() {
+        return;
+    }
+    let fish_center = fish.position.x as i32 + fish.display_width as i32 / 2;
+    let name_start = fish_center - fish.name.len() as i32 / 2;
+    for (i, ch) in fish.name.chars().enumerate() {
+        let tank_x = (name_start + i as i32).rem_euclid(tank_w);
+        let screen_x = area.x as i32 + tank_x;
+        buf[(screen_x as u16, name_sy)].set_char(ch).set_style(
+            Style::new()
+                .fg(Color::White)
+                .remove_modifier(Modifier::all()),
+        );
     }
 }
 
@@ -485,6 +794,71 @@ fn render_hell_plant(plant: &HellPlant, area: Rect, buf: &mut Buffer) {
             buf[(area.x + x as u16, area.y + y as u16)]
                 .set_char(ch)
                 .set_fg(plant.color);
+        }
+    }
+}
+
+fn render_void_background(bg: &VoidBackground, area: Rect, buf: &mut Buffer) {
+    render_void_background_at(bg, bg.current_frame, area, buf);
+}
+
+fn render_void_background_at(bg: &VoidBackground, frame_idx: usize, area: Rect, buf: &mut Buffer) {
+    if bg.frames.is_empty() {
+        return;
+    }
+    let frame = &bg.frames[frame_idx % bg.frames.len()];
+    let frame_h = frame.len() as i32;
+
+    let start_x = area.width as i32 / 2 - VOID_EYE_CENTER_X;
+    let target_eye_y = area.height as i32 / 2 + VOID_EYE_VERTICAL_OFFSET;
+    let start_y = target_eye_y - frame_h / 2;
+
+    let s = Style::new()
+        .fg(Color::White)
+        .remove_modifier(Modifier::all());
+
+    for (row_i, line) in frame.iter().enumerate() {
+        let screen_y = area.y as i32 + start_y + row_i as i32;
+        if screen_y < area.y as i32 || screen_y >= area.bottom() as i32 {
+            continue;
+        }
+        for (col_i, ch) in line.chars().enumerate() {
+            if ch == ' ' {
+                continue;
+            }
+            let screen_x = area.x as i32 + start_x + col_i as i32;
+            if screen_x < area.x as i32 || screen_x >= area.right() as i32 {
+                continue;
+            }
+            buf[(screen_x as u16, screen_y as u16)]
+                .set_char(ch)
+                .set_style(s);
+        }
+    }
+}
+
+fn render_ritual_text(lines: &[Option<String>; 2], area: Rect, buf: &mut Buffer) {
+    let target_eye_y = area.height as i32 / 2 + VOID_EYE_VERTICAL_OFFSET;
+    let text_y_base = target_eye_y + VOID_TEXT_BELOW_EYE_OFFSET;
+    let s = Style::new()
+        .fg(Color::White)
+        .remove_modifier(Modifier::all());
+
+    for (i, line_opt) in lines.iter().enumerate() {
+        if let Some(text) = line_opt {
+            let y = area.y as i32 + text_y_base + i as i32;
+            if y < area.y as i32 || y >= area.bottom() as i32 {
+                continue;
+            }
+            let text_w = text.chars().count() as i32;
+            let x_start = area.x as i32 + area.width as i32 / 2 - text_w / 2;
+            for (col, ch) in text.chars().enumerate() {
+                let x = x_start + col as i32;
+                if x < area.x as i32 || x >= area.right() as i32 {
+                    continue;
+                }
+                buf[(x as u16, y as u16)].set_char(ch).set_style(s);
+            }
         }
     }
 }

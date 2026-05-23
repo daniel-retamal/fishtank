@@ -28,6 +28,7 @@ pub enum FishSpecies {
     Nishiki,
     Aka,
     Kuro,
+    Unfish,
 }
 
 impl FishSpecies {
@@ -192,6 +193,7 @@ static PAL_KOI: [Color; 5] = [
 static PAL_CARPIN: [Color; 3] = [Color::Yellow, Color::LightYellow, Color::Rgb(200, 130, 0)];
 
 static PAL_DEADFISH: [Color; 2] = [Color::White, Color::DarkGray];
+static PAL_UNFISH: [Color; 1] = [Color::White];
 
 pub const DEADFISH_BC_SEMI: BodyChars = BodyChars {
     mouth_left: '<',
@@ -537,10 +539,26 @@ impl FishSpecies {
                 sell_base: [0; 4],
                 sell_cap: [0; 4],
             },
+            FishSpecies::Unfish => SpeciesConfig {
+                name: "Unfish",
+                body: BodyTemplate::Standard(standard('º', TailKind::Wide)),
+                palette: &PAL_UNFISH,
+                pattern: PatternKind::Solid,
+                sway_speed: 0.10,
+                speed_range: (2.0, 4.0),
+                sizes: COMMON_SIZES,
+                weight_base: [1; 4],
+                weight_cap: [0; 4],
+                sell_base: [0; 4],
+                sell_cap: [0; 4],
+            },
         }
     }
 
     pub fn sell_value(self, weight_g: u32, size_cat: SizeCategory, mutation_count: u32) -> u32 {
+        if self == FishSpecies::Unfish {
+            return 0;
+        }
         if self == FishSpecies::Mutantfish {
             return MUTANT_SELL_BASE
                 + mutation_count * MUTANT_SELL_PER_MUTATION

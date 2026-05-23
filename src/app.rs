@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
+use rand::RngExt;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
@@ -9,12 +10,13 @@ use ratatui::{
 use crate::{
     commands,
     consumable::{BAIT_DURATION, COFFEE_DURATION, CONSUMABLE_STACK_BONUS},
+    entities::fish::Fish,
     entities::food,
     entities::species::FishSpecies,
     loot::{ConsumableKind, LootKind, roll_loot, roll_loot_no_fish},
     names,
     settings::{FPS_MAX, FPS_MIN, Settings},
-    tank::{ActiveConsumable, Tank, TankKind},
+    tank::{ActiveConsumable, Tank, TankEvent, TankKind},
     ui::{
         catch_overlay::{CatchOverlay, CatchState},
         command_bar::{self, CommandBar},
@@ -33,6 +35,8 @@ use crate::{
         tank_view::TankView,
         text_input::TextInput,
     },
+    util::sample_exponential,
+    void_ritual::{self, GiveTarget, VoidRitualState, WishAction},
 };
 
 const TERMINAL_HEIGHT_DEFAULT: u16 = 24;
@@ -55,23 +59,28 @@ pub struct App {
     history: Vec<String>,
     history_pos: Option<usize>,
     draft: String,
-    index_state: Option<IndexState>,
+    pub index_state: Option<IndexState>,
     backed_index_state: Option<IndexState>,
     show_state: Option<ShowState>,
     inventory_state: Option<InventoryState>,
     fishing_state: Option<FishingState>,
     catch_state: Option<CatchState>,
     shop_state: Option<ShopState>,
-    fishtanks_state: Option<FishtanksState>,
+    pub fishtanks_state: Option<FishtanksState>,
     necronomicon_popup: Option<TextInput>,
     terminal_height: u16,
     terminal_width: u16,
+    pub graveyard: Vec<Fish>,
+    pub void_ritual: VoidRitualState,
+    pub next_prayer: usize,
+    pub nothing_stacks: u32,
 }
 
 impl App {
     pub fn new() -> Self {
         let settings = Settings::default();
         let mut rng = rand::rng();
+        let initial_ritual_timer = sample_exponential(&mut rng, void_ritual::VOID_RITUAL_MEAN_SECS);
 
         let initial_name = names::unique_name_in(&HashSet::new(), "Fishtank");
         let mut used_tank_names = HashSet::new();
@@ -126,6 +135,12 @@ impl App {
             necronomicon_popup: None,
             terminal_height: TERMINAL_HEIGHT_DEFAULT,
             terminal_width: TERMINAL_WIDTH_DEFAULT,
+            graveyard: Vec::new(),
+            void_ritual: VoidRitualState::Idle {
+                timer: initial_ritual_timer,
+            },
+            next_prayer: 0,
+            nothing_stacks: 0,
         }
     }
 
@@ -249,19 +264,39 @@ impl App {
         }
 
         let dt = 1.0 / self.settings.fps;
+
+        self.tick_void_ritual(dt);
+        if self.void_ritual.is_blocking() {
+            self.tick_blink();
+            return;
+        }
+
         for ac in &mut self.active_consumables {
             ac.time_remaining -= dt;
         }
         self.active_consumables.retain(|ac| ac.time_remaining > 0.0);
 
         let coffee = self.coffee_stacks();
-        self.tanks[self.current_tank].tick(&self.settings, coffee);
-        self.money += self.tanks[self.current_tank].pending_star_money;
-        self.tanks[self.current_tank].pending_star_money = 0;
+        for i in 0..self.tanks.len() {
+            let events = self.tanks[i].tick(&self.settings, coffee);
+            self.money += self.tanks[i].pending_star_money;
+            self.tanks[i].pending_star_money = 0;
+            for event in events {
+                match event {
+                    TankEvent::PhantomCrossTank { fish_name } => {
+                        self.handle_phantom_cross_tank(i, &fish_name);
+                    }
+                }
+            }
+        }
         self.tick_blink();
     }
 
     pub fn handle_input(&mut self, event: Event) {
+        if self.void_ritual.is_blocking() {
+            self.handle_void_ritual_input(event);
+            return;
+        }
         if self.catch_state.is_some() {
             self.handle_catch_input(event);
             return;
@@ -300,7 +335,18 @@ impl App {
                     self.running = false;
                 }
                 KeyCode::Enter => {
-                    let action = commands::parse(&self.command_input);
+                    let fish_names_for_parse: Vec<&str> = self
+                        .tanks
+                        .iter()
+                        .flat_map(|t| t.fish.iter().map(|f| f.name.as_str()))
+                        .collect();
+                    let tank_names_for_parse: Vec<&str> =
+                        self.tanks.iter().map(|t| t.name.as_str()).collect();
+                    let action = commands::parse(
+                        &self.command_input,
+                        &fish_names_for_parse,
+                        &tank_names_for_parse,
+                    );
                     if !self.command_input.trim().is_empty() {
                         self.history.push(self.command_input.clone());
                     }
@@ -479,9 +525,9 @@ impl App {
                 }
             }
             KeyCode::Down => {
-                let visible = self.index_visible_rows();
+                let available = (self.tank_height() as usize).saturating_sub(7);
                 if let Some(ref mut s) = self.index_state {
-                    s.scroll_down(visible);
+                    s.scroll_down(available);
                 }
             }
             KeyCode::Left => {
@@ -514,6 +560,9 @@ impl App {
                         .find(|f| f.name == fish_name)
                         .cloned();
                     if let Some(fish) = fish {
+                        if fish.is_invisible() {
+                            return;
+                        }
                         let tank_kind = self
                             .tanks
                             .iter()
@@ -1126,14 +1175,18 @@ impl App {
                             match item {
                                 SellEntry::Fish { name, .. } => {
                                     let fish_name = name.clone();
+                                    let mut sold = None;
                                     for tank in &mut self.tanks {
                                         if let Some(pos) =
                                             tank.fish.iter().position(|f| f.name == fish_name)
                                         {
                                             tank.used_names.remove(&fish_name);
-                                            tank.fish.remove(pos);
+                                            sold = Some(tank.fish.remove(pos));
                                             break;
                                         }
+                                    }
+                                    if let Some(fish) = sold {
+                                        self.graveyard.push(fish);
                                     }
                                 }
                                 SellEntry::Junk { .. } => {
@@ -1252,7 +1305,7 @@ impl App {
             .iter()
             .filter(|t| t.fish.is_empty())
             .map(|t| {
-                let price = if t.kind == TankKind::Hell {
+                let price = if matches!(t.kind, TankKind::Hell | TankKind::Void) {
                     HELL_TANK_SELL_PRICE
                 } else {
                     TANK_SELL_PRICE
@@ -1278,10 +1331,6 @@ impl App {
 
     fn tank_height(&self) -> u16 {
         self.terminal_height.saturating_sub(self.bar_height())
-    }
-
-    fn index_visible_rows(&self) -> usize {
-        (self.tank_height() as usize).saturating_sub(6).max(1)
     }
 
     fn show_visible_count(&self) -> usize {
@@ -1311,11 +1360,18 @@ impl App {
 
         self.tanks[self.current_tank].resize(tank_area.width, tank_area.height);
 
-        frame.render_widget(
-            TankView::new(self.tank(), self.settings.show_names),
-            tank_area,
-        );
+        {
+            let ritual_blocking = self.void_ritual.is_blocking()
+                && self.tanks[self.current_tank].kind == TankKind::Void;
+            let mut tv = TankView::new(self.tank(), self.settings.show_names);
+            if ritual_blocking {
+                let text = void_ritual::wish_display_text(&self.void_ritual, self.next_prayer);
+                tv = tv.with_ritual(text);
+            }
+            frame.render_widget(tv, tank_area);
+        }
 
+        let ritual_blocking = self.void_ritual.is_blocking();
         let fish_names: Vec<&str> = self.tank().fish.iter().map(|f| f.name.as_str()).collect();
         let consumable_names: Vec<&str> = ["coffee", "bait"]
             .iter()
@@ -1335,16 +1391,20 @@ impl App {
                     .map(move |f| (f.name.as_str(), t.name.as_str()))
             })
             .collect();
-        let ghost = commands::autocomplete(
-            &self.command_input,
-            &fish_names,
-            &consumable_names,
-            &tank_names,
-            self.tank().name.as_str(),
-            &fish_in_tanks,
-        )
-        .map(|c| c.ghost)
-        .unwrap_or_default();
+        let ghost = if ritual_blocking {
+            String::new()
+        } else {
+            commands::autocomplete(
+                &self.command_input,
+                &fish_names,
+                &consumable_names,
+                &tank_names,
+                self.tank().name.as_str(),
+                &fish_in_tanks,
+            )
+            .map(|c| c.ghost)
+            .unwrap_or_default()
+        };
         let devils_luck = self.devils_luck();
         frame.render_widget(
             CommandBar {
@@ -1400,6 +1460,313 @@ impl App {
                 },
                 tank_area,
             );
+        }
+    }
+
+    fn has_any_overlay(&self) -> bool {
+        self.show_state.is_some()
+            || self.index_state.is_some()
+            || self.inventory_state.is_some()
+            || self.fishing_state.is_some()
+            || self.catch_state.is_some()
+            || self.shop_state.is_some()
+            || self.fishtanks_state.is_some()
+            || self.necronomicon_popup.is_some()
+    }
+
+    fn tick_void_ritual(&mut self, dt: f32) {
+        enum Tr {
+            None,
+            Abort,
+            ResetMaybeStart(f32, bool),
+        }
+
+        let is_void = self.tanks[self.current_tank].kind == TankKind::Void;
+        let has_overlay = self.has_any_overlay();
+
+        let tr = match &mut self.void_ritual {
+            VoidRitualState::Wish { .. } => Tr::None,
+            VoidRitualState::Prayer { timeout, .. } | VoidRitualState::FinalPhrase { timeout } => {
+                *timeout -= dt;
+                if *timeout <= 0.0 { Tr::Abort } else { Tr::None }
+            }
+            VoidRitualState::Idle { timer } => {
+                *timer -= dt;
+                if *timer > 0.0 {
+                    Tr::None
+                } else {
+                    let mean = void_ritual::ritual_mean_secs(self.nothing_stacks);
+                    let new_t = sample_exponential(&mut rand::rng(), mean);
+                    Tr::ResetMaybeStart(new_t, is_void && !has_overlay)
+                }
+            }
+        };
+
+        match tr {
+            Tr::None => {}
+            Tr::Abort => self.abort_void_ritual(),
+            Tr::ResetMaybeStart(new_t, start) => {
+                if let VoidRitualState::Idle { timer } = &mut self.void_ritual {
+                    *timer = new_t;
+                }
+                if start {
+                    self.start_void_ritual();
+                }
+            }
+        }
+    }
+
+    fn start_void_ritual(&mut self) {
+        self.command_input.clear();
+        self.cursor_pos = 0;
+        self.void_ritual = VoidRitualState::Prayer {
+            prayer_idx: self.next_prayer,
+            phrase_idx: 0,
+            timeout: void_ritual::PRAYER_TIMEOUT_SECS,
+        };
+    }
+
+    fn abort_void_ritual(&mut self) {
+        let mean = void_ritual::ritual_mean_secs(self.nothing_stacks);
+        let timer = sample_exponential(&mut rand::rng(), mean);
+        self.void_ritual = VoidRitualState::Idle { timer };
+        self.command_input.clear();
+        self.cursor_pos = 0;
+    }
+
+    fn handle_void_ritual_input(&mut self, event: Event) {
+        if matches!(self.void_ritual, VoidRitualState::Wish { .. }) {
+            if self.index_state.is_some() {
+                self.handle_index_input(event);
+                return;
+            }
+            if self.show_state.is_some() {
+                self.handle_show_input(event);
+                return;
+            }
+            if self.fishtanks_state.is_some() {
+                let before = self.current_tank;
+                self.handle_fishtanks_input(event);
+                if self.current_tank != before {
+                    self.abort_void_ritual();
+                }
+                return;
+            }
+        }
+        match event {
+            Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
+                KeyCode::Char(c) => {
+                    self.command_input.push(c);
+                    self.cursor_pos = self.command_input.len();
+                    self.reset_blink();
+                }
+                KeyCode::Backspace => {
+                    if !self.command_input.is_empty() {
+                        self.command_input.pop();
+                        self.cursor_pos = self.command_input.len();
+                    }
+                    self.reset_blink();
+                }
+                KeyCode::Enter => self.submit_ritual_input(),
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
+    pub fn submit_ritual_input(&mut self) {
+        let input = self.command_input.clone();
+        self.command_input.clear();
+        self.cursor_pos = 0;
+
+        match self.void_ritual {
+            VoidRitualState::Prayer {
+                prayer_idx,
+                phrase_idx,
+                ..
+            } => {
+                let expected = void_ritual::PRAYERS[prayer_idx][phrase_idx];
+                if void_ritual::phrase_matches(&input, expected) {
+                    let phrases_len = void_ritual::PRAYERS[prayer_idx].len();
+                    if phrase_idx + 1 < phrases_len {
+                        self.void_ritual = VoidRitualState::Prayer {
+                            prayer_idx,
+                            phrase_idx: phrase_idx + 1,
+                            timeout: void_ritual::PRAYER_TIMEOUT_SECS,
+                        };
+                    } else {
+                        self.void_ritual = VoidRitualState::FinalPhrase {
+                            timeout: void_ritual::PRAYER_TIMEOUT_SECS,
+                        };
+                    }
+                } else {
+                    self.abort_void_ritual();
+                }
+            }
+            VoidRitualState::FinalPhrase { .. } => {
+                if void_ritual::phrase_matches(&input, void_ritual::FINAL_PRAYER_PHRASE) {
+                    self.next_prayer = (self.next_prayer + 1) % void_ritual::PRAYERS.len();
+                    self.void_ritual = VoidRitualState::Wish {
+                        retries_left: void_ritual::MAX_WISH_RETRIES,
+                    };
+                } else {
+                    self.abort_void_ritual();
+                }
+            }
+            VoidRitualState::Wish { retries_left } => {
+                if input.starts_with('/') {
+                    let fish_names_ref: Vec<&str> = self
+                        .tanks
+                        .iter()
+                        .flat_map(|t| t.fish.iter().map(|f| f.name.as_str()))
+                        .collect();
+                    let tank_names_ref: Vec<&str> =
+                        self.tanks.iter().map(|t| t.name.as_str()).collect();
+                    let action =
+                        commands::parse(&input, &fish_names_ref, &tank_names_ref);
+                    match action {
+                        commands::Action::Index { .. }
+                        | commands::Action::Show { .. }
+                        | commands::Action::Fishtanks
+                        | commands::Action::ToggleNames
+                        | commands::Action::ToggleStats => {
+                            self.apply(action);
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+                let fish_names: Vec<String> = self
+                    .tanks
+                    .iter()
+                    .flat_map(|t| t.fish.iter().map(|f| f.name.clone()))
+                    .collect();
+                let tank_names: Vec<String> = self.tanks.iter().map(|t| t.name.clone()).collect();
+                let graveyard_names: Vec<String> =
+                    self.graveyard.iter().map(|f| f.name.clone()).collect();
+                let ctx = void_ritual::WishCtx {
+                    fish_names: &fish_names,
+                    tank_names: &tank_names,
+                    graveyard_names: &graveyard_names,
+                };
+                match void_ritual::parse_wish(input.trim(), &ctx) {
+                    None => {
+                        if retries_left <= 1 {
+                            self.abort_void_ritual();
+                        } else {
+                            self.void_ritual = VoidRitualState::Wish {
+                                retries_left: retries_left - 1,
+                            };
+                        }
+                    }
+                    Some(action) => {
+                        self.execute_wish(action);
+                        self.abort_void_ritual();
+                    }
+                }
+            }
+            VoidRitualState::Idle { .. } => {}
+        }
+    }
+
+    fn execute_wish(&mut self, action: WishAction) {
+        match action {
+            WishAction::Give(target) => self.execute_give(target),
+            WishAction::Mutate {
+                fish_name,
+                mutation,
+            } => {
+                let tank_idx = self
+                    .tanks
+                    .iter()
+                    .position(|t| t.fish.iter().any(|f| f.name == fish_name));
+                if let Some(ti) = tank_idx {
+                    self.tanks[ti].miracle_mutate_fish(&fish_name, &mutation);
+                }
+            }
+            WishAction::Revive { fish_name } => {
+                if let Some(pos) = self.graveyard.iter().position(|f| f.name == fish_name) {
+                    let fish = self.graveyard.remove(pos);
+                    let name = fish.name.clone();
+                    let ct = self.current_tank;
+                    let mut rng = rand::rng();
+                    self.tanks[ct].place_fish(fish, name, &mut rng);
+                }
+            }
+            WishAction::Clone { fish_name } => {
+                let original = self
+                    .tanks
+                    .iter()
+                    .flat_map(|t| t.fish.iter())
+                    .find(|f| f.name == fish_name)
+                    .cloned();
+                if let Some(orig) = original {
+                    let clone_name = format!("{}'s Clone", orig.name);
+                    let ct = self.current_tank;
+                    if !self.tanks[ct].is_full() {
+                        let mut rng = rand::rng();
+                        let new_fish = orig;
+                        self.tanks[ct].place_fish(new_fish, clone_name, &mut rng);
+                    }
+                }
+            }
+            WishAction::Bless { fish_name } => {
+                for tank in &mut self.tanks {
+                    if let Some(fish) = tank.fish.iter_mut().find(|f| f.name == fish_name) {
+                        fish.devil_marked = false;
+                        break;
+                    }
+                }
+            }
+            WishAction::Expand { tank_name } => {
+                if let Some(tank) = self.tanks.iter_mut().find(|t| t.name == tank_name) {
+                    tank.expand(void_ritual::EXPAND_AMOUNT);
+                }
+            }
+            WishAction::Anything => {
+                let mut rng = rand::rng();
+                for _ in 0..2 {
+                    match rng.random_range(0..4u32) {
+                        0 => self.money += void_ritual::GIVE_RESOURCE_AMOUNT,
+                        1 => self.food_supply += void_ritual::GIVE_RESOURCE_AMOUNT,
+                        2 => {
+                            *self.inventory.entry("Coffee".to_string()).or_insert(0) +=
+                                void_ritual::GIVE_COFFEE_QTY;
+                        }
+                        _ => {
+                            *self.inventory.entry("Bait".to_string()).or_insert(0) +=
+                                void_ritual::GIVE_BAIT_QTY;
+                        }
+                    }
+                }
+            }
+            WishAction::Nothing => {
+                self.nothing_stacks += 1;
+            }
+        }
+    }
+
+    fn execute_give(&mut self, target: GiveTarget) {
+        match target {
+            GiveTarget::Money => self.money += void_ritual::GIVE_RESOURCE_AMOUNT,
+            GiveTarget::Food => self.food_supply += void_ritual::GIVE_RESOURCE_AMOUNT,
+            GiveTarget::Item { name, qty } => {
+                *self.inventory.entry(name.to_string()).or_insert(0) += qty;
+            }
+            GiveTarget::Fish(species) => {
+                let ct = self.current_tank;
+                if !self.tanks[ct].is_full() {
+                    let un_name = format!("Un{}", species.config().name);
+                    let mut rng = rand::rng();
+                    self.tanks[ct].spawn_fish(species, un_name, &mut rng);
+                }
+            }
+            GiveTarget::Tank(kind) => {
+                let un_name = void_ritual::tank_kind_un_name(kind);
+                let actual_name = names::unique_name_in(&self.used_tank_names, un_name);
+                self.used_tank_names.insert(actual_name.clone());
+                self.tanks.push(Tank::new(actual_name, kind));
+            }
         }
     }
 
@@ -1585,6 +1952,9 @@ impl App {
                     .find(|(f, _)| f.name.eq_ignore_ascii_case(&fish_name))
                     .map(|(f, tn)| (f.clone(), tn.to_string()));
                 if let Some((fish, tank_name)) = found {
+                    if fish.is_invisible() {
+                        return;
+                    }
                     let tank_kind = self
                         .tanks
                         .iter()
@@ -1609,8 +1979,50 @@ impl App {
                 }
             }
             commands::Action::Exit => self.running = false,
+            commands::Action::VoidSpawn => {
+                if self.tanks[self.current_tank].kind == TankKind::Void {
+                    let mut rng = rand::rng();
+                    self.tanks[self.current_tank].spawn_unfish(&mut rng);
+                }
+            }
+            commands::Action::StartVoidWish { skip } => {
+                if self.tanks[self.current_tank].kind == TankKind::Void {
+                    if skip {
+                        self.command_input.clear();
+                        self.cursor_pos = 0;
+                        self.void_ritual = VoidRitualState::Wish {
+                            retries_left: void_ritual::MAX_WISH_RETRIES,
+                        };
+                    } else {
+                        self.start_void_ritual();
+                    }
+                }
+            }
             commands::Action::Unknown => {}
         }
+    }
+
+    fn handle_phantom_cross_tank(&mut self, source_idx: usize, fish_name: &str) {
+        let candidates: Vec<usize> = (0..self.tanks.len())
+            .filter(|&i| i != source_idx && !self.tanks[i].is_full())
+            .collect();
+        if candidates.is_empty() {
+            return;
+        }
+        let mut rng = rand::rng();
+        let target_idx = candidates[rng.random_range(0..candidates.len())];
+        let pos = match self.tanks[source_idx]
+            .fish
+            .iter()
+            .position(|f| f.name == fish_name)
+        {
+            Some(p) => p,
+            None => return,
+        };
+        let fish = self.tanks[source_idx].fish.remove(pos);
+        let name = fish.name.clone();
+        self.tanks[source_idx].used_names.remove(&name);
+        self.tanks[target_idx].place_fish(fish, name, &mut rng);
     }
 
     fn tick_blink(&mut self) {

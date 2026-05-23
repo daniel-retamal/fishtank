@@ -16,6 +16,17 @@ pub fn title_case(s: &str) -> String {
         .join(" ")
 }
 
+pub fn unique_roman_in(used: &HashSet<String>) -> String {
+    let mut i = 1u32;
+    loop {
+        let candidate = to_roman(i);
+        if !used.contains(&candidate) {
+            return candidate;
+        }
+        i += 1;
+    }
+}
+
 pub fn unique_name_in(used: &HashSet<String>, requested: &str) -> String {
     if !used.contains(requested) {
         return requested.to_string();
@@ -94,4 +105,153 @@ fn roman_to_u32(s: &str) -> Option<u32> {
         prev = v;
     }
     if total == 0 { None } else { Some(total) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn title_case_single_word() {
+        assert_eq!(title_case("nemo"), "Nemo");
+    }
+
+    #[test]
+    fn title_case_multiple_words() {
+        assert_eq!(title_case("blue tang"), "Blue Tang");
+    }
+
+    #[test]
+    fn title_case_already_correct() {
+        assert_eq!(title_case("Nemo"), "Nemo");
+    }
+
+    #[test]
+    fn title_case_all_caps() {
+        assert_eq!(title_case("NEMO"), "NEMO");
+    }
+
+    #[test]
+    fn title_case_empty_string() {
+        assert_eq!(title_case(""), "");
+    }
+
+    #[test]
+    fn title_case_extra_spaces_are_collapsed() {
+        assert_eq!(title_case("blue  tang"), "Blue Tang");
+    }
+
+    #[test]
+    fn to_roman_one() {
+        assert_eq!(to_roman(1), "I");
+    }
+
+    #[test]
+    fn to_roman_two() {
+        assert_eq!(to_roman(2), "II");
+    }
+
+    #[test]
+    fn to_roman_three() {
+        assert_eq!(to_roman(3), "III");
+    }
+
+    #[test]
+    fn to_roman_four() {
+        assert_eq!(to_roman(4), "IV");
+    }
+
+    #[test]
+    fn to_roman_nine() {
+        assert_eq!(to_roman(9), "IX");
+    }
+
+    #[test]
+    fn to_roman_ten() {
+        assert_eq!(to_roman(10), "X");
+    }
+
+    #[test]
+    fn to_roman_fourteen() {
+        assert_eq!(to_roman(14), "XIV");
+    }
+
+    #[test]
+    fn to_roman_forty() {
+        assert_eq!(to_roman(40), "XL");
+    }
+
+    #[test]
+    fn to_roman_fifty() {
+        assert_eq!(to_roman(50), "L");
+    }
+
+    #[test]
+    fn to_roman_ninety() {
+        assert_eq!(to_roman(90), "XC");
+    }
+
+    #[test]
+    fn to_roman_one_hundred() {
+        assert_eq!(to_roman(100), "C");
+    }
+
+    #[test]
+    fn to_roman_four_hundred() {
+        assert_eq!(to_roman(400), "CD");
+    }
+
+    #[test]
+    fn to_roman_nine_hundred() {
+        assert_eq!(to_roman(900), "CM");
+    }
+
+    #[test]
+    fn to_roman_one_thousand() {
+        assert_eq!(to_roman(1000), "M");
+    }
+
+    #[test]
+    fn unique_name_no_collision() {
+        let used = HashSet::new();
+        assert_eq!(unique_name_in(&used, "Nemo"), "Nemo");
+    }
+
+    #[test]
+    fn unique_name_first_collision_yields_roman_ii() {
+        let mut used = HashSet::new();
+        used.insert("Nemo".to_string());
+        assert_eq!(unique_name_in(&used, "Nemo"), "Nemo II");
+    }
+
+    #[test]
+    fn unique_name_chain_collision() {
+        let mut used = HashSet::new();
+        used.insert("Nemo".to_string());
+        used.insert("Nemo II".to_string());
+        assert_eq!(unique_name_in(&used, "Nemo"), "Nemo III");
+    }
+
+    #[test]
+    fn unique_name_long_chain() {
+        let mut used = HashSet::new();
+        used.insert("Nemo".to_string());
+        used.insert("Nemo II".to_string());
+        used.insert("Nemo III".to_string());
+        assert_eq!(unique_name_in(&used, "Nemo"), "Nemo IV");
+    }
+
+    #[test]
+    fn unique_name_request_already_roman_skips_ahead() {
+        let mut used = HashSet::new();
+        used.insert("Nemo II".to_string());
+        assert_eq!(unique_name_in(&used, "Nemo II"), "Nemo III");
+    }
+
+    #[test]
+    fn unique_name_multi_word_name() {
+        let mut used = HashSet::new();
+        used.insert("Blue Tang".to_string());
+        assert_eq!(unique_name_in(&used, "Blue Tang"), "Blue Tang II");
+    }
 }

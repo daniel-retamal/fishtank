@@ -9,10 +9,11 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::entities::fish::{Direction, Fish};
 use crate::entities::species::FishSpecies;
+use crate::entities::unfish::{BALL_HEIGHT, SKULL_HEIGHT, UnfishKind, is_multi_row};
 use crate::tank::TankKind;
 use crate::ui::{
     fields::{self, FieldKind},
-    render_fish_segs, table,
+    render_fish_segs, table, tank_view,
 };
 
 const BG: Color = Color::Reset;
@@ -90,13 +91,19 @@ impl ShowState {
             });
         }
 
+        let is_unfish = fish.unfish_state.is_some();
         if all {
             for &kind in FieldKind::all() {
-                let fv = fields::gen_field_value(kind, fish, all_names, rng);
+                let (value, swatch) = if is_unfish {
+                    (String::new(), None)
+                } else {
+                    let fv = fields::gen_field_value(kind, fish, all_names, rng);
+                    (fv.text, fv.swatch)
+                };
                 show_fields.push(ShowField {
                     label: kind.header(),
-                    value: fv.text,
-                    swatch: fv.swatch,
+                    value,
+                    swatch,
                 });
             }
         } else {
@@ -105,11 +112,16 @@ impl ShowState {
             for _ in 0..count.min(avail.len()) {
                 let idx = rng.random_range(0..avail.len());
                 let kind = avail.remove(idx);
-                let fv = fields::gen_field_value(kind, fish, all_names, rng);
+                let (value, swatch) = if is_unfish {
+                    (String::new(), None)
+                } else {
+                    let fv = fields::gen_field_value(kind, fish, all_names, rng);
+                    (fv.text, fv.swatch)
+                };
                 show_fields.push(ShowField {
                     label: kind.header(),
-                    value: fv.text,
-                    swatch: fv.swatch,
+                    value,
+                    swatch,
                 });
             }
         }
@@ -131,6 +143,31 @@ impl ShowState {
                 "—".to_string()
             } else {
                 m.mutation_history.join(", ")
+            };
+            show_fields.push(ShowField {
+                label: "Mutation History",
+                value: history,
+                swatch: None,
+            });
+        } else if let Some(ref us) = fish.unfish_state
+            && (us.mutation_count > 0 || !us.mutation_history.is_empty())
+        {
+            if !us.mitosis_partners.is_empty() {
+                show_fields.push(ShowField {
+                    label: "Mitosis Partners",
+                    value: us.mitosis_partners.join(", "),
+                    swatch: None,
+                });
+            }
+            show_fields.push(ShowField {
+                label: "Mutation Count",
+                value: us.mutation_count.to_string(),
+                swatch: None,
+            });
+            let history = if us.mutation_history.is_empty() {
+                "—".to_string()
+            } else {
+                us.mutation_history.join(", ")
             };
             show_fields.push(ShowField {
                 label: "Mutation History",
@@ -191,11 +228,21 @@ impl ShowState {
                 1 + lines + 1
             })
             .sum();
-        total_field_rows
-            .saturating_sub(1)
-            .saturating_add(4)
-            .min(area_h)
-            .max(MIN_OVERLAY_H)
+        let from_fields = total_field_rows.saturating_sub(1).saturating_add(4);
+        let from_fish = fish_display_inner_h(&self.fish) + 4;
+        from_fields.max(from_fish).min(area_h).max(MIN_OVERLAY_H)
+    }
+}
+
+fn fish_display_inner_h(fish: &Fish) -> u16 {
+    if let Some(ref us) = fish.unfish_state {
+        match us.kind {
+            UnfishKind::Ball => BALL_HEIGHT,
+            UnfishKind::Skull => SKULL_HEIGHT,
+            _ => FISH_INNER_H,
+        }
+    } else {
+        FISH_INNER_H
     }
 }
 
@@ -276,6 +323,7 @@ impl Widget for ShowOverlay<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let state = self.state;
 
+        let fish_inner_h = fish_display_inner_h(&state.fish);
         let fish_art_w = state.fish.display_width as u16;
         let fish_inner_w = fish_art_w + 2 * FISH_PAD;
 
@@ -306,9 +354,10 @@ impl Widget for ShowOverlay<'_> {
                 1 + lines + 1
             })
             .sum();
-        let overlay_h = total_field_rows
-            .saturating_sub(1)
-            .saturating_add(4)
+        let from_fields = total_field_rows.saturating_sub(1).saturating_add(4);
+        let from_fish = fish_inner_h + 4;
+        let overlay_h = from_fields
+            .max(from_fish)
             .min(area.height)
             .max(MIN_OVERLAY_H);
 
@@ -318,15 +367,15 @@ impl Widget for ShowOverlay<'_> {
         let bottom = oy + overlay_h - 1;
         let sep_x = ox + 1 + fish_inner_w;
         let right_x = sep_x + 2;
-        let fish_bottom_y = oy + FISH_INNER_H + 1;
+        let fish_bottom_y = oy + fish_inner_h + 1;
         let field_end_y = oy + overlay_h - 4;
 
-        for dy in 0..=FISH_INNER_H + 1 {
+        for dy in 0..=fish_inner_h + 1 {
             for dx in 0..overlay_w {
                 buf[(ox + dx, oy + dy)].reset();
             }
         }
-        for dy in FISH_INNER_H + 2..overlay_h {
+        for dy in fish_inner_h + 2..overlay_h {
             for dx in fish_inner_w + 1..overlay_w {
                 buf[(ox + dx, oy + dy)].reset();
             }
@@ -357,7 +406,7 @@ impl Widget for ShowOverlay<'_> {
             buf[(right, oy + dy)].set_char('│').set_style(border_style);
         }
 
-        for dy in 1..=FISH_INNER_H {
+        for dy in 1..=fish_inner_h {
             buf[(ox, oy + dy)].set_char('│').set_style(border_style);
         }
 
@@ -388,9 +437,21 @@ impl Widget for ShowOverlay<'_> {
 
         let extra = fish_inner_w.saturating_sub(fish_art_w);
         let fish_art_x = ox + 1 + extra / 2;
-        let fish_art_y = oy + 1 + FISH_INNER_H / 2;
-        let segs = state.fish.segments();
-        render_fish_segs(buf, &segs, fish_art_x, fish_art_y, fish_art_w, BG);
+        if let Some(ref us) = state.fish.unfish_state
+            && is_multi_row(us.kind)
+        {
+            tank_view::render_multi_row_unfish_at(
+                &state.fish,
+                fish_art_x as i32,
+                (oy + 1) as i32,
+                area,
+                buf,
+            );
+        } else {
+            let fish_art_y = oy + 1 + fish_inner_h / 2;
+            let segs = state.fish.segments();
+            render_fish_segs(buf, &segs, fish_art_x, fish_art_y, fish_art_w, BG);
+        }
 
         let white_bold = Style::default()
             .fg(Color::White)

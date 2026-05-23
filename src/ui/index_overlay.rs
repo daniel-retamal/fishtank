@@ -8,7 +8,8 @@ use ratatui::{
 
 use crate::entities::fish::{Direction, Fish};
 use crate::entities::species::FishSpecies;
-use crate::ui::{fields, render_fish_segs, scroll_list, table};
+use crate::entities::unfish::{BALL_HEIGHT, SKULL_HEIGHT, UnfishKind};
+use crate::ui::{fields, render_fish_segs, scroll_list, table, tank_view};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum FantasyKind {
@@ -138,6 +139,8 @@ pub struct FishSnapshot {
     display_width: usize,
     weight_g: u32,
     tank_name: Option<String>,
+    display_height: u16,
+    is_unfish: bool,
 }
 
 pub struct IndexState {
@@ -152,11 +155,25 @@ pub struct IndexState {
     animated_fish: Option<Fish>,
 }
 
+fn unfish_row_height(fish: &Fish) -> u16 {
+    match fish.unfish_state.as_ref().map(|us| us.kind) {
+        Some(UnfishKind::Ball) => BALL_HEIGHT,
+        Some(UnfishKind::Skull) => SKULL_HEIGHT,
+        _ => 1,
+    }
+}
+
 impl IndexState {
     pub fn new(fish_with_tanks: &[(&str, &Fish)], all: bool, show_tank_col: bool) -> Self {
         let mut rng = rand::rng();
 
-        let snapshots: Vec<FishSnapshot> = fish_with_tanks
+        let filtered: Vec<(&str, &Fish)> = fish_with_tanks
+            .iter()
+            .filter(|(_, f)| !f.is_invisible())
+            .copied()
+            .collect();
+
+        let snapshots: Vec<FishSnapshot> = filtered
             .iter()
             .map(|(tank_name, f)| FishSnapshot {
                 name: f.name.clone(),
@@ -165,10 +182,12 @@ impl IndexState {
                 display_width: f.display_width,
                 weight_g: f.weight_g,
                 tank_name: Some(tank_name.to_string()),
+                display_height: unfish_row_height(f),
+                is_unfish: f.unfish_state.is_some(),
             })
             .collect();
 
-        let fish_clones: Vec<Fish> = fish_with_tanks.iter().map(|(_, f)| (*f).clone()).collect();
+        let fish_clones: Vec<Fish> = filtered.iter().map(|(_, f)| (*f).clone()).collect();
 
         let chosen_kinds: Vec<FantasyKind> = if all {
             FantasyKind::all().to_vec()
@@ -183,17 +202,22 @@ impl IndexState {
             chosen
         };
 
-        let fish_names: Vec<String> = fish_with_tanks
+        let fish_names: Vec<String> = filtered.iter().map(|(_, f)| f.name.clone()).collect();
+        let species_list: Vec<FishSpecies> = filtered.iter().map(|(_, f)| f.species).collect();
+        let is_unfish_flags: Vec<bool> = filtered
             .iter()
-            .map(|(_, f)| f.name.clone())
+            .map(|(_, f)| f.unfish_state.is_some())
             .collect();
-        let species_list: Vec<FishSpecies> =
-            fish_with_tanks.iter().map(|(_, f)| f.species).collect();
 
         let fantasy_cols = chosen_kinds
             .into_iter()
             .map(|kind| {
-                let cells = gen_fantasy(kind, &fish_names, &species_list, &mut rng);
+                let mut cells = gen_fantasy(kind, &fish_names, &species_list, &mut rng);
+                for (i, &is_uf) in is_unfish_flags.iter().enumerate() {
+                    if is_uf && i < cells.len() {
+                        cells[i] = plain("");
+                    }
+                }
                 let max_cell_w = cells
                     .iter()
                     .map(|c| table::visual_width(&c.text))
@@ -278,21 +302,47 @@ impl IndexState {
         }
     }
 
-    pub fn scroll_down(&mut self, visible_rows: usize) {
-        let prev = self.selected;
-        scroll_list::scroll_down(
-            &mut self.selected,
-            &mut self.scroll,
-            self.snapshots.len(),
-            visible_rows,
-        );
-        if self.selected != prev {
-            self.animated_fish = self
-                .fish_clones
-                .get(self.selected)
-                .cloned()
-                .map(display_clone);
+    pub fn scroll_down(&mut self, available_lines: usize) {
+        if self.selected + 1 >= self.snapshots.len() {
+            return;
         }
+        self.selected += 1;
+        let mut lines = 0usize;
+        let mut is_visible = false;
+        for i in self.scroll..self.snapshots.len() {
+            let h = self.snapshots[i].display_height as usize;
+            if lines + h > available_lines {
+                break;
+            }
+            lines += h;
+            if i == self.selected {
+                is_visible = true;
+                break;
+            }
+        }
+        if !is_visible {
+            let sel_h = self.snapshots[self.selected].display_height as usize;
+            if sel_h >= available_lines {
+                self.scroll = self.selected;
+            } else {
+                let mut lines_used = sel_h;
+                let mut new_scroll = self.selected;
+                while new_scroll > 0 {
+                    let h = self.snapshots[new_scroll - 1].display_height as usize;
+                    if lines_used + h > available_lines {
+                        break;
+                    }
+                    lines_used += h;
+                    new_scroll -= 1;
+                }
+                self.scroll = new_scroll;
+            }
+        }
+        self.animated_fish = self
+            .fish_clones
+            .get(self.selected)
+            .cloned()
+            .map(display_clone);
     }
 
     pub fn selected_fish_name(&self) -> Option<&str> {
@@ -319,8 +369,20 @@ impl IndexState {
         let inner_w = overlay_w.saturating_sub(2) as usize;
         let vis = self.visible_columns(inner_w);
         let last_vis = vis.last().copied().unwrap_or(0);
-        if last_vis + 1 < widths.len() {
+        if last_vis + 1 >= widths.len() {
+            return;
+        }
+        let target = last_vis + 1;
+        let saved = self.col_scroll;
+        loop {
             self.col_scroll += 1;
+            if self.col_scroll >= widths.len() {
+                self.col_scroll = saved;
+                break;
+            }
+            if self.visible_columns(inner_w).contains(&target) {
+                break;
+            }
         }
     }
 
@@ -330,6 +392,20 @@ impl IndexState {
             w.push(fc.col_width);
         }
         w
+    }
+
+    pub fn visible_fish_count(&self, available_lines: usize) -> usize {
+        let mut lines_used = 0usize;
+        let mut count = 0usize;
+        for snap in self.snapshots.iter().skip(self.scroll) {
+            let h = snap.display_height as usize;
+            if lines_used + h > available_lines {
+                break;
+            }
+            lines_used += h;
+            count += 1;
+        }
+        count.max(1)
     }
 
     fn visible_columns(&self, inner_w: usize) -> Vec<usize> {
@@ -370,8 +446,17 @@ impl Widget for IndexOverlay<'_> {
         let widths = state.all_col_widths();
         let total_inner_w: usize = widths.iter().sum::<usize>() + widths.len().saturating_sub(1);
         let overlay_w = ((total_inner_w + 2) as u16).min(area.width);
-        let visible_data_rows = n.min(area.height.saturating_sub(7) as usize).max(1);
-        let overlay_h = ((visible_data_rows + 6) as u16).min(area.height);
+        let available_data_lines = area.height.saturating_sub(7) as usize;
+        let vis_count = state.visible_fish_count(available_data_lines);
+        let visible_data_lines: usize = state
+            .snapshots
+            .iter()
+            .skip(state.scroll)
+            .take(vis_count)
+            .map(|s| s.display_height as usize)
+            .sum::<usize>()
+            .max(1);
+        let overlay_h = ((visible_data_lines + 6) as u16).min(area.height);
 
         let ox = area.x + area.width.saturating_sub(overlay_w) / 2;
         let oy = area.y + area.height.saturating_sub(overlay_h) / 2;
@@ -404,19 +489,24 @@ impl Widget for IndexOverlay<'_> {
         let data_start_y = oy + 3;
         let data_end_y = oy + overlay_h - 3;
 
-        for row_y in data_start_y..=data_end_y {
-            let fish_idx = state.scroll + (row_y - data_start_y) as usize;
-            if fish_idx >= n {
+        let mut y_cursor = data_start_y;
+        let mut fish_idx = state.scroll;
+        while y_cursor <= data_end_y && fish_idx < n {
+            let row_h = state.snapshots[fish_idx].display_height;
+            if y_cursor + row_h > data_end_y + 1 {
                 break;
             }
             let selected = fish_idx == state.selected;
             draw_data_row(
-                buf, state, &vis_cols, fish_idx, inner_x, row_y, inner_w, selected, bg,
+                buf, state, &vis_cols, fish_idx, inner_x, y_cursor, inner_w, row_h, selected, bg,
+                area,
             );
+            y_cursor += row_h;
+            fish_idx += 1;
         }
 
         let footer_y = oy + overlay_h - 2;
-        let scrollable = n > visible_data_rows;
+        let scrollable = n > vis_count || state.scroll > 0;
         let h_scrollable = has_right_scroll || state.col_scroll > 1;
         let col_hint = format!("({}/{})", last_vis + 1, total_cols);
         let left_hint = match (scrollable, h_scrollable) {
@@ -600,8 +690,10 @@ fn draw_data_row(
     inner_x: u16,
     row_y: u16,
     inner_w: usize,
+    row_h: u16,
     selected: bool,
     base_bg: Color,
+    area: Rect,
 ) {
     let sel_bg = Color::Rgb(230, 228, 220);
     let row_bg = if selected { sel_bg } else { base_bg };
@@ -615,11 +707,15 @@ fn draw_data_row(
     let snap = &state.snapshots[fish_idx];
     let right_x = inner_x + inner_w as u16;
 
-    for dx in 0..inner_w as u16 {
-        if inner_x + dx < right_x {
-            buf[(inner_x + dx, row_y)].set_bg(row_bg);
+    for dy in 0..row_h {
+        for dx in 0..inner_w as u16 {
+            if inner_x + dx < right_x && row_y + dy < area.bottom() {
+                buf[(inner_x + dx, row_y + dy)].set_bg(row_bg);
+            }
         }
     }
+
+    let text_y = row_y + row_h / 2;
 
     let mut x = inner_x;
     for (order, &col_idx) in vis_cols.iter().enumerate() {
@@ -628,24 +724,43 @@ fn draw_data_row(
 
         let fixed_count = state.fixed_widths.len();
         match col_idx {
-            0 => put_text(buf, &snap.name, x, row_y, w.min(avail), fg, row_bg),
-            1 => put_text(buf, snap.species_name, x, row_y, w.min(avail), fg, row_bg),
+            0 => put_text(buf, &snap.name, x, text_y, w.min(avail), fg, row_bg),
+            1 => put_text(buf, snap.species_name, x, text_y, w.min(avail), fg, row_bg),
+            2 if snap.is_unfish && snap.display_height > 1 => {
+                let disp_w = w.min(avail) as u16;
+                for dy in 0..row_h {
+                    for dx in 0..disp_w {
+                        if x + dx < right_x && row_y + dy < area.bottom() {
+                            buf[(x + dx, row_y + dy)].reset();
+                        }
+                    }
+                }
+                let f = if selected {
+                    state.animated_fish.as_ref()
+                } else {
+                    None
+                }
+                .or_else(|| state.fish_clones.get(fish_idx));
+                if let Some(f) = f {
+                    tank_view::render_multi_row_unfish_at(f, x as i32, row_y as i32, area, buf);
+                }
+            }
             2 if selected => {
                 let segs = state
                     .animated_fish
                     .as_ref()
                     .map(|f| f.segments())
                     .unwrap_or_else(|| snap.segments.clone());
-                render_display_cell(buf, &segs, x, row_y, w.min(avail), base_bg);
+                render_display_cell(buf, &segs, x, text_y, w.min(avail), base_bg);
             }
-            2 => render_display_cell(buf, &snap.segments, x, row_y, w.min(avail), base_bg),
+            2 => render_display_cell(buf, &snap.segments, x, text_y, w.min(avail), base_bg),
             3 => {
                 let s = fields::format_weight(snap.weight_g);
-                put_text(buf, &s, x, row_y, w.min(avail), fg, row_bg);
+                put_text(buf, &s, x, text_y, w.min(avail), fg, row_bg);
             }
             4 if state.show_tank_col => {
                 let tn = snap.tank_name.as_deref().unwrap_or("");
-                put_text(buf, tn, x, row_y, w.min(avail), fg, row_bg);
+                put_text(buf, tn, x, text_y, w.min(avail), fg, row_bg);
             }
             c => {
                 let fc_idx = c - fixed_count;
@@ -656,11 +771,11 @@ fn draw_data_row(
                         let swatch_bg = cell.swatch.unwrap_or(Color::Black);
                         for dx in 0..w.min(avail) as u16 {
                             if x + dx < right_x {
-                                buf[(x + dx, row_y)].set_char(' ').set_bg(swatch_bg);
+                                buf[(x + dx, text_y)].set_char(' ').set_bg(swatch_bg);
                             }
                         }
                     } else {
-                        put_text(buf, &cell.text, x, row_y, w.min(avail), fg, row_bg);
+                        put_text(buf, &cell.text, x, text_y, w.min(avail), fg, row_bg);
                     }
                 }
             }
@@ -668,7 +783,11 @@ fn draw_data_row(
 
         x += w as u16;
         if order < vis_cols.len() - 1 && x < right_x {
-            buf[(x, row_y)].set_char('│').set_style(sep_style);
+            for dy in 0..row_h {
+                if row_y + dy < area.bottom() {
+                    buf[(x, row_y + dy)].set_char('│').set_style(sep_style);
+                }
+            }
             x += 1;
         }
     }

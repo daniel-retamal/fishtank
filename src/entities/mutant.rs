@@ -157,6 +157,25 @@ pub struct MutantState {
 }
 
 impl MutantState {
+    pub fn new_for_standard(tail_variant: MutantTail, rng: &mut impl RngExt) -> Self {
+        Self {
+            left_eyes: vec![EyeState::new(rng)],
+            right_eyes: vec![EyeState::new(rng)],
+            eye_color: None,
+            glistening_mode: GlisteningMode::Wave,
+            glistening_color: None,
+            body_variant: 0,
+            tail_variant,
+            mouth_inverted: false,
+            color_patches: Vec::new(),
+            is_double: false,
+            double_head_eyes: Vec::new(),
+            mutation_count: 0,
+            mutation_history: Vec::new(),
+            mitosis_partners: Vec::new(),
+        }
+    }
+
     pub fn new(body_size: usize, seed: u64, rng: &mut impl RngExt) -> Self {
         let (head_count, tail_count) = pick_eye_counts(body_size, rng);
         let tail_variant = match (seed >> 2) % 3 {

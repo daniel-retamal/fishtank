@@ -1,0 +1,315 @@
+use crate::entities::species::{ALL_SPECIES, FishSpecies};
+use crate::tank::TankKind;
+use crate::util::hyperbolic_scale;
+
+pub const PRAYERS: &[&[&str]] = &[
+    &[
+        "HOLY IS THE BLIND DEEP",
+        "THE ALLSEEING VOID THAT SLUMBERETH NOT",
+        "IT IS THE VAST ANTIQUITY BEFORE THE WORD",
+        "WHEREIN THE VANITY OF STARS IS FORGOT",
+    ],
+    &[
+        "IT IS THE GRAND SHEOL",
+        "THE SPAN BETWIXT THE CLAY OF EARTH AND THE VAULT OF HEAVEN",
+        "WHERE THE NAKED SOUL DOES SHED ITS SHROUD",
+        "TO TASTE THE PEACE OF THE UNMADE",
+    ],
+    &[
+        "FEAR NOT THE DREAMLESS SLEEP",
+        "FOR WITHIN THE SILENT GULF NO SPIRIT IS TRULY SLAIN",
+        "IT DOES BUT REST IN THE CRADDLE OF THE VOID",
+        "UNTIL THE HURTING VOICE SHALL BID IT RISE AGAIN",
+    ],
+    &[
+        "YET THE SHADOW FOLDETH INTO A STRANGER SLEEP",
+        "THE DREAM THAT OURSELF DREAMETH ITSELF",
+        "ONE WAKING BREATH AND THE LOOM IS RENT",
+        "AND THE EVERLASTING STAR IS NAUGHT",
+    ],
+];
+
+pub const FINAL_PRAYER_PHRASE: &str = "O VOID";
+pub const PRAYER_TIMEOUT_SECS: f32 = 45.0;
+pub const WISH_PROMPT: &str = "WHAT IS YOUR WISH?";
+pub const VOID_TEXT_BELOW_EYE_OFFSET: i32 = 15;
+pub const MAX_WISH_RETRIES: u32 = 5;
+pub const VOID_RITUAL_MEAN_SECS: f32 = 3600.0;
+pub const NOTHING_ALPHA: f32 = 0.05;
+pub const RITUAL_MEAN_FLOOR_SECS: f32 = 10.0;
+
+pub const GIVE_COFFEE_QTY: u32 = 937;
+pub const GIVE_BAIT_QTY: u32 = 625;
+pub const GIVE_JUNK_QTY: u32 = 1000;
+pub const GIVE_NECRONOMICON_QTY: u32 = 1;
+pub const GIVE_RESOURCE_AMOUNT: u32 = 5000;
+pub const EXPAND_AMOUNT: u32 = 75;
+
+pub enum VoidRitualState {
+    Idle {
+        timer: f32,
+    },
+    Prayer {
+        prayer_idx: usize,
+        phrase_idx: usize,
+        timeout: f32,
+    },
+    FinalPhrase {
+        timeout: f32,
+    },
+    Wish {
+        retries_left: u32,
+    },
+}
+
+impl VoidRitualState {
+    pub fn is_blocking(&self) -> bool {
+        !matches!(self, VoidRitualState::Idle { .. })
+    }
+}
+
+pub fn phrase_matches(input: &str, expected: &str) -> bool {
+    let a: String = input
+        .chars()
+        .filter(|&c| c != '"' && c != '\'')
+        .collect::<String>()
+        .trim()
+        .to_uppercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let b: String = expected
+        .trim()
+        .to_uppercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    a == b
+}
+
+pub fn ritual_mean_secs(nothing_stacks: u32) -> f32 {
+    hyperbolic_scale(VOID_RITUAL_MEAN_SECS, nothing_stacks, NOTHING_ALPHA)
+        .max(RITUAL_MEAN_FLOOR_SECS)
+}
+
+pub enum GiveTarget {
+    Money,
+    Food,
+    Item { name: &'static str, qty: u32 },
+    Fish(FishSpecies),
+    Tank(TankKind),
+}
+
+pub enum WishAction {
+    Give(GiveTarget),
+    Mutate { fish_name: String, mutation: String },
+    Revive { fish_name: String },
+    Clone { fish_name: String },
+    Bless { fish_name: String },
+    Expand { tank_name: String },
+    Anything,
+    Nothing,
+}
+
+pub struct WishCtx<'a> {
+    pub fish_names: &'a [String],
+    pub tank_names: &'a [String],
+    pub graveyard_names: &'a [String],
+}
+
+pub fn parse_wish(input: &str, ctx: &WishCtx) -> Option<WishAction> {
+    let input = input.trim();
+    if input.is_empty() {
+        return None;
+    }
+    let lower = input.to_ascii_lowercase();
+    let words: Vec<&str> = lower.split_whitespace().collect();
+
+    match words.first().copied() {
+        Some("anything") => return Some(WishAction::Anything),
+        Some("nothing") => return Some(WishAction::Nothing),
+        _ => {}
+    }
+
+    if words.first().copied() == Some("give") {
+        let rest_words = &words[1..];
+        if rest_words.is_empty() {
+            return None;
+        }
+        let rest = rest_words.join(" ");
+        let target = parse_give_target(&rest)?;
+        return Some(WishAction::Give(target));
+    }
+
+    if words.first().copied() == Some("mutate") {
+        let rest_words = &words[1..];
+        if rest_words.is_empty() {
+            return None;
+        }
+        let (fish_name, mutation) = greedy_split_fish_then_rest(rest_words, ctx.fish_names)?;
+        return Some(WishAction::Mutate {
+            fish_name,
+            mutation,
+        });
+    }
+
+    if words.first().copied() == Some("revive") {
+        let rest_words = &words[1..];
+        if rest_words.is_empty() {
+            return None;
+        }
+        let fish_name = greedy_find_name(rest_words, ctx.graveyard_names)?;
+        return Some(WishAction::Revive { fish_name });
+    }
+
+    if words.first().copied() == Some("clone") {
+        let rest_words = &words[1..];
+        if rest_words.is_empty() {
+            return None;
+        }
+        let fish_name = greedy_find_name(rest_words, ctx.fish_names)?;
+        return Some(WishAction::Clone { fish_name });
+    }
+
+    if words.first().copied() == Some("bless") {
+        let rest_words = &words[1..];
+        if rest_words.is_empty() {
+            return None;
+        }
+        let fish_name = greedy_find_name(rest_words, ctx.fish_names)?;
+        return Some(WishAction::Bless { fish_name });
+    }
+
+    if words.first().copied() == Some("expand") {
+        let rest_words = &words[1..];
+        if rest_words.is_empty() {
+            return None;
+        }
+        let tank_name = greedy_find_name(rest_words, ctx.tank_names)?;
+        return Some(WishAction::Expand { tank_name });
+    }
+
+    None
+}
+
+fn parse_give_target(rest: &str) -> Option<GiveTarget> {
+    match rest.trim() {
+        "money" => return Some(GiveTarget::Money),
+        "food" => return Some(GiveTarget::Food),
+        "coffee" => {
+            return Some(GiveTarget::Item {
+                name: "Coffee",
+                qty: GIVE_COFFEE_QTY,
+            });
+        }
+        "bait" => {
+            return Some(GiveTarget::Item {
+                name: "Bait",
+                qty: GIVE_BAIT_QTY,
+            });
+        }
+        "junk" => {
+            return Some(GiveTarget::Item {
+                name: "Junk",
+                qty: GIVE_JUNK_QTY,
+            });
+        }
+        "necronomicon" => {
+            return Some(GiveTarget::Item {
+                name: "Necronomicon",
+                qty: GIVE_NECRONOMICON_QTY,
+            });
+        }
+        _ => {}
+    }
+
+    if let Some(species) = ALL_SPECIES
+        .iter()
+        .find(|&&s| s.config().name.to_ascii_lowercase() == rest.trim())
+        .copied()
+    {
+        return Some(GiveTarget::Fish(species));
+    }
+
+    if let Some(kind) = parse_tank_kind(rest.trim()) {
+        return Some(GiveTarget::Tank(kind));
+    }
+
+    None
+}
+
+pub fn parse_tank_kind(s: &str) -> Option<TankKind> {
+    match s.to_ascii_lowercase().trim() {
+        "base" | "fishtank" => Some(TankKind::Base),
+        "coral reef" | "coral" | "coralreef" => Some(TankKind::CoralReef),
+        "hell" | "helltank" => Some(TankKind::Hell),
+        "void" | "voidtank" => Some(TankKind::Void),
+        _ => None,
+    }
+}
+
+pub fn tank_kind_un_name(kind: TankKind) -> &'static str {
+    match kind {
+        TankKind::Base => "UnFishtank",
+        TankKind::CoralReef => "UnCoral Reef",
+        TankKind::Hell => "UnHelltank",
+        TankKind::Void => "UnVoidtank",
+    }
+}
+
+fn greedy_find_name(words: &[&str], candidates: &[String]) -> Option<String> {
+    for end in (1..=words.len()).rev() {
+        let candidate = words[..end].join(" ");
+        if let Some(display) = candidates
+            .iter()
+            .find(|n| n.to_ascii_lowercase() == candidate)
+        {
+            return Some(display.clone());
+        }
+    }
+    None
+}
+
+fn greedy_split_fish_then_rest(words: &[&str], fish_names: &[String]) -> Option<(String, String)> {
+    for end in 1..=words.len() {
+        let candidate = words[..end].join(" ");
+        if let Some(display) = fish_names
+            .iter()
+            .find(|n| n.to_ascii_lowercase() == candidate)
+        {
+            let mutation = words[end..].join(" ");
+            return Some((display.clone(), mutation));
+        }
+    }
+    None
+}
+
+pub fn wish_display_text(state: &VoidRitualState, _next_prayer: usize) -> [Option<String>; 2] {
+    match state {
+        VoidRitualState::Prayer {
+            prayer_idx,
+            phrase_idx,
+            ..
+        } => {
+            let phrase = PRAYERS
+                .get(*prayer_idx)
+                .and_then(|p| p.get(*phrase_idx))
+                .copied()
+                .unwrap_or("");
+            [Some("SAY".to_string()), Some(format!("\"{}\"", phrase))]
+        }
+        VoidRitualState::FinalPhrase { .. } => [
+            Some("SAY".to_string()),
+            Some(format!("\"{}\"", FINAL_PRAYER_PHRASE)),
+        ],
+        VoidRitualState::Wish { .. } => [Some(WISH_PROMPT.to_string()), None],
+        VoidRitualState::Idle { .. } => [None, None],
+    }
+}
+
+#[allow(dead_code)]
+pub fn all_wish_kinds() -> &'static [&'static str] {
+    &[
+        "give", "mutate", "revive", "clone", "bless", "expand", "anything", "nothing",
+    ]
+}

@@ -4,6 +4,7 @@ use ratatui::{
     style::{Color, Style},
     widgets::Widget,
 };
+use unicode_width::UnicodeWidthStr;
 
 use crate::loot::ConsumableKind;
 use crate::tank::ActiveConsumable;
@@ -145,7 +146,8 @@ impl Widget for CommandBar<'_> {
         buf.set_string(area.x, row, "> ", white);
 
         let base_x = area.x + 2;
-        let cursor_col = base_x + self.cursor_pos as u16;
+        let display_col = UnicodeWidthStr::width(&self.input[..self.cursor_pos]) as u16;
+        let cursor_col = base_x + display_col;
         let at_end = self.cursor_pos == self.input.len();
 
         if self.cursor_pos > 0 && base_x < area.right() {
@@ -196,7 +198,7 @@ impl Widget for CommandBar<'_> {
                 let clip = (area.right() - after_x) as usize;
                 buf.set_string(after_x, row, &after[..after.len().min(clip)], white);
             }
-            let ghost_x = base_x + self.input.len() as u16;
+            let ghost_x = base_x + UnicodeWidthStr::width(self.input) as u16;
             if !self.ghost.is_empty() && ghost_x < area.right() {
                 let clip = (area.right() - ghost_x) as usize;
                 buf.set_string(
