@@ -4,6 +4,8 @@ use rand::RngExt;
 use ratatui::style::Color;
 use unicode_width::UnicodeWidthChar;
 
+use crate::entities::components::BlinkTimer;
+
 const EYE_OPEN_MIN: f32 = 0.8;
 const EYE_OPEN_MAX: f32 = 1.8;
 const EYE_CLOSED_MIN: f32 = 0.08;
@@ -103,38 +105,23 @@ impl MutantTail {
 }
 
 #[derive(Clone)]
-pub struct EyeState {
-    pub closed: bool,
-    timer: f32,
-}
+pub struct EyeState(BlinkTimer);
 
 impl EyeState {
     pub fn new(rng: &mut impl RngExt) -> Self {
-        Self {
-            closed: false,
-            timer: rng.random_range(EYE_OPEN_MIN..EYE_OPEN_MAX),
-        }
+        Self(BlinkTimer::new(rng, EYE_OPEN_MIN, EYE_OPEN_MAX, EYE_CLOSED_MIN, EYE_CLOSED_MAX))
     }
 
     pub fn tick(&mut self, dt: f32) {
-        self.timer -= dt;
-        if self.timer <= 0.0 {
-            self.closed = !self.closed;
-            let mut rng = rand::rng();
-            self.timer = if self.closed {
-                rng.random_range(EYE_CLOSED_MIN..EYE_CLOSED_MAX)
-            } else {
-                rng.random_range(EYE_OPEN_MIN..EYE_OPEN_MAX)
-            };
-        }
+        self.0.tick(dt);
     }
 
     pub fn small_char(&self) -> char {
-        if self.closed { '¯' } else { 'º' }
+        if self.0.is_open { 'º' } else { '¯' }
     }
 
     pub fn big_char(&self) -> char {
-        if self.closed { 'u' } else { 'ʘ' }
+        if self.0.is_open { 'ʘ' } else { '-' }
     }
 }
 

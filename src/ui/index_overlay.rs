@@ -6,6 +6,7 @@ use ratatui::{
     widgets::Widget,
 };
 
+use crate::colors::{COL_FIELD_AIR, COL_FIELD_EARTH, COL_FIELD_FIRE, COL_FIELD_SPIRIT, COL_FIELD_WATER, COL_GOLD, COL_SELECTED, COL_SELECTED_TANK};
 use crate::entities::fish::{Direction, Fish};
 use crate::entities::species::FishSpecies;
 use crate::entities::unfish::{BALL_HEIGHT, SKULL_HEIGHT, UnfishKind};
@@ -695,13 +696,8 @@ fn draw_data_row(
     base_bg: Color,
     area: Rect,
 ) {
-    let sel_bg = Color::Rgb(230, 228, 220);
-    let row_bg = if selected { sel_bg } else { base_bg };
-    let fg = if selected {
-        Color::Black
-    } else {
-        Color::Rgb(180, 190, 210)
-    };
+    let row_bg = if selected { COL_SELECTED } else { base_bg };
+    let fg = if selected { Color::Black } else { COL_SELECTED_TANK };
     let sep_style = Style::default().fg(Color::White).bg(row_bg);
     let widths = state.all_col_widths();
     let snap = &state.snapshots[fish_idx];
@@ -950,16 +946,16 @@ fn gen_fantasy(
                 Color::LightYellow,
                 Color::LightMagenta,
                 Color::LightCyan,
-                Color::Rgb(255, 100, 0),
-                Color::Rgb(100, 200, 0),
-                Color::Rgb(0, 180, 150),
-                Color::Rgb(180, 0, 200),
-                Color::Rgb(0, 140, 255),
+                COL_FIELD_FIRE,
+                COL_FIELD_EARTH,
+                COL_FIELD_WATER,
+                COL_FIELD_SPIRIT,
+                COL_FIELD_AIR,
             ];
             (0..n)
                 .map(|i| {
                     let c = if species[i] == FishSpecies::Goldenfish {
-                        Color::Rgb(255, 215, 0)
+                        COL_GOLD
                     } else {
                         COLORS[rng.random_range(0..COLORS.len())]
                     };

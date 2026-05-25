@@ -222,7 +222,13 @@ fn ball_unfish_colorpatch_adds_slime_color_patches() {
 fn skull_unfish_colorpatch_adds_slime_color_patches() {
     let mut tank = make_tank();
     let mut rng = rng();
-    let fish = Fish::new_unfish(UnfishKind::Skull, "Skelly".to_string(), 20.0, 10.0, &mut rng);
+    let fish = Fish::new_unfish(
+        UnfishKind::Skull,
+        "Skelly".to_string(),
+        20.0,
+        10.0,
+        &mut rng,
+    );
     tank.place_fish(fish, "Skelly".to_string(), &mut rng);
     tank.apply_named_mutation("Skelly", "colorpatch");
     let us = tank.fish[0]
@@ -287,7 +293,13 @@ fn ball_unfish_colorpatch_patches_within_ball_width() {
 fn skull_unfish_colorpatch_patches_within_skull_width() {
     let mut tank = make_tank();
     let mut rng = rng();
-    let fish = Fish::new_unfish(UnfishKind::Skull, "Skelly".to_string(), 20.0, 10.0, &mut rng);
+    let fish = Fish::new_unfish(
+        UnfishKind::Skull,
+        "Skelly".to_string(),
+        20.0,
+        10.0,
+        &mut rng,
+    );
     tank.place_fish(fish, "Skelly".to_string(), &mut rng);
     tank.apply_named_mutation("Skelly", "colorpatch");
     let us = tank.fish[0]
@@ -332,7 +344,10 @@ fn worm_unfish_colorpatch_patches_within_display_width() {
         .as_ref()
         .expect("unfish_state must exist");
     for &(pos, _) in &us.slime_color_patches {
-        assert!(pos < dw, "colorpatch pos {pos} must be within display_width {dw}");
+        assert!(
+            pos < dw,
+            "colorpatch pos {pos} must be within display_width {dw}"
+        );
     }
 }
 
@@ -340,7 +355,13 @@ fn worm_unfish_colorpatch_patches_within_display_width() {
 fn reversed_unfish_colorpatch_adds_slime_color_patches() {
     let mut tank = make_tank();
     let mut rng = rng();
-    let fish = Fish::new_unfish(UnfishKind::Reversed, "Flip".to_string(), 20.0, 10.0, &mut rng);
+    let fish = Fish::new_unfish(
+        UnfishKind::Reversed,
+        "Flip".to_string(),
+        20.0,
+        10.0,
+        &mut rng,
+    );
     tank.place_fish(fish, "Flip".to_string(), &mut rng);
     tank.apply_named_mutation("Flip", "colorpatch");
     let us = tank.fish[0]
@@ -357,7 +378,13 @@ fn reversed_unfish_colorpatch_adds_slime_color_patches() {
 fn reversed_unfish_colorpatch_patches_within_display_width() {
     let mut tank = make_tank();
     let mut rng = rng();
-    let fish = Fish::new_unfish(UnfishKind::Reversed, "Flip".to_string(), 20.0, 10.0, &mut rng);
+    let fish = Fish::new_unfish(
+        UnfishKind::Reversed,
+        "Flip".to_string(),
+        20.0,
+        10.0,
+        &mut rng,
+    );
     tank.place_fish(fish, "Flip".to_string(), &mut rng);
     tank.apply_named_mutation("Flip", "colorpatch");
     let dw = tank.fish[0].display_width;
@@ -366,7 +393,10 @@ fn reversed_unfish_colorpatch_patches_within_display_width() {
         .as_ref()
         .expect("unfish_state must exist");
     for &(pos, _) in &us.slime_color_patches {
-        assert!(pos < dw, "colorpatch pos {pos} must be within display_width {dw}");
+        assert!(
+            pos < dw,
+            "colorpatch pos {pos} must be within display_width {dw}"
+        );
     }
 }
 
@@ -374,7 +404,13 @@ fn reversed_unfish_colorpatch_patches_within_display_width() {
 fn blinker_unfish_colorpatch_adds_slime_color_patches() {
     let mut tank = make_tank();
     let mut rng = rng();
-    let fish = Fish::new_unfish(UnfishKind::Blinker, "Blink".to_string(), 20.0, 10.0, &mut rng);
+    let fish = Fish::new_unfish(
+        UnfishKind::Blinker,
+        "Blink".to_string(),
+        20.0,
+        10.0,
+        &mut rng,
+    );
     tank.place_fish(fish, "Blink".to_string(), &mut rng);
     tank.apply_named_mutation("Blink", "colorpatch");
     let us = tank.fish[0]
@@ -391,7 +427,13 @@ fn blinker_unfish_colorpatch_adds_slime_color_patches() {
 fn blinker_unfish_colorpatch_patches_within_display_width() {
     let mut tank = make_tank();
     let mut rng = rng();
-    let fish = Fish::new_unfish(UnfishKind::Blinker, "Blink".to_string(), 20.0, 10.0, &mut rng);
+    let fish = Fish::new_unfish(
+        UnfishKind::Blinker,
+        "Blink".to_string(),
+        20.0,
+        10.0,
+        &mut rng,
+    );
     tank.place_fish(fish, "Blink".to_string(), &mut rng);
     tank.apply_named_mutation("Blink", "colorpatch");
     let dw = tank.fish[0].display_width;
@@ -400,7 +442,10 @@ fn blinker_unfish_colorpatch_patches_within_display_width() {
         .as_ref()
         .expect("unfish_state must exist");
     for &(pos, _) in &us.slime_color_patches {
-        assert!(pos < dw, "colorpatch pos {pos} must be within display_width {dw}");
+        assert!(
+            pos < dw,
+            "colorpatch pos {pos} must be within display_width {dw}"
+        );
     }
 }
 
@@ -446,7 +491,10 @@ fn doppleganger_unfish_colorpatch_patches_within_display_width() {
         .as_ref()
         .expect("unfish_state must exist");
     for &(pos, _) in &us.slime_color_patches {
-        assert!(pos < dw, "colorpatch pos {pos} must be within display_width {dw}");
+        assert!(
+            pos < dw,
+            "colorpatch pos {pos} must be within display_width {dw}"
+        );
     }
 }
 
@@ -492,6 +540,9 @@ fn phantom_unfish_colorpatch_patches_within_display_width() {
         .as_ref()
         .expect("unfish_state must exist");
     for &(pos, _) in &us.slime_color_patches {
-        assert!(pos < dw, "colorpatch pos {pos} must be within display_width {dw}");
+        assert!(
+            pos < dw,
+            "colorpatch pos {pos} must be within display_width {dw}"
+        );
     }
 }

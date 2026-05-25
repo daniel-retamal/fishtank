@@ -8,6 +8,7 @@ use ratatui::{
     widgets::Widget,
 };
 
+use crate::colors::{COL_SELECTED, COL_SELECTED_TANK};
 use crate::ui::{scroll_list, table};
 
 pub struct InventoryItem {
@@ -383,13 +384,8 @@ fn draw_row(
     base_bg: Color,
 ) {
     let item_h = desc_lines.len().max(1);
-    let sel_bg = Color::Rgb(230, 228, 220);
-    let row_bg = if selected { sel_bg } else { base_bg };
-    let fg = if selected {
-        Color::Black
-    } else {
-        Color::Rgb(180, 190, 210)
-    };
+    let row_bg = if selected { COL_SELECTED } else { base_bg };
+    let fg = if selected { Color::Black } else { COL_SELECTED_TANK };
     let text_style = Style::default().fg(fg).bg(row_bg);
     let sep_style = Style::default().fg(Color::White).bg(row_bg);
 

@@ -4,9 +4,9 @@ use fishtank::{
     entities::{fish::Fish, species::FishSpecies},
     tank::{Tank, TankKind},
     void_ritual::{
-        GiveTarget, VoidRitualState, WishAction, WishCtx,
-        EXPAND_AMOUNT, GIVE_BAIT_QTY, GIVE_COFFEE_QTY, GIVE_JUNK_QTY,
-        GIVE_NECRONOMICON_QTY, GIVE_RESOURCE_AMOUNT, MAX_WISH_RETRIES, parse_wish,
+        EXPAND_AMOUNT, GIVE_BAIT_QTY, GIVE_COFFEE_QTY, GIVE_JUNK_QTY, GIVE_NECRONOMICON_QTY,
+        GIVE_RESOURCE_AMOUNT, GiveTarget, MAX_WISH_RETRIES, VoidRitualState, WishAction, WishCtx,
+        parse_wish,
     },
 };
 
@@ -14,12 +14,12 @@ fn key_press(code: KeyCode) -> Event {
     Event::Key(KeyEvent::new(code, KeyModifiers::empty()))
 }
 
-fn ctx<'a>(
-    fish: &'a [String],
-    tanks: &'a [String],
-    graveyard: &'a [String],
-) -> WishCtx<'a> {
-    WishCtx { fish_names: fish, tank_names: tanks, graveyard_names: graveyard }
+fn ctx<'a>(fish: &'a [String], tanks: &'a [String], graveyard: &'a [String]) -> WishCtx<'a> {
+    WishCtx {
+        fish_names: fish,
+        tank_names: tanks,
+        graveyard_names: graveyard,
+    }
 }
 
 fn names(strs: &[&str]) -> Vec<String> {
@@ -27,7 +27,9 @@ fn names(strs: &[&str]) -> Vec<String> {
 }
 
 fn submit_wish(app: &mut App, wish: &str) {
-    app.void_ritual = VoidRitualState::Wish { retries_left: MAX_WISH_RETRIES };
+    app.void_ritual = VoidRitualState::Wish {
+        retries_left: MAX_WISH_RETRIES,
+    };
     app.command_input = wish.to_string();
     app.submit_ritual_input();
 }
@@ -44,14 +46,14 @@ fn is_idle(app: &App) -> bool {
 }
 
 #[test]
-fn give_money_parses() {
+fn give_cash_parses() {
     let fish = names(&[]);
     let tanks = names(&[]);
     let grav = names(&[]);
     let c = ctx(&fish, &tanks, &grav);
     assert!(matches!(
-        parse_wish("give money", &c),
-        Some(WishAction::Give(GiveTarget::Money))
+        parse_wish("give cash", &c),
+        Some(WishAction::Give(GiveTarget::Cash))
     ));
 }
 
@@ -75,7 +77,10 @@ fn give_coffee_parses() {
     let c = ctx(&fish, &tanks, &grav);
     assert!(matches!(
         parse_wish("give coffee", &c),
-        Some(WishAction::Give(GiveTarget::Item { name: "Coffee", qty: GIVE_COFFEE_QTY }))
+        Some(WishAction::Give(GiveTarget::Item {
+            name: "Coffee",
+            qty: GIVE_COFFEE_QTY
+        }))
     ));
 }
 
@@ -87,7 +92,10 @@ fn give_bait_parses() {
     let c = ctx(&fish, &tanks, &grav);
     assert!(matches!(
         parse_wish("give bait", &c),
-        Some(WishAction::Give(GiveTarget::Item { name: "Bait", qty: GIVE_BAIT_QTY }))
+        Some(WishAction::Give(GiveTarget::Item {
+            name: "Bait",
+            qty: GIVE_BAIT_QTY
+        }))
     ));
 }
 
@@ -99,7 +107,10 @@ fn give_junk_parses() {
     let c = ctx(&fish, &tanks, &grav);
     assert!(matches!(
         parse_wish("give junk", &c),
-        Some(WishAction::Give(GiveTarget::Item { name: "Junk", qty: GIVE_JUNK_QTY }))
+        Some(WishAction::Give(GiveTarget::Item {
+            name: "Junk",
+            qty: GIVE_JUNK_QTY
+        }))
     ));
 }
 
@@ -137,7 +148,7 @@ fn give_tank_base_parses() {
     let grav = names(&[]);
     let c = ctx(&fish, &tanks, &grav);
     assert!(matches!(
-        parse_wish("give base", &c),
+        parse_wish("give fishtank", &c),
         Some(WishAction::Give(GiveTarget::Tank(TankKind::Base)))
     ));
 }
@@ -149,7 +160,7 @@ fn give_tank_coral_reef_parses() {
     let grav = names(&[]);
     let c = ctx(&fish, &tanks, &grav);
     assert!(matches!(
-        parse_wish("give coral reef", &c),
+        parse_wish("give coralreeftank", &c),
         Some(WishAction::Give(GiveTarget::Tank(TankKind::CoralReef)))
     ));
 }
@@ -161,7 +172,7 @@ fn give_tank_hell_parses() {
     let grav = names(&[]);
     let c = ctx(&fish, &tanks, &grav);
     assert!(matches!(
-        parse_wish("give hell", &c),
+        parse_wish("give helltank", &c),
         Some(WishAction::Give(GiveTarget::Tank(TankKind::Hell)))
     ));
 }
@@ -173,7 +184,7 @@ fn give_tank_void_parses() {
     let grav = names(&[]);
     let c = ctx(&fish, &tanks, &grav);
     assert!(matches!(
-        parse_wish("give void", &c),
+        parse_wish("give voidtank", &c),
         Some(WishAction::Give(GiveTarget::Tank(TankKind::Void)))
     ));
 }
@@ -214,7 +225,11 @@ fn mutate_valid_fish_captures_mutation_name() {
     let tanks = names(&[]);
     let grav = names(&[]);
     let c = ctx(&fish, &tanks, &grav);
-    if let Some(WishAction::Mutate { fish_name, mutation }) = parse_wish("mutate nemo bodycolor", &c) {
+    if let Some(WishAction::Mutate {
+        fish_name,
+        mutation,
+    }) = parse_wish("mutate nemo bodycolor", &c)
+    {
         assert_eq!(fish_name, "Nemo");
         assert_eq!(mutation, "bodycolor");
     } else {
@@ -388,7 +403,10 @@ fn anything_parses() {
     let tanks = names(&[]);
     let grav = names(&[]);
     let c = ctx(&fish, &tanks, &grav);
-    assert!(matches!(parse_wish("anything", &c), Some(WishAction::Anything)));
+    assert!(matches!(
+        parse_wish("anything", &c),
+        Some(WishAction::Anything)
+    ));
 }
 
 #[test]
@@ -397,7 +415,10 @@ fn nothing_parses() {
     let tanks = names(&[]);
     let grav = names(&[]);
     let c = ctx(&fish, &tanks, &grav);
-    assert!(matches!(parse_wish("nothing", &c), Some(WishAction::Nothing)));
+    assert!(matches!(
+        parse_wish("nothing", &c),
+        Some(WishAction::Nothing)
+    ));
 }
 
 #[test]
@@ -433,11 +454,11 @@ fn max_wish_retries_is_five() {
 }
 
 #[test]
-fn execute_give_money_increases_money() {
+fn execute_give_cash_increases_cash() {
     let mut app = App::new();
-    let before = app.money;
-    submit_wish(&mut app, "give money");
-    assert_eq!(app.money, before + GIVE_RESOURCE_AMOUNT);
+    let before = app.cash;
+    submit_wish(&mut app, "give cash");
+    assert_eq!(app.cash, before + GIVE_RESOURCE_AMOUNT);
 }
 
 #[test]
@@ -504,14 +525,14 @@ fn execute_give_fish_species_spawns_fish_in_current_tank() {
 fn execute_give_tank_adds_new_tank() {
     let mut app = App::new();
     let before = app.tanks.len();
-    submit_wish(&mut app, "give base");
+    submit_wish(&mut app, "give fishtank");
     assert_eq!(app.tanks.len(), before + 1);
 }
 
 #[test]
 fn execute_give_tank_adds_correct_kind() {
     let mut app = App::new();
-    submit_wish(&mut app, "give hell");
+    submit_wish(&mut app, "give helltank");
     let added = app.tanks.last().expect("tank was not added");
     assert!(matches!(added.kind, TankKind::Hell));
 }
@@ -522,14 +543,20 @@ fn execute_mutate_valid_fish_creates_mutant_state() {
     let fish_name = app.tanks[0].fish[0].name.clone();
     let wish = format!("mutate {} bodycolor", fish_name);
     submit_wish(&mut app, &wish);
-    let fish = app.tanks[0].fish.iter().find(|f| f.name == fish_name).unwrap();
+    let fish = app.tanks[0]
+        .fish
+        .iter()
+        .find(|f| f.name == fish_name)
+        .unwrap();
     assert!(fish.mutant.is_some());
 }
 
 #[test]
 fn execute_mutate_nonexistent_fish_decrements_retry() {
     let mut app = App::new();
-    app.void_ritual = VoidRitualState::Wish { retries_left: MAX_WISH_RETRIES };
+    app.void_ritual = VoidRitualState::Wish {
+        retries_left: MAX_WISH_RETRIES,
+    };
     app.command_input = "mutate ghost bodycolor".to_string();
     app.submit_ritual_input();
     assert_eq!(retries_left(&app), MAX_WISH_RETRIES - 1);
@@ -539,11 +566,20 @@ fn execute_mutate_nonexistent_fish_decrements_retry() {
 fn execute_revive_dead_fish_removes_from_graveyard_and_adds_to_tank() {
     let mut app = App::new();
     let mut rng = rand::rng();
-    let dead = Fish::new(FishSpecies::Merluza, "Cosmo".to_string(), 10.0, 10.0, &mut rng);
+    let dead = Fish::new(
+        FishSpecies::Merluza,
+        "Cosmo".to_string(),
+        10.0,
+        10.0,
+        &mut rng,
+    );
     app.graveyard.push(dead);
     let fish_before = app.tanks[app.current_tank].fish.len();
     submit_wish(&mut app, "revive cosmo");
-    assert!(app.graveyard.is_empty(), "graveyard must be empty after revive");
+    assert!(
+        app.graveyard.is_empty(),
+        "graveyard must be empty after revive"
+    );
     assert_eq!(app.tanks[app.current_tank].fish.len(), fish_before + 1);
 }
 
@@ -554,7 +590,9 @@ fn execute_revive_alive_fish_is_invalid_and_decrements_retry() {
     let grav_before = app.graveyard.len();
     let alive_name = app.tanks[0].fish[0].name.clone();
     let wish = format!("revive {}", alive_name);
-    app.void_ritual = VoidRitualState::Wish { retries_left: MAX_WISH_RETRIES };
+    app.void_ritual = VoidRitualState::Wish {
+        retries_left: MAX_WISH_RETRIES,
+    };
     app.command_input = wish;
     app.submit_ritual_input();
     assert_eq!(app.tanks[app.current_tank].fish.len(), fish_before);
@@ -593,14 +631,20 @@ fn execute_bless_removes_devil_mark() {
     let fish_name = app.tanks[0].fish[0].name.clone();
     let wish = format!("bless {}", fish_name);
     submit_wish(&mut app, &wish);
-    let fish = app.tanks[0].fish.iter().find(|f| f.name == fish_name).unwrap();
+    let fish = app.tanks[0]
+        .fish
+        .iter()
+        .find(|f| f.name == fish_name)
+        .unwrap();
     assert!(!fish.devil_marked);
 }
 
 #[test]
 fn execute_bless_nonexistent_fish_decrements_retry() {
     let mut app = App::new();
-    app.void_ritual = VoidRitualState::Wish { retries_left: MAX_WISH_RETRIES };
+    app.void_ritual = VoidRitualState::Wish {
+        retries_left: MAX_WISH_RETRIES,
+    };
     app.command_input = "bless ghost".to_string();
     app.submit_ritual_input();
     assert_eq!(retries_left(&app), MAX_WISH_RETRIES - 1);
@@ -641,14 +685,16 @@ fn execute_anything_aborts_ritual_to_idle() {
 #[test]
 fn valid_wish_transitions_ritual_to_idle() {
     let mut app = App::new();
-    submit_wish(&mut app, "give money");
+    submit_wish(&mut app, "give cash");
     assert!(is_idle(&app));
 }
 
 #[test]
 fn invalid_wish_keeps_ritual_in_wish_state() {
     let mut app = App::new();
-    app.void_ritual = VoidRitualState::Wish { retries_left: MAX_WISH_RETRIES };
+    app.void_ritual = VoidRitualState::Wish {
+        retries_left: MAX_WISH_RETRIES,
+    };
     app.command_input = "give foobar".to_string();
     app.submit_ritual_input();
     assert!(matches!(app.void_ritual, VoidRitualState::Wish { .. }));
@@ -658,16 +704,18 @@ fn invalid_wish_keeps_ritual_in_wish_state() {
 fn four_invalid_wishes_then_valid_executes_and_aborts() {
     let mut app = App::new();
     for _ in 0..4 {
-        app.void_ritual = VoidRitualState::Wish { retries_left: MAX_WISH_RETRIES - (4 - 4) };
+        app.void_ritual = VoidRitualState::Wish {
+            retries_left: MAX_WISH_RETRIES - (4 - 4),
+        };
         app.command_input = "give foobar".to_string();
         app.submit_ritual_input();
     }
-    let before_money = app.money;
+    let before_cash = app.cash;
     app.void_ritual = VoidRitualState::Wish { retries_left: 1 };
-    app.command_input = "give money".to_string();
+    app.command_input = "give cash".to_string();
     app.submit_ritual_input();
     assert!(is_idle(&app));
-    assert_eq!(app.money, before_money + GIVE_RESOURCE_AMOUNT);
+    assert_eq!(app.cash, before_cash + GIVE_RESOURCE_AMOUNT);
 }
 
 #[test]
@@ -675,7 +723,9 @@ fn five_invalid_wishes_abort_ritual() {
     let mut app = App::new();
     for i in 0..5 {
         let retries = MAX_WISH_RETRIES - i;
-        app.void_ritual = VoidRitualState::Wish { retries_left: retries };
+        app.void_ritual = VoidRitualState::Wish {
+            retries_left: retries,
+        };
         app.command_input = "give foobar".to_string();
         app.submit_ritual_input();
     }
@@ -685,7 +735,9 @@ fn five_invalid_wishes_abort_ritual() {
 #[test]
 fn retry_count_decrements_on_each_invalid_wish() {
     let mut app = App::new();
-    app.void_ritual = VoidRitualState::Wish { retries_left: MAX_WISH_RETRIES };
+    app.void_ritual = VoidRitualState::Wish {
+        retries_left: MAX_WISH_RETRIES,
+    };
     for expected in (1..MAX_WISH_RETRIES).rev() {
         app.command_input = "give foobar".to_string();
         app.submit_ritual_input();
@@ -696,49 +748,87 @@ fn retry_count_decrements_on_each_invalid_wish() {
 #[test]
 fn wish_index_command_opens_overlay_without_decrementing_retry() {
     let mut app = App::new();
-    app.void_ritual = VoidRitualState::Wish { retries_left: MAX_WISH_RETRIES };
+    app.void_ritual = VoidRitualState::Wish {
+        retries_left: MAX_WISH_RETRIES,
+    };
     app.command_input = "/index".to_string();
     app.submit_ritual_input();
-    assert_eq!(retries_left(&app), MAX_WISH_RETRIES, "retry count must not change for /index");
-    assert!(app.index_state.is_some(), "/index must open the index overlay");
+    assert_eq!(
+        retries_left(&app),
+        MAX_WISH_RETRIES,
+        "retry count must not change for /index"
+    );
+    assert!(
+        app.index_state.is_some(),
+        "/index must open the index overlay"
+    );
 }
 
 #[test]
 fn wish_fishtanks_command_opens_overlay_without_decrementing_retry() {
     let mut app = App::new();
-    app.void_ritual = VoidRitualState::Wish { retries_left: MAX_WISH_RETRIES };
+    app.void_ritual = VoidRitualState::Wish {
+        retries_left: MAX_WISH_RETRIES,
+    };
     app.command_input = "/fishtanks".to_string();
     app.submit_ritual_input();
-    assert_eq!(retries_left(&app), MAX_WISH_RETRIES, "retry count must not change for /fishtanks");
-    assert!(app.fishtanks_state.is_some(), "/fishtanks must open the fishtanks overlay");
+    assert_eq!(
+        retries_left(&app),
+        MAX_WISH_RETRIES,
+        "retry count must not change for /fishtanks"
+    );
+    assert!(
+        app.fishtanks_state.is_some(),
+        "/fishtanks must open the fishtanks overlay"
+    );
 }
 
 #[test]
 fn wish_names_command_toggles_names_without_decrementing_retry() {
     let mut app = App::new();
-    app.void_ritual = VoidRitualState::Wish { retries_left: MAX_WISH_RETRIES };
+    app.void_ritual = VoidRitualState::Wish {
+        retries_left: MAX_WISH_RETRIES,
+    };
     let before = app.settings.show_names;
     app.command_input = "/names".to_string();
     app.submit_ritual_input();
-    assert_eq!(retries_left(&app), MAX_WISH_RETRIES, "retry count must not change for /names");
-    assert_ne!(app.settings.show_names, before, "/names must toggle the names setting");
+    assert_eq!(
+        retries_left(&app),
+        MAX_WISH_RETRIES,
+        "retry count must not change for /names"
+    );
+    assert_ne!(
+        app.settings.show_names, before,
+        "/names must toggle the names setting"
+    );
 }
 
 #[test]
 fn wish_stats_command_toggles_stats_without_decrementing_retry() {
     let mut app = App::new();
-    app.void_ritual = VoidRitualState::Wish { retries_left: MAX_WISH_RETRIES };
+    app.void_ritual = VoidRitualState::Wish {
+        retries_left: MAX_WISH_RETRIES,
+    };
     let before = app.settings.show_stats;
     app.command_input = "/stats".to_string();
     app.submit_ritual_input();
-    assert_eq!(retries_left(&app), MAX_WISH_RETRIES, "retry count must not change for /stats");
-    assert_ne!(app.settings.show_stats, before, "/stats must toggle the stats setting");
+    assert_eq!(
+        retries_left(&app),
+        MAX_WISH_RETRIES,
+        "retry count must not change for /stats"
+    );
+    assert_ne!(
+        app.settings.show_stats, before,
+        "/stats must toggle the stats setting"
+    );
 }
 
 #[test]
 fn wish_overlay_command_does_not_abort_ritual() {
     let mut app = App::new();
-    app.void_ritual = VoidRitualState::Wish { retries_left: MAX_WISH_RETRIES };
+    app.void_ritual = VoidRitualState::Wish {
+        retries_left: MAX_WISH_RETRIES,
+    };
     app.command_input = "/index".to_string();
     app.submit_ritual_input();
     assert!(
@@ -750,7 +840,9 @@ fn wish_overlay_command_does_not_abort_ritual() {
 #[test]
 fn wish_fishtanks_same_tank_enter_does_not_abort_ritual() {
     let mut app = App::new();
-    app.void_ritual = VoidRitualState::Wish { retries_left: MAX_WISH_RETRIES };
+    app.void_ritual = VoidRitualState::Wish {
+        retries_left: MAX_WISH_RETRIES,
+    };
     app.command_input = "/fishtanks".to_string();
     app.submit_ritual_input();
     app.handle_input(key_press(KeyCode::Enter));
@@ -763,26 +855,38 @@ fn wish_fishtanks_same_tank_enter_does_not_abort_ritual() {
 #[test]
 fn wish_fishtanks_switch_tank_aborts_ritual() {
     let mut app = App::new();
-    app.tanks.push(Tank::new("Other".to_string(), TankKind::Base));
-    app.void_ritual = VoidRitualState::Wish { retries_left: MAX_WISH_RETRIES };
+    app.tanks
+        .push(Tank::new("Other".to_string(), TankKind::Base));
+    app.void_ritual = VoidRitualState::Wish {
+        retries_left: MAX_WISH_RETRIES,
+    };
     app.command_input = "/fishtanks".to_string();
     app.submit_ritual_input();
     if let Some(ref mut state) = app.fishtanks_state {
         state.selected = 1;
     }
     app.handle_input(key_press(KeyCode::Enter));
-    assert!(is_idle(&app), "switching tank in fishtanks during wish must abort the ritual");
+    assert!(
+        is_idle(&app),
+        "switching tank in fishtanks during wish must abort the ritual"
+    );
 }
 
 #[test]
 fn wish_fishtanks_esc_closes_overlay_without_aborting_ritual() {
     let mut app = App::new();
-    app.tanks.push(Tank::new("Other".to_string(), TankKind::Base));
-    app.void_ritual = VoidRitualState::Wish { retries_left: MAX_WISH_RETRIES };
+    app.tanks
+        .push(Tank::new("Other".to_string(), TankKind::Base));
+    app.void_ritual = VoidRitualState::Wish {
+        retries_left: MAX_WISH_RETRIES,
+    };
     app.command_input = "/fishtanks".to_string();
     app.submit_ritual_input();
     app.handle_input(key_press(KeyCode::Esc));
-    assert!(app.fishtanks_state.is_none(), "ESC must close the fishtanks overlay");
+    assert!(
+        app.fishtanks_state.is_none(),
+        "ESC must close the fishtanks overlay"
+    );
     assert!(
         matches!(app.void_ritual, VoidRitualState::Wish { .. }),
         "ESC from fishtanks must not abort the ritual"
@@ -792,11 +896,16 @@ fn wish_fishtanks_esc_closes_overlay_without_aborting_ritual() {
 #[test]
 fn wish_index_esc_closes_overlay_without_aborting_ritual() {
     let mut app = App::new();
-    app.void_ritual = VoidRitualState::Wish { retries_left: MAX_WISH_RETRIES };
+    app.void_ritual = VoidRitualState::Wish {
+        retries_left: MAX_WISH_RETRIES,
+    };
     app.command_input = "/index".to_string();
     app.submit_ritual_input();
     app.handle_input(key_press(KeyCode::Esc));
-    assert!(app.index_state.is_none(), "ESC must close the index overlay");
+    assert!(
+        app.index_state.is_none(),
+        "ESC must close the index overlay"
+    );
     assert!(
         matches!(app.void_ritual, VoidRitualState::Wish { .. }),
         "ESC from index must not abort the ritual"

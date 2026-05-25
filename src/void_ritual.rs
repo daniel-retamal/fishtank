@@ -239,11 +239,13 @@ fn parse_give_target(rest: &str) -> Option<GiveTarget> {
 }
 
 pub fn parse_tank_kind(s: &str) -> Option<TankKind> {
-    match s.to_ascii_lowercase().trim() {
-        "base" | "fishtank" => Some(TankKind::Base),
-        "coral reef" | "coral" | "coralreef" => Some(TankKind::CoralReef),
-        "hell" | "helltank" => Some(TankKind::Hell),
-        "void" | "voidtank" => Some(TankKind::Void),
+    let normalized: String = s.to_ascii_lowercase().split_whitespace().collect();
+    match normalized.as_str() {
+        "fishtank" => Some(TankKind::Base),
+        "coralreeftank" => Some(TankKind::CoralReef),
+        "helltank" => Some(TankKind::Hell),
+        "voidtank" => Some(TankKind::Void),
+        "alientank" => Some(TankKind::Alien),
         _ => None,
     }
 }
@@ -254,6 +256,7 @@ pub fn tank_kind_un_name(kind: TankKind) -> &'static str {
         TankKind::CoralReef => "UnCoral Reef",
         TankKind::Hell => "UnHelltank",
         TankKind::Void => "UnVoidtank",
+        TankKind::Alien => "UnAlientank",
     }
 }
 
@@ -312,4 +315,82 @@ pub fn all_wish_kinds() -> &'static [&'static str] {
     &[
         "give", "mutate", "revive", "clone", "bless", "expand", "anything", "nothing",
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_ctx() -> WishCtx<'static> {
+        WishCtx {
+            fish_names: &[],
+            tank_names: &[],
+            graveyard_names: &[],
+        }
+    }
+
+    #[test]
+    fn parse_tank_kind_alien_bare_is_none() {
+        assert!(parse_tank_kind("alien").is_none());
+    }
+
+    #[test]
+    fn parse_tank_kind_alientank() {
+        assert!(matches!(
+            parse_tank_kind("alientank"),
+            Some(TankKind::Alien)
+        ));
+    }
+
+    #[test]
+    fn parse_tank_kind_alien_spaced() {
+        assert!(matches!(
+            parse_tank_kind("alien tank"),
+            Some(TankKind::Alien)
+        ));
+    }
+
+    #[test]
+    fn parse_tank_kind_hell_bare_is_none() {
+        assert!(parse_tank_kind("hell").is_none());
+    }
+
+    #[test]
+    fn parse_tank_kind_hell_tank_spaced() {
+        assert!(matches!(parse_tank_kind("hell tank"), Some(TankKind::Hell)));
+    }
+
+    #[test]
+    fn parse_tank_kind_coral_reef_tank_spaced() {
+        assert!(matches!(
+            parse_tank_kind("coral reef tank"),
+            Some(TankKind::CoralReef)
+        ));
+    }
+
+    #[test]
+    fn wish_give_alien_bare_returns_none() {
+        let ctx = empty_ctx();
+        assert!(parse_wish("give alien", &ctx).is_none());
+    }
+
+    #[test]
+    fn wish_give_alientank() {
+        let ctx = empty_ctx();
+        let result = parse_wish("give alientank", &ctx);
+        assert!(matches!(
+            result,
+            Some(WishAction::Give(GiveTarget::Tank(TankKind::Alien)))
+        ));
+    }
+
+    #[test]
+    fn wish_give_alien_tank_spaced() {
+        let ctx = empty_ctx();
+        let result = parse_wish("give alien tank", &ctx);
+        assert!(matches!(
+            result,
+            Some(WishAction::Give(GiveTarget::Tank(TankKind::Alien)))
+        ));
+    }
 }

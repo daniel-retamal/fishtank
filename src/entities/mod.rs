@@ -1,3 +1,4 @@
+pub mod alien;
 pub mod bubble;
 pub mod components;
 pub mod coral;

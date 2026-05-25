@@ -2,18 +2,11 @@ use rand::RngExt;
 use ratatui::style::Color;
 use std::f32::consts::TAU;
 
+use crate::entities::components::BlinkTimer;
 use crate::entities::mutant::GlisteningMode;
 use crate::util::sample_exponential;
 
 pub const VOID_SPAWN_MEAN_SECS: f32 = 3600.0;
-
-#[derive(Clone)]
-pub struct BlinkTimer {
-    pub is_open: bool,
-    timer: f32,
-    open_secs: f32,
-    closed_secs: f32,
-}
 
 const EYE_OPEN_MIN: f32 = 0.5;
 const EYE_OPEN_MAX: f32 = 1.0;
@@ -24,57 +17,12 @@ const WING_OPEN_MAX: f32 = 2.0;
 const WING_CLOSED_MIN: f32 = 0.15;
 const WING_CLOSED_MAX: f32 = 0.4;
 
-impl BlinkTimer {
-    pub fn new_eye(rng: &mut impl RngExt) -> Self {
-        Self::new(
-            rng,
-            EYE_OPEN_MIN,
-            EYE_OPEN_MAX,
-            EYE_CLOSED_MIN,
-            EYE_CLOSED_MAX,
-        )
-    }
+pub fn new_eye_timer(rng: &mut impl RngExt) -> BlinkTimer {
+    BlinkTimer::new(rng, EYE_OPEN_MIN, EYE_OPEN_MAX, EYE_CLOSED_MIN, EYE_CLOSED_MAX)
+}
 
-    pub fn new_wing(rng: &mut impl RngExt) -> Self {
-        Self::new(
-            rng,
-            WING_OPEN_MIN,
-            WING_OPEN_MAX,
-            WING_CLOSED_MIN,
-            WING_CLOSED_MAX,
-        )
-    }
-
-    fn new(
-        rng: &mut impl RngExt,
-        open_min: f32,
-        open_max: f32,
-        closed_min: f32,
-        closed_max: f32,
-    ) -> Self {
-        let open_secs = rng.random_range(open_min..open_max);
-        let closed_secs = rng.random_range(closed_min..closed_max);
-        let timer = rng.random_range(0.0_f32..open_secs);
-        Self {
-            is_open: true,
-            timer,
-            open_secs,
-            closed_secs,
-        }
-    }
-
-    pub fn tick(&mut self, dt: f32) {
-        self.timer += dt;
-        if self.is_open {
-            if self.timer >= self.open_secs {
-                self.timer -= self.open_secs;
-                self.is_open = false;
-            }
-        } else if self.timer >= self.closed_secs {
-            self.timer -= self.closed_secs;
-            self.is_open = true;
-        }
-    }
+pub fn new_wing_timer(rng: &mut impl RngExt) -> BlinkTimer {
+    BlinkTimer::new(rng, WING_OPEN_MIN, WING_OPEN_MAX, WING_CLOSED_MIN, WING_CLOSED_MAX)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -291,7 +239,7 @@ impl FloatingEye {
             col,
             vel,
             vel_y,
-            blink: BlinkTimer::new_eye(rng),
+            blink: new_eye_timer(rng),
             dir_timer: rng.random_range(EYE_DIR_TIMER_MIN..EYE_DIR_TIMER_MAX),
         }
     }
@@ -419,8 +367,8 @@ impl UnfishState {
         };
         Self {
             kind,
-            eye: BlinkTimer::new_eye(rng),
-            wings: BlinkTimer::new_wing(rng),
+            eye: new_eye_timer(rng),
+            wings: new_wing_timer(rng),
             floating_eyes,
             ball_has_center_eye,
             blinker_phase: BlinkerPhase::Glistening,

@@ -5,6 +5,7 @@ use ratatui::{
     widgets::Widget,
 };
 
+use crate::colors::{COL_SELECTED, COL_SELECTED_TANK};
 use crate::tank::{TANK_CAPACITY, Tank, TankKind};
 use crate::ui::{scroll_list, table};
 
@@ -249,13 +250,8 @@ fn draw_row(
     selected: bool,
     base_bg: Color,
 ) {
-    let sel_bg = Color::Rgb(230, 228, 220);
-    let row_bg = if selected { sel_bg } else { base_bg };
-    let fg = if selected {
-        Color::Black
-    } else {
-        Color::Rgb(180, 190, 210)
-    };
+    let row_bg = if selected { COL_SELECTED } else { base_bg };
+    let fg = if selected { Color::Black } else { COL_SELECTED_TANK };
     let text_style = Style::default().fg(fg).bg(row_bg);
     let sep_style = Style::default().fg(Color::White).bg(row_bg);
 

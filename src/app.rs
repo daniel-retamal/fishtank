@@ -1622,8 +1622,7 @@ impl App {
                         .collect();
                     let tank_names_ref: Vec<&str> =
                         self.tanks.iter().map(|t| t.name.as_str()).collect();
-                    let action =
-                        commands::parse(&input, &fish_names_ref, &tank_names_ref);
+                    let action = commands::parse(&input, &fish_names_ref, &tank_names_ref);
                     match action {
                         commands::Action::Index { .. }
                         | commands::Action::Show { .. }

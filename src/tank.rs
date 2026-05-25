@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use rand::RngExt;
 
+use crate::entities::alien::{AlienBackground, extend_alien_pyramids, extend_alien_tentacles};
 use crate::entities::bubble::Bubble;
 use crate::entities::coral::{CoralStructure, FloorAlgae, extend_coral_reef};
 use crate::entities::fish::{Direction, EATING_DURATION, Fish, FishState, compute_display_width};
@@ -10,12 +11,13 @@ use crate::entities::hell::{HELL_BUBBLE_COLOR, HellBackground, HellPlant, extend
 use crate::entities::mutant::{
     EXTRA_BODY_FOR_DOUBLE, EyeState, MIN_BODY_CHARS, MutantState, MutantTail, random_rgb,
 };
+use crate::entities::components::extend_spaced;
 use crate::entities::plant::Plant;
 use crate::entities::species::{BodyTemplate, FishSpecies, TailKind};
 use crate::entities::unfish::{
-    PHANTOM_CROSS_TANK_CHANCE, PHANTOM_TELEPORT_MEAN,
-    SLIME_GLISTEN_SPEED_FAST, SLIME_GLISTEN_SPEED_SLOW, SPAWNABLE_UNFISH, UnfishKind,
-    VOID_SPAWN_MEAN_SECS, worm_display_width,
+    PHANTOM_CROSS_TANK_CHANCE, PHANTOM_TELEPORT_MEAN, SLIME_GLISTEN_SPEED_FAST,
+    SLIME_GLISTEN_SPEED_SLOW, SPAWNABLE_UNFISH, UnfishKind, VOID_SPAWN_MEAN_SECS,
+    worm_display_width,
 };
 use crate::entities::void::VoidBackground;
 use crate::loot::ConsumableKind;
@@ -33,6 +35,7 @@ pub enum TankKind {
     CoralReef,
     Hell,
     Void,
+    Alien,
 }
 
 impl TankKind {
@@ -42,6 +45,7 @@ impl TankKind {
             TankKind::CoralReef => "Coralreeftank",
             TankKind::Hell => "Helltank",
             TankKind::Void => "Voidtank",
+            TankKind::Alien => "Alientank",
         }
     }
 }
@@ -55,6 +59,7 @@ pub struct ActiveConsumable {
 pub const TANK_CAPACITY: usize = 50;
 pub const HELL_TANK_CAPACITY: usize = 100;
 pub const VOID_TANK_CAPACITY: usize = 100;
+pub const ALIEN_TANK_CAPACITY: usize = 75;
 
 const PLANT_SPACING_MIN: i32 = 3;
 const PLANT_SPACING_MAX: i32 = 6;
@@ -70,10 +75,10 @@ const SEEK_DY_MULTIPLIER: f32 = 1.2;
 const SEEK_BOOST_INITIAL_MAX: f32 = 0.2;
 const CORAL_SPAWN_LOOKAHEAD: i32 = 130;
 const PLANT_SPAWN_LOOKAHEAD: i32 = 30;
-const BUBBLE_BOTTOM_SPAWN_RATE_MIN: f32 = 0.3;
-const BUBBLE_BOTTOM_SPAWN_RATE_MAX: f32 = 1.5;
-const BUBBLE_SURFACE_SPAWN_RATE_MIN: f32 = 1.0;
-const BUBBLE_SURFACE_SPAWN_RATE_MAX: f32 = 3.0;
+const BUBBLE_BOTTOM_SPAWN_RATE_MIN: f32 = 0.2;
+const BUBBLE_BOTTOM_SPAWN_RATE_MAX: f32 = 1.0;
+const BUBBLE_SURFACE_SPAWN_RATE_MIN: f32 = 0.67;
+const BUBBLE_SURFACE_SPAWN_RATE_MAX: f32 = 2.0;
 const BUBBLE_ZOOMIE_CHANCE: f32 = 0.45;
 const MUTATION_INTERVAL_BASE: f32 = 30.0 * 60.0;
 const MUTATION_ALPHA: f32 = 1.0 / 3.0;
@@ -165,6 +170,7 @@ pub struct Tank {
     pub hell_bg: Option<HellBackground>,
     pub hell_plants: Vec<HellPlant>,
     pub void_bg: Option<VoidBackground>,
+    pub alien_bg: Option<AlienBackground>,
     pub width: u16,
     pub height: u16,
     pub used_names: HashSet<String>,
@@ -185,6 +191,7 @@ impl Tank {
         let mut hell_bg = None;
         let mut hell_plants = Vec::new();
         let mut void_bg = None;
+        let mut alien_bg = None;
         match kind {
             TankKind::Base => extend_plants(
                 &mut plants,
@@ -208,6 +215,23 @@ impl Tank {
             TankKind::Void => {
                 void_bg = Some(VoidBackground::new());
             }
+            TankKind::Alien => {
+                let mut bg = AlienBackground::new(&mut rng);
+                let color = bg.color;
+                extend_alien_tentacles(
+                    &mut bg.tentacles,
+                    INITIAL_WIDTH as i32 + PLANT_SPAWN_LOOKAHEAD,
+                    color,
+                    &mut rng,
+                );
+                extend_alien_pyramids(
+                    &mut bg.pyramids,
+                    INITIAL_WIDTH as i32 + CORAL_SPAWN_LOOKAHEAD,
+                    &mut rng,
+                );
+                bg.init_stars(&mut rng, INITIAL_WIDTH, INITIAL_HEIGHT);
+                alien_bg = Some(bg);
+            }
         }
         Self {
             name,
@@ -221,6 +245,7 @@ impl Tank {
             hell_bg,
             hell_plants,
             void_bg,
+            alien_bg,
             width: INITIAL_WIDTH,
             height: INITIAL_HEIGHT,
             used_names: HashSet::new(),
@@ -239,6 +264,7 @@ impl Tank {
         let base = match self.kind {
             TankKind::Hell => HELL_TANK_CAPACITY,
             TankKind::Void => VOID_TANK_CAPACITY,
+            TankKind::Alien => ALIEN_TANK_CAPACITY,
             _ => TANK_CAPACITY,
         };
         base + self.extra_capacity as usize
@@ -270,9 +296,12 @@ impl Tank {
                 food.position.y = max_y;
             }
         }
+        let mut rng = rand::rng();
         if width > old_width {
-            let mut rng = rand::rng();
             self.extend_environment(&mut rng);
+        }
+        if let Some(bg) = &mut self.alien_bg {
+            bg.init_stars(&mut rng, width, height);
         }
     }
 
@@ -295,6 +324,22 @@ impl Tank {
                 rng,
             ),
             TankKind::Void => {}
+            TankKind::Alien => {
+                if let Some(bg) = &mut self.alien_bg {
+                    let color = bg.color;
+                    extend_alien_tentacles(
+                        &mut bg.tentacles,
+                        self.width as i32 + PLANT_SPAWN_LOOKAHEAD,
+                        color,
+                        rng,
+                    );
+                    extend_alien_pyramids(
+                        &mut bg.pyramids,
+                        self.width as i32 + CORAL_SPAWN_LOOKAHEAD,
+                        rng,
+                    );
+                }
+            }
         }
     }
 
@@ -369,8 +414,11 @@ impl Tank {
         if let Some(bg) = &mut self.void_bg {
             bg.tick();
         }
+        if let Some(bg) = &mut self.alien_bg {
+            bg.tick(dt, &mut rng, self.width, self.height);
+        }
         for plant in &mut self.hell_plants {
-            plant.tick(dt, &mut rng);
+            plant.tick(dt);
         }
         for coral in &mut self.corals {
             coral.tick(dt, &mut rng);
@@ -1144,7 +1192,7 @@ impl Tank {
     }
 
     fn spawn_bubbles(&mut self, dt: f32) {
-        if self.kind == TankKind::Void {
+        if matches!(self.kind, TankKind::Void) {
             return;
         }
         if self.width == 0 || self.height == 0 {
@@ -1152,12 +1200,16 @@ impl Tank {
         }
         let mut rng = rand::rng();
 
+        let alien_bubble_color = self.alien_bg.as_ref().map(|bg| bg.color.bubble_color());
+
         self.bubble_bottom_timer -= dt;
         if self.bubble_bottom_timer <= 0.0 {
             let x = rng.random_range(0.0..self.width as f32);
             let y = (self.height as f32 - 1.0).max(0.0);
             let bubble = if self.kind == TankKind::Hell {
                 Bubble::new_rising_colored(x, y, HELL_BUBBLE_COLOR)
+            } else if let Some(color) = alien_bubble_color {
+                Bubble::new_rising_colored(x, y, color)
             } else {
                 Bubble::new_rising(x, y)
             };
@@ -1173,6 +1225,8 @@ impl Tank {
             let y = rng.random_range(0.0..max_y);
             let bubble = if self.kind == TankKind::Hell {
                 Bubble::new_surface_colored(x, y, HELL_BUBBLE_COLOR)
+            } else if let Some(color) = alien_bubble_color {
+                Bubble::new_surface_colored(x, y, color)
             } else {
                 Bubble::new_surface(x, y)
             };
@@ -1207,6 +1261,8 @@ impl Tank {
                     _ => {
                         if self.kind == TankKind::Hell {
                             Bubble::new_rising_colored(tail_x, fish.position.y, HELL_BUBBLE_COLOR)
+                        } else if let Some(color) = alien_bubble_color {
+                            Bubble::new_rising_colored(tail_x, fish.position.y, color)
                         } else {
                             Bubble::new_rising(tail_x, fish.position.y)
                         }
@@ -1424,16 +1480,12 @@ impl Tank {
 }
 
 fn extend_plants(plants: &mut Vec<Plant>, to_width: i32, rng: &mut impl RngExt) {
-    let mut next_x = if plants.is_empty() {
-        rng.random_range(PLANT_SPACING_MIN..=PLANT_SPACING_MAX)
-    } else {
-        plants.last().unwrap().x + rng.random_range(PLANT_SPACING_MIN..=PLANT_SPACING_MAX)
-    };
-    while next_x < to_width {
-        let height = rng.random_range(PLANT_HEIGHT_MIN..=PLANT_HEIGHT_MAX);
-        plants.push(Plant::new(next_x, height));
-        next_x += rng.random_range(PLANT_SPACING_MIN..=PLANT_SPACING_MAX);
-    }
+    extend_spaced(
+        plants, to_width, 0,
+        PLANT_SPACING_MIN, PLANT_SPACING_MAX,
+        rng, |p| p.x,
+        |x, rng| Plant::new(x, rng.random_range(PLANT_HEIGHT_MIN..=PLANT_HEIGHT_MAX)),
+    );
 }
 
 fn sq(x: f32) -> f32 {

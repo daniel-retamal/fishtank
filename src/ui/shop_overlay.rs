@@ -37,6 +37,7 @@ pub const TANK_BUY_PRICE: u32 = 3000;
 pub const CORAL_TANK_BUY_PRICE: u32 = 5000;
 pub const HELL_TANK_BUY_PRICE: u32 = 8000;
 pub const VOID_TANK_BUY_PRICE: u32 = 8000;
+pub const ALIEN_TANK_BUY_PRICE: u32 = 5000;
 pub const TANK_SELL_PRICE: u32 = 2500;
 pub const HELL_TANK_SELL_PRICE: u32 = 7_000;
 pub const NECRONOMICON_SELL_PRICE: u32 = HELL_TANK_SELL_PRICE;
@@ -67,6 +68,11 @@ pub const TANK_CATALOG: &[TankCatalogEntry] = &[
         kind: TankKind::Void,
         price: VOID_TANK_BUY_PRICE,
         name: "Voidtank",
+    },
+    TankCatalogEntry {
+        kind: TankKind::Alien,
+        price: ALIEN_TANK_BUY_PRICE,
+        name: "Alientank",
     },
 ];
 
@@ -756,10 +762,7 @@ impl Widget for ShopOverlay<'_> {
                     visible,
                     has_popup,
                 );
-                let affordable_count = TANK_CATALOG
-                    .iter()
-                    .filter(|e| e.price <= self.cash)
-                    .count();
+                let affordable_count = TANK_CATALOG.iter().filter(|e| e.price <= self.cash).count();
                 let affordable_pos = TANK_CATALOG[..=tl.selected]
                     .iter()
                     .filter(|e| e.price <= self.cash)
@@ -788,10 +791,7 @@ impl Widget for ShopOverlay<'_> {
                     visible,
                     has_popup,
                 );
-                let affordable_count = FISH_CATALOG
-                    .iter()
-                    .filter(|e| e.price <= self.cash)
-                    .count();
+                let affordable_count = FISH_CATALOG.iter().filter(|e| e.price <= self.cash).count();
                 let affordable_pos = FISH_CATALOG[..=fl.selected]
                     .iter()
                     .filter(|e| e.price <= self.cash)

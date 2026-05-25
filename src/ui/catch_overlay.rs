@@ -6,6 +6,7 @@ use ratatui::{
     widgets::Widget,
 };
 
+use crate::colors::COL_GOLD;
 use crate::entities::{
     fish::{Direction, Fish},
     species::FishSpecies,
@@ -847,7 +848,7 @@ fn draw_consumable_item_right_panel(
 }
 
 fn draw_goldbar_panel(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
-    let gold = Color::Rgb(255, 215, 0);
+    let gold = COL_GOLD;
     let sprite = "[≡$≡]";
     let sprite_x = x + 1;
     let hook_x = sprite_x + 5;
@@ -881,7 +882,7 @@ fn draw_goldbar_panel(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
 }
 
 fn draw_goldbar_right_panel(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
-    let gold = Color::Rgb(255, 215, 0);
+    let gold = COL_GOLD;
     let s_gold = Style::default()
         .fg(gold)
         .add_modifier(Modifier::BOLD)

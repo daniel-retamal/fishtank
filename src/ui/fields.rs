@@ -1,6 +1,7 @@
 use rand::RngExt;
 use ratatui::style::Color;
 
+use crate::colors::{COL_FIELD_AIR, COL_FIELD_EARTH, COL_FIELD_FIRE, COL_FIELD_SPIRIT, COL_FIELD_WATER, COL_GOLD};
 use crate::entities::fish::Fish;
 use crate::entities::species::FishSpecies;
 
@@ -246,14 +247,14 @@ pub fn gen_field_value(
                 Color::LightYellow,
                 Color::LightMagenta,
                 Color::LightCyan,
-                Color::Rgb(255, 100, 0),
-                Color::Rgb(100, 200, 0),
-                Color::Rgb(0, 180, 150),
-                Color::Rgb(180, 0, 200),
-                Color::Rgb(0, 140, 255),
+                COL_FIELD_FIRE,
+                COL_FIELD_EARTH,
+                COL_FIELD_WATER,
+                COL_FIELD_SPIRIT,
+                COL_FIELD_AIR,
             ];
             let c = if fish.species == FishSpecies::Goldenfish {
-                Color::Rgb(255, 215, 0)
+                COL_GOLD
             } else {
                 COLORS[rng.random_range(0..COLORS.len())]
             };

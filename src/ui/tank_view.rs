@@ -7,6 +7,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthChar;
 
 use crate::{
+    entities::alien::{AlienPyramid, AlienStar, AlienTentacle, pyramid_canvas_w, pyramid_lines},
     entities::bubble::Bubble,
     entities::coral::{
         CORAL_A_LINES, CORAL_A_ROWS, CORAL_COLOR, CoralAlgaeInstance, CoralStructure,
@@ -97,6 +98,25 @@ impl Widget for TankView<'_> {
                         render_void_background_at(bg, 0, area, buf);
                     } else {
                         render_void_background(bg, area, buf);
+                    }
+                }
+            }
+            TankKind::Alien => {
+                if let Some(bg) = &self.tank.alien_bg {
+                    for star in &bg.stars {
+                        render_alien_star(star, area, buf);
+                    }
+                    for pyramid in &bg.pyramids {
+                        if pyramid.base_x >= area.width as i32 {
+                            break;
+                        }
+                        render_alien_pyramid(pyramid, bg.color.pyramid_color(), area, buf);
+                    }
+                    for tentacle in &bg.tentacles {
+                        if tentacle.x >= area.width as i32 {
+                            break;
+                        }
+                        render_alien_tentacle(tentacle, area, buf);
                     }
                 }
             }
@@ -526,6 +546,7 @@ fn interior_col_range(line: &str) -> Option<(usize, usize)> {
     Some((first + 1, last - 1))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_sprite_row(
     line: &str,
     base_x: i32,
@@ -593,7 +614,7 @@ pub(crate) fn render_multi_row_unfish_at(
         Some(s) => s,
         None => return,
     };
-    let eye_ch = if us.eye.is_open { '0' } else { 'U' };
+    let eye_ch = if us.eye.is_open { '0' } else { '-' };
 
     match us.kind {
         UnfishKind::Ball | UnfishKind::Skull => {
@@ -648,7 +669,7 @@ pub(crate) fn render_multi_row_unfish_at(
                         continue;
                     }
                     let col = eye.col.round() as i32;
-                    let ec = if eye.blink.is_open { '0' } else { 'U' };
+                    let ec = if eye.blink.is_open { '0' } else { '-' };
                     if col >= 1 {
                         eye_overrides.push(((col - 1) as usize, '(', eye_color));
                     }
@@ -833,6 +854,133 @@ fn render_void_background_at(bg: &VoidBackground, frame_idx: usize, area: Rect, 
             buf[(screen_x as u16, screen_y as u16)]
                 .set_char(ch)
                 .set_style(s);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_alien_pyramid_line(
+    line: &str,
+    mirrored: bool,
+    start_x: i32,
+    canvas_w: i32,
+    screen_y: i32,
+    eye_char: Option<char>,
+    color: ratatui::style::Color,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    let style = Style::new().fg(color);
+    if mirrored {
+        let line_w = display_w(line);
+        let effective_x = start_x + canvas_w - line_w;
+        let pairs: Vec<(char, i32)> = line
+            .chars()
+            .map(|c| {
+                (
+                    mirror_char(c),
+                    UnicodeWidthChar::width(c).unwrap_or(1) as i32,
+                )
+            })
+            .rev()
+            .collect();
+        let mut col = 0i32;
+        for (ch, w) in pairs {
+            let draw_ch = if ch == '0' {
+                eye_char.unwrap_or(ch)
+            } else {
+                ch
+            };
+            if draw_ch != ' ' {
+                let sx = effective_x + col;
+                if sx >= area.x as i32 && sx < area.right() as i32 {
+                    buf[(sx as u16, screen_y as u16)]
+                        .set_char(draw_ch)
+                        .set_style(style);
+                }
+            }
+            col += w;
+        }
+    } else {
+        let mut col = 0i32;
+        for ch in line.chars() {
+            let w = UnicodeWidthChar::width(ch).unwrap_or(1) as i32;
+            let draw_ch = if ch == '0' {
+                eye_char.unwrap_or(ch)
+            } else {
+                ch
+            };
+            if draw_ch != ' ' {
+                let sx = start_x + col;
+                if sx >= area.x as i32 && sx < area.right() as i32 {
+                    buf[(sx as u16, screen_y as u16)]
+                        .set_char(draw_ch)
+                        .set_style(style);
+                }
+            }
+            col += w;
+        }
+    }
+}
+
+fn render_alien_pyramid(
+    pyramid: &AlienPyramid,
+    color: ratatui::style::Color,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    let lines = pyramid_lines(pyramid.variant);
+    let canvas_w = pyramid_canvas_w(pyramid.variant);
+    let n = lines.len();
+    for (row_idx, line) in lines.iter().enumerate() {
+        let screen_y = area.y as i32 + area.height as i32 - n as i32 + row_idx as i32;
+        if screen_y < area.y as i32 || screen_y >= area.bottom() as i32 {
+            continue;
+        }
+        let start_x = area.x as i32 + pyramid.base_x;
+        let eye_char = pyramid.eye_char_for_row(row_idx);
+        render_alien_pyramid_line(
+            line,
+            pyramid.mirrored,
+            start_x,
+            canvas_w,
+            screen_y,
+            eye_char,
+            color,
+            area,
+            buf,
+        );
+    }
+}
+
+fn render_alien_star(star: &AlienStar, area: Rect, buf: &mut Buffer) {
+    let x = area.x + star.x;
+    let y = area.y + star.y;
+    if x < area.right() && y < area.bottom() {
+        let color = if star.twinkle_lit {
+            ratatui::style::Color::White
+        } else {
+            ratatui::style::Color::Gray
+        };
+        buf[(x, y)]
+            .set_char(star.ch)
+            .set_style(Style::new().fg(color).remove_modifier(Modifier::all()));
+    }
+}
+
+fn render_alien_tentacle(tentacle: &AlienTentacle, area: Rect, buf: &mut Buffer) {
+    let base_x = tentacle.x;
+    for h in 0..tentacle.height {
+        let (x_offset, ch) = tentacle.segment_at(h);
+        let x = base_x + x_offset;
+        let y = area.height as i32 - 1 - h as i32;
+        if y < 0 {
+            continue;
+        }
+        if x >= 0 && x < area.width as i32 {
+            buf[(area.x + x as u16, area.y + y as u16)]
+                .set_char(ch)
+                .set_fg(tentacle.color_at(h));
         }
     }
 }

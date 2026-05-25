@@ -3,7 +3,7 @@ use std::f32::consts::TAU;
 use rand::RngExt;
 use ratatui::style::Color;
 
-use super::components::{SwayState, tick_sway};
+use super::components::{BlinkTimer, SwayState, extend_spaced, tick_sway};
 
 pub const FACE_COLOR: Color = Color::Rgb(80, 0, 0);
 pub const RANDOM_FACE_COLOR: Color = Color::Red;
@@ -35,7 +35,7 @@ const EYE_OPEN_MAX: f32 = 1.0;
 const EYE_CLOSED_MIN: f32 = 0.1;
 const EYE_CLOSED_MAX: f32 = 0.3;
 const EYE_OPEN_CHAR: char = 'ʘ';
-const EYE_CLOSED_CHAR: char = 'U';
+const EYE_CLOSED_CHAR: char = '-';
 
 const RANDOM_CHARS: &[char] = &[' ', ' ', ' ', ' ', ' ', '.', ':', '.', ':', '.'];
 
@@ -186,22 +186,14 @@ impl HellBackground {
 
 struct HellEye {
     height: usize,
-    open: bool,
-    timer: f32,
+    blink: BlinkTimer,
 }
 
 impl HellEye {
     fn new(height: usize, rng: &mut impl RngExt) -> Self {
-        let open = rng.random::<bool>();
-        let timer = if open {
-            rng.random_range(EYE_OPEN_MIN..EYE_OPEN_MAX)
-        } else {
-            rng.random_range(EYE_CLOSED_MIN..EYE_CLOSED_MAX)
-        };
         Self {
             height,
-            open,
-            timer,
+            blink: BlinkTimer::new(rng, EYE_OPEN_MIN, EYE_OPEN_MAX, EYE_CLOSED_MIN, EYE_CLOSED_MAX),
         }
     }
 }
@@ -243,11 +235,7 @@ impl HellPlant {
         let phase = self.sway.phase + h as f32 * HELL_PLANT_WAVE_SPREAD;
         let x_offset = (phase.sin() * HELL_PLANT_SWAY_AMOUNT * ratio).round() as i32;
         if let Some(eye) = self.eyes.iter().find(|e| e.height == h) {
-            let ch = if eye.open {
-                EYE_OPEN_CHAR
-            } else {
-                EYE_CLOSED_CHAR
-            };
+            let ch = if eye.blink.is_open { EYE_OPEN_CHAR } else { EYE_CLOSED_CHAR };
             return (x_offset, ch);
         }
         let ch = if x_offset > 0 {
@@ -260,33 +248,21 @@ impl HellPlant {
         (x_offset, ch)
     }
 
-    pub fn tick(&mut self, dt: f32, rng: &mut impl RngExt) {
+    pub fn tick(&mut self, dt: f32) {
         tick_sway(&mut self.sway, HELL_PLANT_SWAY_SPEED);
         for eye in &mut self.eyes {
-            eye.timer -= dt;
-            if eye.timer <= 0.0 {
-                eye.open = !eye.open;
-                eye.timer = if eye.open {
-                    rng.random_range(EYE_OPEN_MIN..EYE_OPEN_MAX)
-                } else {
-                    rng.random_range(EYE_CLOSED_MIN..EYE_CLOSED_MAX)
-                };
-            }
+            eye.blink.tick(dt);
         }
     }
 }
 
 pub fn extend_hell_plants(plants: &mut Vec<HellPlant>, to_width: i32, rng: &mut impl RngExt) {
-    let mut next_x = if plants.is_empty() {
-        rng.random_range(HELL_PLANT_SPACING_MIN..=HELL_PLANT_SPACING_MAX)
-    } else {
-        plants.last().unwrap().x + rng.random_range(HELL_PLANT_SPACING_MIN..=HELL_PLANT_SPACING_MAX)
-    };
-    while next_x < to_width {
-        let height = rng.random_range(HELL_PLANT_HEIGHT_MIN..=HELL_PLANT_HEIGHT_MAX);
-        plants.push(HellPlant::new(next_x, height, rng));
-        next_x += rng.random_range(HELL_PLANT_SPACING_MIN..=HELL_PLANT_SPACING_MAX);
-    }
+    extend_spaced(
+        plants, to_width, 0,
+        HELL_PLANT_SPACING_MIN, HELL_PLANT_SPACING_MAX,
+        rng, |p| p.x,
+        |x, rng| HellPlant::new(x, rng.random_range(HELL_PLANT_HEIGHT_MIN..=HELL_PLANT_HEIGHT_MAX), rng),
+    );
 }
 
 fn build_face_grid() -> Vec<Vec<char>> {
