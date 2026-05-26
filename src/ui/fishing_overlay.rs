@@ -1,11 +1,12 @@
 use rand::RngExt;
-use ratatui::{
-    buffer::Buffer,
+use ratatui::{    buffer::Buffer,
     layout::Rect,
     style::{Color, Modifier, Style},
     widgets::Widget,
 };
 use unicode_width::UnicodeWidthChar;
+
+use crate::ui::{hints::HINT_CLOSE, table};
 
 const FISH_FORCE: f32 = 0.022;
 const DAMPING: f32 = 0.95;
@@ -25,12 +26,12 @@ const INDICATOR_DANGER_ZONE: f32 = 0.75;
 const COMPLETION_WARN: f32 = 0.35;
 const COMPLETION_MID: f32 = 0.66;
 const OVERLAY_FILL: f32 = 0.75;
-const COMP_W: u16 = 3;
+const COMP_WIDTH: u16 = 3;
 const INDICATOR_FRACTION: f32 = 0.15;
-const ART_CONTENT_W: u16 = 16;
+const ART_CONTENT_WIDTH: u16 = 16;
 const ART_LINES: u16 = 6;
 const REEL_HANDLE_FREQ: u32 = 6;
-const BG: Color = Color::Reset;
+const BACKGROUND: Color = Color::Reset;
 
 const ART_FRAMES: [[&str; 6]; 5] = [
     [
@@ -223,14 +224,18 @@ impl Widget for FishingOverlay<'_> {
         let side = (max_w / 2).min(max_h);
         let overlay_w = (side * 2).max(6);
         let overlay_h = side.max(6);
-        let ox = area.x + (area.width - overlay_w) / 2;
-        let oy = area.y + (area.height - overlay_h) / 2;
+        let Some(layout) = table::OverlayLayout::centered(area, overlay_w, overlay_h) else {
+            return;
+        };
+        layout.clear_bg(buf, BACKGROUND);
 
+        let ox = layout.ox;
+        let oy = layout.oy;
         let inner_w = overlay_w.saturating_sub(2);
-        let art_w = inner_w.saturating_sub(1 + COMP_W);
+        let art_w = inner_w.saturating_sub(1 + COMP_WIDTH);
         let art_h = overlay_h.saturating_sub(6);
         let art_vert_pad = art_h.saturating_sub(ART_LINES) / 2;
-        let art_x_offset = art_w.saturating_sub(ART_CONTENT_W) / 2;
+        let art_x_offset = art_w.saturating_sub(ART_CONTENT_WIDTH) / 2;
 
         let handle_char = if state.is_reeling && (state.reel_anim_tick / REEL_HANDLE_FREQ) % 2 == 1
         {
@@ -238,13 +243,6 @@ impl Widget for FishingOverlay<'_> {
         } else {
             '@'
         };
-
-        for dy in 0..overlay_h {
-            for dx in 0..overlay_w {
-                buf[(ox + dx, oy + dy)].reset();
-                buf[(ox + dx, oy + dy)].set_bg(BG);
-            }
-        }
 
         let bcolor = state_border_color(state);
         draw_border(buf, ox, oy, overlay_w, overlay_h, bcolor);
@@ -254,7 +252,7 @@ impl Widget for FishingOverlay<'_> {
         let sep_x = inner_x + art_w;
         let comp_x = sep_x + 1;
         let frame = &ART_FRAMES[art_frame_idx(state.fish_pos)];
-        let art_style = Style::default().fg(Color::White).bg(BG);
+        let art_style = Style::default().fg(Color::White).bg(BACKGROUND);
 
         for row in 0..art_h {
             let y = art_y + row;
@@ -271,7 +269,7 @@ impl Widget for FishingOverlay<'_> {
                 buf[(inner_x + dx, y)].set_char(' ').set_style(art_style);
             }
             if let Some(line) = art_line {
-                let content_w = ART_CONTENT_W.min(art_w.saturating_sub(art_x_offset));
+                let content_w = ART_CONTENT_WIDTH.min(art_w.saturating_sub(art_x_offset));
                 let line_with_handle: String;
                 let line_final = if handle_char != '@' && line.contains('@') {
                     line_with_handle = line.replace('@', "Ə");
@@ -293,7 +291,7 @@ impl Widget for FishingOverlay<'_> {
                 buf[(sep_x, y)]
                     .set_char('│')
                     .set_fg(Color::DarkGray)
-                    .set_bg(BG);
+                    .set_bg(BACKGROUND);
             }
 
             if comp_x < ox + overlay_w {
@@ -351,11 +349,11 @@ fn draw_border(buf: &mut Buffer, ox: u16, oy: u16, w: u16, h: u16, border_color:
     if w < 2 || h < 2 {
         return;
     }
-    let border_style = Style::default().fg(border_color).bg(BG);
+    let border_style = Style::default().fg(border_color).bg(BACKGROUND);
     let title_style = Style::default()
         .fg(Color::White)
         .add_modifier(Modifier::BOLD)
-        .bg(BG);
+        .bg(BACKGROUND);
     let right = ox + w - 1;
     let bottom = oy + h - 1;
 
@@ -383,7 +381,7 @@ fn draw_inner_separator(buf: &mut Buffer, ox: u16, y: u16, w: u16, color: Color)
     if w < 2 {
         return;
     }
-    let style = Style::default().fg(color).bg(BG);
+    let style = Style::default().fg(color).bg(BACKGROUND);
     buf[(ox, y)].set_char('├').set_style(style);
     buf[(ox + w - 1, y)].set_char('┤').set_style(style);
     for dx in 1..w - 1 {
@@ -431,10 +429,10 @@ fn draw_comp_row(buf: &mut Buffer, x: u16, y: u16, row: u16, art_h: u16, state: 
         };
         ("███", c)
     } else {
-        ("   ", BG)
+        ("   ", BACKGROUND)
     };
 
-    buf.set_string(x, y, content, Style::default().fg(fg).bg(BG));
+    buf.set_string(x, y, content, Style::default().fg(fg).bg(BACKGROUND));
 }
 
 fn draw_control_bar(buf: &mut Buffer, x: u16, y: u16, inner_w: u16, state: &FishingState) {
@@ -456,12 +454,12 @@ fn draw_control_bar(buf: &mut Buffer, x: u16, y: u16, inner_w: u16, state: &Fish
         Color::LightGreen
     };
 
-    let bracket_style = Style::default().fg(Color::DarkGray).bg(BG);
-    let line_style = Style::default().fg(Color::DarkGray).bg(BG);
+    let bracket_style = Style::default().fg(Color::DarkGray).bg(BACKGROUND);
+    let line_style = Style::default().fg(Color::DarkGray).bg(BACKGROUND);
     let indicator_style = Style::default()
         .fg(indicator_color)
         .add_modifier(Modifier::BOLD)
-        .bg(BG);
+        .bg(BACKGROUND);
 
     buf[(x, y)].set_char('[').set_style(bracket_style);
     buf[(x + inner_w - 1, y)]
@@ -480,9 +478,9 @@ fn draw_control_bar(buf: &mut Buffer, x: u16, y: u16, inner_w: u16, state: &Fish
 }
 
 fn draw_footer(buf: &mut Buffer, x: u16, y: u16, inner_w: u16) {
-    let style = Style::default().fg(Color::DarkGray).bg(BG);
+    let style = Style::default().fg(Color::DarkGray).bg(BACKGROUND);
     let left = " ←→ control the fish  ↓ reel";
-    let right = "ESC/q close";
+    let right = HINT_CLOSE;
     let total = inner_w as usize;
     buf.set_string(x, y, truncate_to_width(left, total), style);
     let left_w = visual_width(left);

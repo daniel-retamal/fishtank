@@ -3,7 +3,13 @@ use std::f32::consts::TAU;
 use rand::RngExt;
 use ratatui::style::Color;
 
-use super::components::{BlinkTimer, SwayState, extend_spaced, tick_sway};
+use crate::colors::{
+    ALIEN_BLUE, ALIEN_BLUE_BRIGHT, ALIEN_BLUE_DARK, ALIEN_PURPLE, ALIEN_PURPLE_BRIGHT,
+    ALIEN_PURPLE_DARK, PYRAMID_BLUE, PYRAMID_PURPLE,
+};
+use crate::entities::components::{BlinkTimer, EyeRow, SwayState, extend_spaced, sway_x_offset, tick_sway};
+use crate::entities::glistening::GlisteningMode;
+use crate::entities::plant::Seaweed;
 
 pub const ALIEN_STAR_RATIO: f32 = 0.06;
 
@@ -14,9 +20,9 @@ const STAR_TWINKLE_DARK_MIN: f32 = 3.0;
 const STAR_TWINKLE_DARK_MAX: f32 = 10.0;
 const ALIEN_STAR_CHARS: &[char] = &['.', '*', '\'', ':', '⋆', '⟡', '✶', '˚'];
 
-const ALIEN_TENTACLE_SWAY_SPEED: f32 = 0.02;
-const ALIEN_TENTACLE_WAVE_SPREAD: f32 = 0.5;
-const ALIEN_TENTACLE_SWAY_AMOUNT: f32 = 2.0;
+const SWAY_SPEED: f32 = 0.02;
+const WAVE_SPREAD: f32 = 0.5;
+const SWAY_AMOUNT: f32 = 2.0;
 pub const ALIEN_TENTACLE_WIDTH: i32 = 1;
 const ALIEN_TENTACLE_GAP_MIN: i32 = 6;
 const ALIEN_TENTACLE_GAP_MAX: i32 = 12;
@@ -27,13 +33,8 @@ const ALIEN_EYE_SPACING_MAX: usize = 2;
 const ALIEN_EYE_OPEN_CHAR: char = '0';
 const ALIEN_EYE_CLOSED_CHAR: char = '-';
 const ALIEN_GLISTEN_SPEED: f32 = 1.8;
-const ALIEN_GLISTEN_WAVE_SPREAD: f32 = 0.8;
 const ALIEN_GLISTEN_THRESHOLD: f32 = 0.45;
 
-const ALIEN_EYE_OPEN_MIN: f32 = 0.5;
-const ALIEN_EYE_OPEN_MAX: f32 = 1.0;
-const ALIEN_EYE_CLOSED_MIN: f32 = 0.1;
-const ALIEN_EYE_CLOSED_MAX: f32 = 0.3;
 
 const ALIEN_PYRAMID_GAP_MIN: i32 = 26;
 const ALIEN_PYRAMID_GAP_MAX: i32 = 30;
@@ -44,17 +45,10 @@ const PYRAMID_VARIANT_COUNT: u8 = 4;
 const PYRAMID_D_VARIANT: u8 = 3;
 const PYRAMID_D_EYE_ROW: usize = 4;
 
-const TENTACLE_COLORS_BLUE: &[Color] = &[
-    Color::Rgb(0, 50, 160),
-    Color::Rgb(0, 30, 110),
-    Color::Rgb(0, 70, 190),
-];
-
-const TENTACLE_COLORS_PURPLE: &[Color] = &[
-    Color::Rgb(90, 0, 160),
-    Color::Rgb(60, 0, 110),
-    Color::Rgb(110, 0, 190),
-];
+const TENTACLE_COLORS_BLUE: &[Color] = &[ALIEN_BLUE, ALIEN_BLUE_DARK, ALIEN_BLUE_BRIGHT];
+const TENTACLE_COLORS_PURPLE: &[Color] = &[ALIEN_PURPLE, ALIEN_PURPLE_DARK, ALIEN_PURPLE_BRIGHT];
+const PYRAMID_COLOR_BLUE: Color = PYRAMID_BLUE;
+const PYRAMID_COLOR_PURPLE: Color = PYRAMID_PURPLE;
 
 pub const PYRAMID_A_LINES: &[&str] = &[
     "                  _/L          _L/L",
@@ -147,8 +141,8 @@ impl AlienColor {
 
     pub fn pyramid_color(self) -> Color {
         match self {
-            AlienColor::Blue => Color::Rgb(0, 30, 100),
-            AlienColor::Purple => Color::Rgb(60, 0, 100),
+            AlienColor::Blue => PYRAMID_COLOR_BLUE,
+            AlienColor::Purple => PYRAMID_COLOR_PURPLE,
         }
     }
 
@@ -177,18 +171,13 @@ pub fn pyramid_canvas_w(variant: u8) -> i32 {
         .unwrap_or(0)
 }
 
-struct AlienTentacleEye {
-    height: usize,
-    blink: BlinkTimer,
-}
-
 pub struct AlienTentacle {
     pub x: i32,
     pub height: usize,
     pub sway: SwayState,
     pub color: Color,
     glisten_phase: f32,
-    eyes: Vec<AlienTentacleEye>,
+    eyes: Vec<EyeRow>,
 }
 
 impl AlienTentacle {
@@ -196,13 +185,10 @@ impl AlienTentacle {
         let colors = color.tentacle_colors();
         let body_color = colors[rng.random_range(0..colors.len())];
         let mut eyes = Vec::new();
-        let mut h = rng.random_range(ALIEN_EYE_SPACING_MIN..=ALIEN_EYE_SPACING_MAX);
-        while h < height {
-            eyes.push(AlienTentacleEye {
-                height: h,
-                blink: BlinkTimer::new(rng, ALIEN_EYE_OPEN_MIN, ALIEN_EYE_OPEN_MAX, ALIEN_EYE_CLOSED_MIN, ALIEN_EYE_CLOSED_MAX),
-            });
-            h += rng.random_range(ALIEN_EYE_SPACING_MIN..=ALIEN_EYE_SPACING_MAX);
+        let mut next_eye_height = rng.random_range(ALIEN_EYE_SPACING_MIN..=ALIEN_EYE_SPACING_MAX);
+        while next_eye_height < height {
+            eyes.push(EyeRow::new(next_eye_height, rng));
+            next_eye_height += rng.random_range(ALIEN_EYE_SPACING_MIN..=ALIEN_EYE_SPACING_MAX);
         }
         Self {
             x,
@@ -216,15 +202,23 @@ impl AlienTentacle {
         }
     }
 
-    pub fn segment_at(&self, h: usize) -> (i32, char) {
-        let ratio = if self.height <= 1 {
-            1.0_f32
-        } else {
-            h as f32 / (self.height - 1) as f32
-        };
-        let phase = self.sway.phase + h as f32 * ALIEN_TENTACLE_WAVE_SPREAD;
-        let x_offset = (phase.sin() * ALIEN_TENTACLE_SWAY_AMOUNT * ratio).round() as i32;
-        if let Some(eye) = self.eyes.iter().find(|e| e.height == h) {
+    fn is_eye_at(&self, row: usize) -> bool {
+        self.eyes.iter().any(|e| e.height == row)
+    }
+}
+
+impl Seaweed for AlienTentacle {
+    fn x(&self) -> i32 {
+        self.x
+    }
+
+    fn height(&self) -> usize {
+        self.height
+    }
+
+    fn segment_at(&self, row: usize) -> (i32, char) {
+        let x_offset = sway_x_offset(self.sway.phase, row, self.height, WAVE_SPREAD, SWAY_AMOUNT);
+        if let Some(eye) = self.eyes.iter().find(|e| e.height == row) {
             let ch = if eye.blink.is_open { ALIEN_EYE_OPEN_CHAR } else { ALIEN_EYE_CLOSED_CHAR };
             return (x_offset, ch);
         }
@@ -238,13 +232,9 @@ impl AlienTentacle {
         (x_offset, ch)
     }
 
-    pub fn is_eye_at(&self, h: usize) -> bool {
-        self.eyes.iter().any(|e| e.height == h)
-    }
-
-    pub fn color_at(&self, h: usize) -> Color {
-        if self.is_eye_at(h) {
-            let wave = (self.glisten_phase - h as f32 * ALIEN_GLISTEN_WAVE_SPREAD).sin();
+    fn color_at(&self, row: usize) -> Color {
+        if self.is_eye_at(row) {
+            let wave = GlisteningMode::Wave.glistening_value(self.glisten_phase, row, self.height);
             if wave > ALIEN_GLISTEN_THRESHOLD {
                 Color::LightGreen
             } else {
@@ -255,11 +245,11 @@ impl AlienTentacle {
         }
     }
 
-    pub fn tick(&mut self, dt: f32) {
-        tick_sway(&mut self.sway, ALIEN_TENTACLE_SWAY_SPEED);
-        self.glisten_phase = (self.glisten_phase + ALIEN_GLISTEN_SPEED * dt).rem_euclid(TAU);
+    fn tick(&mut self, delta_time: f32) {
+        tick_sway(&mut self.sway, SWAY_SPEED);
+        self.glisten_phase = (self.glisten_phase + ALIEN_GLISTEN_SPEED * delta_time).rem_euclid(TAU);
         for eye in &mut self.eyes {
-            eye.blink.tick(dt);
+            eye.blink.tick(delta_time);
         }
     }
 }
@@ -309,7 +299,7 @@ pub struct AlienPyramid {
 impl AlienPyramid {
     pub fn new(base_x: i32, mirrored: bool, variant: u8, rng: &mut impl RngExt) -> Self {
         let eye = if variant == PYRAMID_D_VARIANT {
-            Some(BlinkTimer::new(rng, ALIEN_EYE_OPEN_MIN, ALIEN_EYE_OPEN_MAX, ALIEN_EYE_CLOSED_MIN, ALIEN_EYE_CLOSED_MAX))
+            Some(BlinkTimer::entity_eye(rng))
         } else {
             None
         };
@@ -324,7 +314,7 @@ impl AlienPyramid {
 
     pub fn eye_char_for_row(&self, row_idx: usize) -> Option<char> {
         if self.variant == PYRAMID_D_VARIANT && row_idx == PYRAMID_D_EYE_ROW {
-            let open = self.eye.as_ref().map_or(true, |e| e.is_open);
+            let open = self.eye.as_ref().is_none_or(|e| e.is_open);
             Some(if open { '0' } else { '-' })
         } else {
             None

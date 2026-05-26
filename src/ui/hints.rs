@@ -1,0 +1,13 @@
+pub const HINT_CLOSE: &str = "ESC/q close";
+pub const HINT_BACK: &str = "ESC/q back";
+pub const HINT_CANCEL: &str = "ESC/q cancel";
+pub const HINT_RETURN: &str = "ESC/q return";
+pub const HINT_ENTER_SWITCH: &str = "ENTER switch";
+pub const HINT_ENTER_SHOW: &str = "ENTER show";
+pub const HINT_ENTER_CONSUME: &str = "ENTER consume";
+pub const HINT_ENTER_CAPTURE: &str = "ENTER capture";
+pub const HINT_ENTER_BUY: &str = "ENTER buy";
+pub const HINT_ENTER_SELL: &str = "ENTER sell";
+pub const HINT_ENTER_SUMMON: &str = "ENTER summon";
+pub const HINT_NAV: &str = "↑↓ navigate";
+pub const HINT_SCROLL: &str = "↑↓ scroll";

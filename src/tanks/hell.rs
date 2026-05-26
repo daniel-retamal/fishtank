@@ -3,11 +3,13 @@ use std::f32::consts::TAU;
 use rand::RngExt;
 use ratatui::style::Color;
 
-use super::components::{BlinkTimer, SwayState, extend_spaced, tick_sway};
+use crate::colors::DARK_RED;
+use crate::entities::components::{EyeRow, SwayState, extend_spaced, sway_x_offset, tick_sway};
+use crate::entities::plant::Seaweed;
+use crate::fishes::species::EYE_CIRCLE;
 
-pub const FACE_COLOR: Color = Color::Rgb(80, 0, 0);
+pub const FACE_COLOR: Color = DARK_RED;
 pub const RANDOM_FACE_COLOR: Color = Color::Red;
-pub const HELL_BUBBLE_COLOR: Color = Color::Red;
 
 pub const H_WAVE_AMPLITUDE: f32 = 3.0;
 pub const H_WAVE_ROW_SPREAD: f32 = 0.3;
@@ -24,17 +26,12 @@ const HELL_PLANT_SPACING_MIN: i32 = 3;
 const HELL_PLANT_SPACING_MAX: i32 = 6;
 const HELL_PLANT_HEIGHT_MIN: usize = 8;
 const HELL_PLANT_HEIGHT_MAX: usize = 27;
-const HELL_PLANT_SWAY_SPEED: f32 = 0.04;
-const HELL_PLANT_WAVE_SPREAD: f32 = 0.5;
-const HELL_PLANT_SWAY_AMOUNT: f32 = 2.0;
+const SWAY_SPEED: f32 = 0.04;
+const WAVE_SPREAD: f32 = 0.5;
+const SWAY_AMOUNT: f32 = 2.0;
 
 const EYE_SPACING_MIN: usize = 2;
 const EYE_SPACING_MAX: usize = 3;
-const EYE_OPEN_MIN: f32 = 0.5;
-const EYE_OPEN_MAX: f32 = 1.0;
-const EYE_CLOSED_MIN: f32 = 0.1;
-const EYE_CLOSED_MAX: f32 = 0.3;
-const EYE_OPEN_CHAR: char = 'ʘ';
 const EYE_CLOSED_CHAR: char = '-';
 
 const RANDOM_CHARS: &[char] = &[' ', ' ', ' ', ' ', ' ', '.', ':', '.', ':', '.'];
@@ -184,36 +181,22 @@ impl HellBackground {
     }
 }
 
-struct HellEye {
-    height: usize,
-    blink: BlinkTimer,
-}
-
-impl HellEye {
-    fn new(height: usize, rng: &mut impl RngExt) -> Self {
-        Self {
-            height,
-            blink: BlinkTimer::new(rng, EYE_OPEN_MIN, EYE_OPEN_MAX, EYE_CLOSED_MIN, EYE_CLOSED_MAX),
-        }
-    }
-}
-
 pub struct HellPlant {
     pub x: i32,
     pub height: usize,
     pub sway: SwayState,
     pub color: Color,
-    eyes: Vec<HellEye>,
+    eyes: Vec<EyeRow>,
 }
 
 impl HellPlant {
     pub fn new(x: i32, height: usize, rng: &mut impl RngExt) -> Self {
         let color = HELL_PLANT_COLORS[rng.random_range(0..HELL_PLANT_COLORS.len())];
         let mut eyes = Vec::new();
-        let mut h = rng.random_range(EYE_SPACING_MIN..=EYE_SPACING_MAX);
-        while h < height {
-            eyes.push(HellEye::new(h, rng));
-            h += rng.random_range(EYE_SPACING_MIN..=EYE_SPACING_MAX);
+        let mut next_eye_height = rng.random_range(EYE_SPACING_MIN..=EYE_SPACING_MAX);
+        while next_eye_height < height {
+            eyes.push(EyeRow::new(next_eye_height, rng));
+            next_eye_height += rng.random_range(EYE_SPACING_MIN..=EYE_SPACING_MAX);
         }
         Self {
             x,
@@ -225,17 +208,21 @@ impl HellPlant {
             eyes,
         }
     }
+}
 
-    pub fn segment_at(&self, h: usize) -> (i32, char) {
-        let ratio = if self.height <= 1 {
-            1.0_f32
-        } else {
-            h as f32 / (self.height - 1) as f32
-        };
-        let phase = self.sway.phase + h as f32 * HELL_PLANT_WAVE_SPREAD;
-        let x_offset = (phase.sin() * HELL_PLANT_SWAY_AMOUNT * ratio).round() as i32;
-        if let Some(eye) = self.eyes.iter().find(|e| e.height == h) {
-            let ch = if eye.blink.is_open { EYE_OPEN_CHAR } else { EYE_CLOSED_CHAR };
+impl Seaweed for HellPlant {
+    fn x(&self) -> i32 {
+        self.x
+    }
+
+    fn height(&self) -> usize {
+        self.height
+    }
+
+    fn segment_at(&self, row: usize) -> (i32, char) {
+        let x_offset = sway_x_offset(self.sway.phase, row, self.height, WAVE_SPREAD, SWAY_AMOUNT);
+        if let Some(eye) = self.eyes.iter().find(|e| e.height == row) {
+            let ch = if eye.blink.is_open { EYE_CIRCLE } else { EYE_CLOSED_CHAR };
             return (x_offset, ch);
         }
         let ch = if x_offset > 0 {
@@ -248,10 +235,14 @@ impl HellPlant {
         (x_offset, ch)
     }
 
-    pub fn tick(&mut self, dt: f32) {
-        tick_sway(&mut self.sway, HELL_PLANT_SWAY_SPEED);
+    fn color_at(&self, _row: usize) -> Color {
+        self.color
+    }
+
+    fn tick(&mut self, delta_time: f32) {
+        tick_sway(&mut self.sway, SWAY_SPEED);
         for eye in &mut self.eyes {
-            eye.blink.tick(dt);
+            eye.blink.tick(delta_time);
         }
     }
 }

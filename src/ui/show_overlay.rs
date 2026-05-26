@@ -7,20 +7,21 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthChar;
 
-use crate::entities::fish::{Direction, Fish};
-use crate::entities::species::FishSpecies;
-use crate::entities::unfish::{BALL_HEIGHT, SKULL_HEIGHT, UnfishKind, is_multi_row};
+use crate::fishes::fish::{Direction, Fish};
+use crate::fishes::species::FishSpecies;
+use crate::fishes::unfish::{BALL_HEIGHT, SKULL_HEIGHT, UnfishKind, is_multi_row};
 use crate::tank::TankKind;
 use crate::ui::{
     fields::{self, FieldKind},
+    hints::{HINT_CLOSE, HINT_RETURN},
     render_fish_segs, table, tank_view,
 };
 
-const BG: Color = Color::Reset;
+const BACKGROUND: Color = Color::Reset;
 const FISH_PAD: u16 = 1;
-const FISH_INNER_H: u16 = 3;
-const MIN_BODY_W: u16 = 38;
-const MIN_OVERLAY_H: u16 = 7;
+const FISH_INNER_HEIGHT: u16 = 3;
+const MIN_BODY_WIDTH: u16 = 38;
+const MIN_OVERLAY_HEIGHT: u16 = 7;
 const FIELD_COUNT_MIN: usize = 3;
 const FIELD_COUNT_MAX: usize = 6;
 
@@ -126,48 +127,23 @@ impl ShowState {
             }
         }
 
-        if let Some(ref m) = fish.mutant {
-            if !m.mitosis_partners.is_empty() {
+        if let Some(ref mr) = fish.mutations {
+            if !mr.partners.is_empty() {
                 show_fields.push(ShowField {
                     label: "Mitosis Partners",
-                    value: m.mitosis_partners.join(", "),
+                    value: mr.partners.join(", "),
                     swatch: None,
                 });
             }
             show_fields.push(ShowField {
                 label: "Mutation Count",
-                value: m.mutation_count.to_string(),
+                value: mr.count.to_string(),
                 swatch: None,
             });
-            let history = if m.mutation_history.is_empty() {
+            let history = if mr.history.is_empty() {
                 "—".to_string()
             } else {
-                m.mutation_history.join(", ")
-            };
-            show_fields.push(ShowField {
-                label: "Mutation History",
-                value: history,
-                swatch: None,
-            });
-        } else if let Some(ref us) = fish.unfish_state
-            && (us.mutation_count > 0 || !us.mutation_history.is_empty())
-        {
-            if !us.mitosis_partners.is_empty() {
-                show_fields.push(ShowField {
-                    label: "Mitosis Partners",
-                    value: us.mitosis_partners.join(", "),
-                    swatch: None,
-                });
-            }
-            show_fields.push(ShowField {
-                label: "Mutation Count",
-                value: us.mutation_count.to_string(),
-                swatch: None,
-            });
-            let history = if us.mutation_history.is_empty() {
-                "—".to_string()
-            } else {
-                us.mutation_history.join(", ")
+                mr.history.join(", ")
             };
             show_fields.push(ShowField {
                 label: "Mutation History",
@@ -212,7 +188,7 @@ impl ShowState {
             .flat_map(|f| [table::visual_width(f.label), table::visual_width(&f.value)])
             .max()
             .unwrap_or(0);
-        let target_right_inner_w = MIN_BODY_W.max((max_content_w + 2) as u16);
+        let target_right_inner_w = MIN_BODY_WIDTH.max((max_content_w + 2) as u16);
         let overlay_w = (fish_inner_w + 3 + target_right_inner_w).min(area_w);
         let right_inner_w = overlay_w.saturating_sub(fish_inner_w + 3);
         let available_content = right_inner_w.saturating_sub(2) as usize;
@@ -230,7 +206,7 @@ impl ShowState {
             .sum();
         let from_fields = total_field_rows.saturating_sub(1).saturating_add(4);
         let from_fish = fish_display_inner_h(&self.fish) + 4;
-        from_fields.max(from_fish).min(area_h).max(MIN_OVERLAY_H)
+        from_fields.max(from_fish).min(area_h).max(MIN_OVERLAY_HEIGHT)
     }
 }
 
@@ -239,10 +215,10 @@ fn fish_display_inner_h(fish: &Fish) -> u16 {
         match us.kind {
             UnfishKind::Ball => BALL_HEIGHT,
             UnfishKind::Skull => SKULL_HEIGHT,
-            _ => FISH_INNER_H,
+            _ => FISH_INNER_HEIGHT,
         }
     } else {
-        FISH_INNER_H
+        FISH_INNER_HEIGHT
     }
 }
 
@@ -333,12 +309,12 @@ impl Widget for ShowOverlay<'_> {
             .flat_map(|f| [table::visual_width(f.label), table::visual_width(&f.value)])
             .max()
             .unwrap_or(0);
-        let target_right_inner_w = MIN_BODY_W.max((max_content_w + 2) as u16);
+        let target_right_inner_w = MIN_BODY_WIDTH.max((max_content_w + 2) as u16);
         let overlay_w = (fish_inner_w + 3 + target_right_inner_w).min(area.width);
         let right_inner_w = overlay_w.saturating_sub(fish_inner_w + 3);
         let available_content = right_inner_w.saturating_sub(2) as usize;
 
-        if area.height < MIN_OVERLAY_H || available_content == 0 {
+        if area.height < MIN_OVERLAY_HEIGHT || available_content == 0 {
             return;
         }
 
@@ -359,7 +335,7 @@ impl Widget for ShowOverlay<'_> {
         let overlay_h = from_fields
             .max(from_fish)
             .min(area.height)
-            .max(MIN_OVERLAY_H);
+            .max(MIN_OVERLAY_HEIGHT);
 
         let ox = area.x + area.width.saturating_sub(overlay_w) / 2;
         let oy = area.y + (area.height - overlay_h) / 2;
@@ -386,11 +362,11 @@ impl Widget for ShowOverlay<'_> {
             FishSpecies::Mutantfish => state.fish.color,
             _ => Color::White,
         };
-        let border_style = Style::default().fg(border_color).bg(BG);
+        let border_style = Style::default().fg(border_color).bg(BACKGROUND);
         let title_style = Style::default()
             .fg(Color::White)
             .add_modifier(Modifier::BOLD)
-            .bg(BG);
+            .bg(BACKGROUND);
 
         buf[(ox, oy)].set_char('┌').set_style(border_style);
         buf[(right, oy)].set_char('┐').set_style(border_style);
@@ -450,14 +426,14 @@ impl Widget for ShowOverlay<'_> {
         } else {
             let fish_art_y = oy + 1 + fish_inner_h / 2;
             let segs = state.fish.segments();
-            render_fish_segs(buf, &segs, fish_art_x, fish_art_y, fish_art_w, BG);
+            render_fish_segs(buf, &segs, fish_art_x, fish_art_y, fish_art_w, BACKGROUND);
         }
 
         let white_bold = Style::default()
             .fg(Color::White)
             .add_modifier(Modifier::BOLD)
-            .bg(BG);
-        let white = Style::default().fg(Color::White).bg(BG);
+            .bg(BACKGROUND);
+        let white = Style::default().fg(Color::White).bg(BACKGROUND);
 
         let mut y = oy + 1;
         let mut rendered_count = 0usize;
@@ -499,7 +475,6 @@ impl Widget for ShowOverlay<'_> {
         }
 
         let footer_y = oy + overlay_h - 2;
-        let hint_style = Style::default().fg(Color::DarkGray).bg(BG);
         let last_visible = state.scroll + rendered_count;
         let actually_scrollable = state.scroll > 0 || last_visible < state.fields.len();
         let left_footer = if actually_scrollable {
@@ -508,19 +483,9 @@ impl Widget for ShowOverlay<'_> {
             String::new()
         };
         let right_footer = match state.source {
-            ShowSource::FromIndex => "ESC/q return",
-            ShowSource::FromCommand => "ESC/q close",
+            ShowSource::FromIndex => HINT_RETURN,
+            ShowSource::FromCommand => HINT_CLOSE,
         };
-        let left_w = table::visual_width(&left_footer) as u16;
-        let right_w = table::visual_width(right_footer) as u16;
-        if left_w + 2 <= right_inner_w {
-            buf.set_string(right_x, footer_y, &left_footer, hint_style);
-        }
-        if right_w + 2 <= right_inner_w {
-            let footer_right_x = right_x + right_inner_w - right_w - 2;
-            if footer_right_x > right_x + left_w {
-                buf.set_string(footer_right_x, footer_y, right_footer, hint_style);
-            }
-        }
+        table::draw_hint_bar(buf, right_x, footer_y, right_inner_w.saturating_sub(1), &left_footer, right_footer, BACKGROUND);
     }
 }

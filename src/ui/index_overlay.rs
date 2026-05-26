@@ -6,10 +6,11 @@ use ratatui::{
     widgets::Widget,
 };
 
-use crate::colors::{COL_FIELD_AIR, COL_FIELD_EARTH, COL_FIELD_FIRE, COL_FIELD_SPIRIT, COL_FIELD_WATER, COL_GOLD, COL_SELECTED, COL_SELECTED_TANK};
-use crate::entities::fish::{Direction, Fish};
-use crate::entities::species::FishSpecies;
-use crate::entities::unfish::{BALL_HEIGHT, SKULL_HEIGHT, UnfishKind};
+use crate::colors::{FIELD_AIR_COLOR, FIELD_EARTH_COLOR, FIELD_FIRE_COLOR, FIELD_SPIRIT_COLOR, FIELD_WATER_COLOR, GOLD, SELECTED_COLOR, SELECTED_TANK_COLOR};
+use crate::ui::hints::{HINT_CLOSE, HINT_ENTER_SHOW, HINT_NAV};
+use crate::fishes::fish::{Direction, Fish};
+use crate::fishes::species::FishSpecies;
+use crate::fishes::unfish::{BALL_HEIGHT, SKULL_HEIGHT, UnfishKind};
 use crate::ui::{fields, render_fish_segs, scroll_list, table, tank_view};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -459,21 +460,14 @@ impl Widget for IndexOverlay<'_> {
             .max(1);
         let overlay_h = ((visible_data_lines + 6) as u16).min(area.height);
 
-        let ox = area.x + area.width.saturating_sub(overlay_w) / 2;
-        let oy = area.y + area.height.saturating_sub(overlay_h) / 2;
-        let rect = Rect::new(ox, oy, overlay_w, overlay_h);
-
         let bg = Color::Reset;
-        for dy in 0..overlay_h {
-            for dx in 0..overlay_w {
-                let x = ox + dx;
-                let y = oy + dy;
-                if x < area.right() && y < area.bottom() {
-                    buf[(x, y)].reset();
-                    buf[(x, y)].set_bg(bg);
-                }
-            }
-        }
+        let Some(layout) = table::OverlayLayout::centered(area, overlay_w, overlay_h) else {
+            return;
+        };
+        layout.clear_bg(buf, bg);
+        let ox = layout.ox;
+        let oy = layout.oy;
+        let rect = Rect::new(ox, oy, overlay_w, overlay_h);
 
         let inner_x = ox + 1;
         let inner_w = overlay_w.saturating_sub(2) as usize;
@@ -519,33 +513,19 @@ impl Widget for IndexOverlay<'_> {
             ),
             (true, false) => format!(" ↑↓ scroll ({}/{})", state.selected + 1, n),
             (false, true) => format!(" ↑↓ navigate   ←→ cols {}", col_hint),
-            (false, false) => " ↑↓ navigate".to_string(),
+            (false, false) => HINT_NAV.to_string(),
         };
-        let hint_style = Style::default().fg(Color::DarkGray).bg(bg);
-        let right_text = "ESC/q close";
-        let center_text = if n > 0 { Some("ENTER show") } else { None };
-        let left_w = table::visual_width(&left_hint) as u16;
-        let right_w = table::visual_width(right_text) as u16;
-        buf.set_string(
-            inner_x,
-            footer_y,
-            table::truncate_str(&left_hint, inner_w),
-            hint_style,
-        );
-        if right_w + 2 <= inner_w as u16 {
-            buf.set_string(
-                inner_x + inner_w as u16 - right_w - 1,
-                footer_y,
-                right_text,
-                hint_style,
-            );
-        }
-        if let Some(ct) = center_text {
+        let right_text = HINT_CLOSE;
+        table::draw_hint_bar(buf, inner_x, footer_y, inner_w as u16, &left_hint, right_text, bg);
+        if n > 0 {
+            let ct = HINT_ENTER_SHOW;
             let ct_w = table::visual_width(ct) as u16;
+            let left_w = table::visual_width(&left_hint) as u16;
+            let right_w = table::visual_width(right_text) as u16;
             let center_x = inner_x + (inner_w as u16 - ct_w) / 2;
             let right_edge = inner_x + inner_w as u16 - right_w - 2;
             if center_x > inner_x + left_w + 1 && center_x + ct_w < right_edge {
-                buf.set_string(center_x, footer_y, ct, hint_style);
+                buf.set_string(center_x, footer_y, ct, Style::default().fg(Color::DarkGray).bg(bg));
             }
         }
     }
@@ -696,8 +676,8 @@ fn draw_data_row(
     base_bg: Color,
     area: Rect,
 ) {
-    let row_bg = if selected { COL_SELECTED } else { base_bg };
-    let fg = if selected { Color::Black } else { COL_SELECTED_TANK };
+    let row_bg = if selected { SELECTED_COLOR } else { base_bg };
+    let fg = if selected { Color::Black } else { SELECTED_TANK_COLOR };
     let sep_style = Style::default().fg(Color::White).bg(row_bg);
     let widths = state.all_col_widths();
     let snap = &state.snapshots[fish_idx];
@@ -946,16 +926,16 @@ fn gen_fantasy(
                 Color::LightYellow,
                 Color::LightMagenta,
                 Color::LightCyan,
-                COL_FIELD_FIRE,
-                COL_FIELD_EARTH,
-                COL_FIELD_WATER,
-                COL_FIELD_SPIRIT,
-                COL_FIELD_AIR,
+                FIELD_FIRE_COLOR,
+                FIELD_EARTH_COLOR,
+                FIELD_WATER_COLOR,
+                FIELD_SPIRIT_COLOR,
+                FIELD_AIR_COLOR,
             ];
             (0..n)
                 .map(|i| {
                     let c = if species[i] == FishSpecies::Goldenfish {
-                        COL_GOLD
+                        GOLD
                     } else {
                         COLORS[rng.random_range(0..COLORS.len())]
                     };

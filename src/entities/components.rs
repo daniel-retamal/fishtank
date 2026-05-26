@@ -50,6 +50,18 @@ impl BlinkTimer {
         }
     }
 
+    pub fn fish_eye(rng: &mut impl RngExt) -> Self {
+        Self::new(rng, 0.8, 1.8, 0.08, 0.35)
+    }
+
+    pub fn entity_eye(rng: &mut impl RngExt) -> Self {
+        Self::new(rng, 0.5, 1.0, 0.1, 0.30)
+    }
+
+    pub fn wing(rng: &mut impl RngExt) -> Self {
+        Self::new(rng, 1.5, 2.0, 0.15, 0.4)
+    }
+
     pub fn tick(&mut self, dt: f32) {
         self.timer += dt;
         if self.is_open {
@@ -64,6 +76,38 @@ impl BlinkTimer {
     }
 }
 
+#[derive(Clone)]
+pub struct EyeRow {
+    pub height: usize,
+    pub blink: BlinkTimer,
+}
+
+impl EyeRow {
+    pub fn new(height: usize, rng: &mut impl RngExt) -> Self {
+        Self {
+            height,
+            blink: BlinkTimer::entity_eye(rng),
+        }
+    }
+}
+
+pub fn sway_x_offset(
+    sway_phase: f32,
+    row: usize,
+    total_height: usize,
+    wave_spread: f32,
+    sway_amount: f32,
+) -> i32 {
+    let ratio = if total_height <= 1 {
+        1.0_f32
+    } else {
+        row as f32 / (total_height - 1) as f32
+    };
+    let phase = sway_phase + row as f32 * wave_spread;
+    (phase.sin() * sway_amount * ratio).round() as i32
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn extend_spaced<T, R: RngExt>(
     items: &mut Vec<T>,
     to_width: i32,

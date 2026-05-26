@@ -1,23 +1,27 @@
 use rand::RngExt;
 use ratatui::style::Color;
 
-use crate::entities::species::FishSpecies;
+use crate::colors::{BROWN, CASH_ORANGE, CASH_PURPLE, COFFEE_LIQUID, LIGHT_GRAY, OFF_WHITE, WORM_BODY, WORM_DIRT, WORM_EYE};
+use crate::economy::{Purchasable, Rarity, Sellable};
+use crate::fishes::species::{ALL_SPECIES, FishSpecies};
 
 pub const GOLD_BAR_VALUE: u32 = 5_000;
 pub const FOOD_AMOUNT_MIN: u32 = 20;
 pub const FOOD_AMOUNT_MAX: u32 = 80;
-const JUNK_SLOT_OUTCOMES: u32 = 3;
 const DEVILS_LUCK_CASH_BONUS: u32 = 30;
 const CASH_TIER_SHIFT: u32 = 12;
 const CASH_CENTER_IDX: usize = 3;
 
+const ULTRA_LEGENDARY: u32 = 2;
+const LEGENDARY: u32 = 4;
+const COMMON: u32 = 62;
+
+const JUNK_WEIGHT: u32 = 21;
+const COFFEE_WEIGHT: u32 = 21;
+const BAIT_WEIGHT: u32 = 20;
+
 const JUNK_FILLER_CHARS: &[char] = &['&', '@', '€', '%', '$', '#', 'X', '<', '>'];
-const JUNK_COLORS: &[Color] = &[
-    Color::Gray,
-    Color::Rgb(160, 100, 40),
-    Color::Green,
-    Color::LightGreen,
-];
+const JUNK_COLORS: &[Color] = &[Color::Gray, BROWN, Color::Green, Color::LightGreen];
 
 pub struct JunkSprite {
     pub rows: Vec<Vec<(char, Color)>>,
@@ -31,48 +35,45 @@ fn junk_char(rng: &mut impl RngExt) -> char {
     JUNK_FILLER_CHARS[rng.random_range(0..JUNK_FILLER_CHARS.len())]
 }
 
+fn junk_row_top() -> Vec<(char, Color)> {
+    let dark = Color::DarkGray;
+    vec![
+        (' ', dark), (' ', dark), (' ', dark), ('.', dark),
+        ('_', dark), ('_', dark), ('_', dark), ('.', dark),
+    ]
+}
+
+fn junk_row_mid(rng: &mut impl RngExt) -> Vec<(char, Color)> {
+    let dark = Color::DarkGray;
+    vec![
+        (' ', dark), (' ', dark), ('(', dark),
+        (junk_char(rng), junk_color(rng)),
+        (junk_char(rng), junk_color(rng)),
+        (junk_char(rng), junk_color(rng)),
+        (junk_char(rng), junk_color(rng)),
+        (')', dark), ('.', dark),
+    ]
+}
+
+fn junk_row_bot(rng: &mut impl RngExt) -> Vec<(char, Color)> {
+    let dark = Color::DarkGray;
+    vec![
+        ('.', dark), ('(', dark),
+        (junk_char(rng), junk_color(rng)),
+        (junk_char(rng), junk_color(rng)),
+        (junk_char(rng), junk_color(rng)),
+        (junk_char(rng), junk_color(rng)),
+        (junk_char(rng), junk_color(rng)),
+        (junk_char(rng), junk_color(rng)),
+        (junk_char(rng), junk_color(rng)),
+        (')', dark),
+    ]
+}
+
 impl JunkSprite {
     pub fn new(rng: &mut impl RngExt) -> Self {
-        let dark = Color::DarkGray;
-
-        let row0 = vec![
-            (' ', dark),
-            (' ', dark),
-            (' ', dark),
-            ('.', dark),
-            ('_', dark),
-            ('_', dark),
-            ('_', dark),
-            ('.', dark),
-        ];
-
-        let row1 = vec![
-            (' ', dark),
-            (' ', dark),
-            ('(', dark),
-            (junk_char(rng), junk_color(rng)),
-            (junk_char(rng), junk_color(rng)),
-            (junk_char(rng), junk_color(rng)),
-            (junk_char(rng), junk_color(rng)),
-            (')', dark),
-            ('.', dark),
-        ];
-
-        let row2 = vec![
-            ('.', dark),
-            ('(', dark),
-            (junk_char(rng), junk_color(rng)),
-            (junk_char(rng), junk_color(rng)),
-            (junk_char(rng), junk_color(rng)),
-            (junk_char(rng), junk_color(rng)),
-            (junk_char(rng), junk_color(rng)),
-            (junk_char(rng), junk_color(rng)),
-            (junk_char(rng), junk_color(rng)),
-            (')', dark),
-        ];
-
         JunkSprite {
-            rows: vec![row0, row1, row2],
+            rows: vec![junk_row_top(), junk_row_mid(rng), junk_row_bot(rng)],
         }
     }
 
@@ -129,12 +130,58 @@ impl ConsumableKind {
             ConsumableKind::Bait => 0,
         }
     }
+
+    pub fn buy_price(self) -> u32 {
+        match self {
+            ConsumableKind::Coffee => 10,
+            ConsumableKind::Bait => 15,
+        }
+    }
+
+    pub fn sell_price(self) -> u32 {
+        match self {
+            ConsumableKind::Coffee => 8,
+            ConsumableKind::Bait => 12,
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            ConsumableKind::Coffee => "Work-communion-enabling percolated Breverage. Allows terminal-humanii connection. Gives fishes something to believe in. Faster reeling",
+            ConsumableKind::Bait => "Lesser-blood sacrifice for higher-entropy lifeforms. Bait Mindset. Even they wish for the Heavens. Get better fishes",
+        }
+    }
+
+    pub fn rarity(self) -> Rarity {
+        Rarity::Common
+    }
+}
+
+impl Purchasable for ConsumableKind {
+    fn buy_price(&self) -> u32 { ConsumableKind::buy_price(*self) }
+    fn display_name(&self) -> &str { ConsumableKind::display_name(*self) }
+}
+
+impl Sellable for ConsumableKind {
+    fn sell_price(&self) -> u32 { ConsumableKind::sell_price(*self) }
+    fn display_name(&self) -> &str { ConsumableKind::display_name(*self) }
+}
+
+pub trait Catchable {
+    fn rarity(&self) -> Rarity;
+    fn catch_weight(&self) -> u32 { self.rarity().catch_weight() }
+    fn on_catch(&self, rng: &mut impl RngExt) -> LootKind;
+}
+
+impl Catchable for FishSpecies {
+    fn rarity(&self) -> Rarity { self.config().rarity }
+    fn on_catch(&self, _rng: &mut impl RngExt) -> LootKind { LootKind::Fish(*self) }
 }
 
 pub fn coffee_sprite_rows(anim_phase: bool) -> Vec<Vec<(char, Color)>> {
-    let steam = Color::Rgb(200, 200, 200);
-    let cup = Color::Rgb(180, 180, 180);
-    let liquid = Color::Rgb(140, 80, 20);
+    let steam = OFF_WHITE;
+    let cup = LIGHT_GRAY;
+    let liquid = COFFEE_LIQUID;
     let label = Color::White;
 
     let (top_open, top_close, bot_open, bot_close) = if anim_phase {
@@ -144,58 +191,23 @@ pub fn coffee_sprite_rows(anim_phase: bool) -> Vec<Vec<(char, Color)>> {
     };
 
     vec![
-        vec![
-            (' ', steam),
-            (' ', steam),
-            (top_open, steam),
-            (top_close, steam),
-        ],
-        vec![
-            (' ', steam),
-            (' ', steam),
-            (bot_open, steam),
-            (bot_close, steam),
-        ],
-        vec![
-            (' ', cup),
-            ('|', cup),
-            ('~', liquid),
-            ('~', liquid),
-            ('|', cup),
-        ],
+        vec![(' ', steam), (' ', steam), (top_open, steam), (top_close, steam)],
+        vec![(' ', steam), (' ', steam), (bot_open, steam), (bot_close, steam)],
+        vec![(' ', cup), ('|', cup), ('~', liquid), ('~', liquid), ('|', cup)],
         vec![('C', label), ('|', cup), ('_', cup), ('_', cup), ('|', cup)],
     ]
 }
 
 pub fn bait_sprite_rows() -> Vec<Vec<(char, Color)>> {
-    let dirt = Color::Rgb(120, 80, 40);
-    let body = Color::Rgb(220, 100, 80);
-    let eye = Color::Rgb(200, 160, 120);
+    let dirt = WORM_DIRT;
+    let body = WORM_BODY;
+    let eye = WORM_EYE;
 
     vec![
         vec![(' ', dirt), (' ', dirt), (' ', dirt), ('_', dirt)],
-        vec![
-            (' ', body),
-            (' ', body),
-            ('(', body),
-            ('º', eye),
-            ('\\', body),
-        ],
-        vec![
-            (' ', body),
-            ('_', body),
-            ('_', body),
-            (')', body),
-            (' ', body),
-            (')', body),
-        ],
-        vec![
-            ('(', body),
-            ('_', body),
-            ('_', body),
-            ('_', body),
-            ('/', body),
-        ],
+        vec![(' ', body), (' ', body), ('(', body), ('º', eye), ('\\', body)],
+        vec![(' ', body), ('_', body), ('_', body), (')', body), (' ', body), (')', body)],
+        vec![('(', body), ('_', body), ('_', body), ('_', body), ('/', body)],
     ]
 }
 
@@ -236,10 +248,10 @@ impl CashValue {
     pub fn color(self) -> Color {
         match self {
             CashValue::One => Color::Green,
-            CashValue::Two => Color::Rgb(140, 0, 210),
+            CashValue::Two => CASH_PURPLE,
             CashValue::Five => Color::LightMagenta,
             CashValue::Ten => Color::Blue,
-            CashValue::Twenty => Color::Rgb(255, 130, 0),
+            CashValue::Twenty => CASH_ORANGE,
             CashValue::Hundred => Color::Red,
             CashValue::Thousand => Color::Yellow,
         }
@@ -248,58 +260,125 @@ impl CashValue {
     pub fn roll(rng: &mut impl RngExt) -> Self {
         roll_weighted(CASH_TABLE, rng)
     }
+
+    pub fn rarity(self) -> Rarity {
+        match self {
+            CashValue::One | CashValue::Two => Rarity::Common,
+            CashValue::Five | CashValue::Ten | CashValue::Twenty => Rarity::Rare,
+            CashValue::Hundred | CashValue::Thousand => Rarity::Legendary,
+        }
+    }
+}
+
+pub enum ItemKind {
+    GoldBar,
+    Necronomicon,
+    Junk(JunkSprite),
+    Consumable(ConsumableKind),
+}
+
+impl ItemKind {
+    pub fn display_name(&self) -> &str {
+        match self {
+            ItemKind::GoldBar => "Gold Bar",
+            ItemKind::Necronomicon => "Necronomicon",
+            ItemKind::Junk(_) => "Junk",
+            ItemKind::Consumable(kind) => ConsumableKind::display_name(*kind),
+        }
+    }
 }
 
 pub enum LootKind {
     Fish(FishSpecies),
     Cash(CashValue),
     Food(u32),
-    Junk(JunkSprite),
+    Item(ItemKind),
+}
+
+#[derive(Clone, Copy)]
+enum PoolSlot {
+    Species(FishSpecies),
+    Cash,
+    Food,
+    Junk,
     Consumable(ConsumableKind),
     GoldBar,
     Necronomicon,
 }
 
-#[derive(Clone, Copy)]
-enum LootEntry {
-    Fish(FishSpecies),
-    Cash,
-    Food,
-    JunkSlot,
-    GoldBar,
-    Necronomicon,
+pub struct LootPool {
+    slots: Vec<(u32, PoolSlot)>,
+    devils_luck: u32,
 }
 
-const ULTRA_LEGENDARY: u32 = 2;
-const LEGENDARY: u32 = 4;
-const RARE: u32 = 22;
-const COMMON: u32 = 62;
+impl LootPool {
+    pub fn default_pool() -> Self {
+        let mut slots: Vec<(u32, PoolSlot)> = ALL_SPECIES
+            .iter()
+            .map(|&s| (s.config().rarity.catch_weight(), PoolSlot::Species(s)))
+            .collect();
+        slots.push((COMMON, PoolSlot::Cash));
+        slots.push((COMMON, PoolSlot::Food));
+        slots.push((JUNK_WEIGHT, PoolSlot::Junk));
+        slots.push((COFFEE_WEIGHT, PoolSlot::Consumable(ConsumableKind::Coffee)));
+        slots.push((BAIT_WEIGHT, PoolSlot::Consumable(ConsumableKind::Bait)));
+        slots.push((LEGENDARY, PoolSlot::Necronomicon));
+        slots.push((ULTRA_LEGENDARY, PoolSlot::GoldBar));
+        Self { slots, devils_luck: 0 }
+    }
 
-const LOOT_TABLE: &[(u32, LootEntry)] = &[
-    (LEGENDARY, LootEntry::Fish(FishSpecies::Mutantfish)),
-    (LEGENDARY, LootEntry::Fish(FishSpecies::Goldenfish)),
-    (LEGENDARY, LootEntry::Necronomicon),
-    (RARE, LootEntry::Fish(FishSpecies::Turbofish)),
-    (RARE, LootEntry::Fish(FishSpecies::Jellyfish)),
-    (RARE, LootEntry::Fish(FishSpecies::Deadfish)),
-    (RARE, LootEntry::Fish(FishSpecies::Koi)),
-    (COMMON, LootEntry::Cash),
-    (COMMON, LootEntry::Fish(FishSpecies::Merluza)),
-    (COMMON, LootEntry::Fish(FishSpecies::Betta)),
-    (COMMON, LootEntry::Fish(FishSpecies::Salmon)),
-    (COMMON, LootEntry::Fish(FishSpecies::Chromis)),
-    (COMMON, LootEntry::Fish(FishSpecies::Tang)),
-    (COMMON, LootEntry::Fish(FishSpecies::Carpin)),
-    (COMMON, LootEntry::Fish(FishSpecies::Anchoveta)),
-    (COMMON, LootEntry::Fish(FishSpecies::Goldfish)),
-    (COMMON, LootEntry::Fish(FishSpecies::Snapper)),
-    (COMMON, LootEntry::Fish(FishSpecies::Nishiki)),
-    (COMMON, LootEntry::Fish(FishSpecies::Aka)),
-    (COMMON, LootEntry::Fish(FishSpecies::Kuro)),
-    (COMMON, LootEntry::Food),
-    (COMMON, LootEntry::JunkSlot),
-    (ULTRA_LEGENDARY, LootEntry::GoldBar),
-];
+    pub fn fish_excluded() -> Self {
+        let mut pool = Self::default_pool();
+        pool.slots.retain(|(_, s)| !matches!(s, PoolSlot::Species(_)));
+        pool
+    }
+
+    pub fn with_bait(mut self, stacks: u32) -> Self {
+        if stacks == 0 { return self; }
+        let mult = 1u32 + stacks;
+        for (w, slot) in &mut self.slots {
+            let boostable = match slot {
+                PoolSlot::Species(s) => s.config().rarity != Rarity::Common,
+                PoolSlot::Necronomicon | PoolSlot::GoldBar => true,
+                _ => false,
+            };
+            if boostable { *w *= mult; }
+        }
+        self
+    }
+
+    pub fn with_devils_luck(mut self, level: u32) -> Self {
+        self.devils_luck = level;
+        if level > 0 {
+            for (w, slot) in &mut self.slots {
+                if matches!(slot, PoolSlot::Cash) {
+                    *w += DEVILS_LUCK_CASH_BONUS * level;
+                }
+            }
+        }
+        self
+    }
+
+    pub fn roll(&self, rng: &mut impl RngExt) -> LootKind {
+        let total: u32 = self.slots.iter().map(|(w, _)| w).sum();
+        let mut v = rng.random_range(0..total);
+        for (w, slot) in &self.slots {
+            if v < *w {
+                return match slot {
+                    PoolSlot::Species(s) => LootKind::Fish(*s),
+                    PoolSlot::Cash => LootKind::Cash(roll_cash_with_luck(rng, self.devils_luck)),
+                    PoolSlot::Food => LootKind::Food(rng.random_range(FOOD_AMOUNT_MIN..=FOOD_AMOUNT_MAX)),
+                    PoolSlot::Junk => LootKind::Item(ItemKind::Junk(JunkSprite::new(rng))),
+                    PoolSlot::Consumable(kind) => LootKind::Item(ItemKind::Consumable(*kind)),
+                    PoolSlot::GoldBar => LootKind::Item(ItemKind::GoldBar),
+                    PoolSlot::Necronomicon => LootKind::Item(ItemKind::Necronomicon),
+                };
+            }
+            v -= w;
+        }
+        LootKind::Item(ItemKind::Junk(JunkSprite::new(rng)))
+    }
+}
 
 fn roll_weighted<T: Copy>(table: &[(u32, T)], rng: &mut impl RngExt) -> T {
     let total: u32 = table.iter().map(|(w, _)| w).sum();
@@ -334,85 +413,10 @@ fn roll_cash_with_luck(rng: &mut impl RngExt, devils_luck: u32) -> CashValue {
     roll_weighted(&shifted, rng)
 }
 
-fn roll_junk_slot(rng: &mut impl RngExt) -> LootKind {
-    match rng.random_range(0..JUNK_SLOT_OUTCOMES) {
-        0 => LootKind::Junk(JunkSprite::new(rng)),
-        1 => LootKind::Consumable(ConsumableKind::Coffee),
-        _ => LootKind::Consumable(ConsumableKind::Bait),
-    }
+pub fn roll_loot(rng: &mut impl RngExt, bait_stacks: u32, devils_luck: u32) -> LootKind {
+    LootPool::default_pool().with_bait(bait_stacks).with_devils_luck(devils_luck).roll(rng)
 }
 
 pub fn roll_loot_no_fish(rng: &mut impl RngExt, devils_luck: u32) -> LootKind {
-    let non_fish: Vec<(u32, LootEntry)> = LOOT_TABLE
-        .iter()
-        .filter(|(_, e)| !matches!(e, LootEntry::Fish(_)))
-        .map(|(w, e)| {
-            let eff_w = if matches!(e, LootEntry::Cash) {
-                w + DEVILS_LUCK_CASH_BONUS * devils_luck
-            } else {
-                *w
-            };
-            (eff_w, *e)
-        })
-        .collect();
-    let total: u32 = non_fish.iter().map(|(w, _)| w).sum();
-    let mut v = rng.random_range(0..total);
-    for (weight, entry) in &non_fish {
-        if v < *weight {
-            return match entry {
-                LootEntry::Fish(_) => unreachable!(),
-                LootEntry::Cash => LootKind::Cash(roll_cash_with_luck(rng, devils_luck)),
-                LootEntry::Food => {
-                    LootKind::Food(rng.random_range(FOOD_AMOUNT_MIN..=FOOD_AMOUNT_MAX))
-                }
-                LootEntry::JunkSlot => roll_junk_slot(rng),
-                LootEntry::GoldBar => LootKind::GoldBar,
-                LootEntry::Necronomicon => LootKind::Necronomicon,
-            };
-        }
-        v -= weight;
-    }
-    roll_junk_slot(rng)
-}
-
-pub fn roll_loot(rng: &mut impl RngExt, bait_stacks: u32, devils_luck: u32) -> LootKind {
-    let bait_mult = 1u32 + bait_stacks;
-    let total: u32 = LOOT_TABLE
-        .iter()
-        .map(|(w, e)| {
-            let base = if *w < COMMON { w * bait_mult } else { *w };
-            if matches!(e, LootEntry::Cash) {
-                base + DEVILS_LUCK_CASH_BONUS * devils_luck
-            } else {
-                base
-            }
-        })
-        .sum();
-    let mut v = rng.random_range(0..total);
-    for (weight, entry) in LOOT_TABLE {
-        let base_eff = if *weight < COMMON {
-            weight * bait_mult
-        } else {
-            *weight
-        };
-        let eff_weight = if matches!(entry, LootEntry::Cash) {
-            base_eff + DEVILS_LUCK_CASH_BONUS * devils_luck
-        } else {
-            base_eff
-        };
-        if v < eff_weight {
-            return match entry {
-                LootEntry::Fish(s) => LootKind::Fish(*s),
-                LootEntry::Cash => LootKind::Cash(roll_cash_with_luck(rng, devils_luck)),
-                LootEntry::Food => {
-                    LootKind::Food(rng.random_range(FOOD_AMOUNT_MIN..=FOOD_AMOUNT_MAX))
-                }
-                LootEntry::JunkSlot => roll_junk_slot(rng),
-                LootEntry::GoldBar => LootKind::GoldBar,
-                LootEntry::Necronomicon => LootKind::Necronomicon,
-            };
-        }
-        v -= eff_weight;
-    }
-    roll_junk_slot(rng)
+    LootPool::fish_excluded().with_devils_luck(devils_luck).roll(rng)
 }

@@ -8,8 +8,9 @@ use ratatui::{
     widgets::Widget,
 };
 
-use crate::colors::{COL_SELECTED, COL_SELECTED_TANK};
-use crate::ui::{scroll_list, table};
+use crate::colors::{SELECTED_COLOR, SELECTED_TANK_COLOR};
+use crate::loot::ConsumableKind;
+use crate::ui::{hints::{HINT_CLOSE, HINT_ENTER_CONSUME, HINT_NAV}, scroll_list, table};
 
 pub struct InventoryItem {
     pub name: String,
@@ -26,14 +27,8 @@ pub struct InventoryState {
 
 fn item_desc(name: &str, rng: &mut impl RngExt) -> String {
     match name {
-        "Coffee" => {
-            "Work-communion-enabling percolated Breverage. Allows terminal-humanii connection. Gives fishes something to believe in. Faster reeling"
-                .to_string()
-        }
-        "Bait" => {
-            "Lesser-blood sacrifice for higher-entropy lifeforms. Bait Mindset. Even they wish for the Heavens. Get better fishes"
-                .to_string()
-        }
+        "Coffee" => ConsumableKind::Coffee.description().to_string(),
+        "Bait" => ConsumableKind::Bait.description().to_string(),
         "Necronomicon" => {
             "An Image [or Picture] of the Law of the Dead. Image and pre-image. Summons a Gate to Hell, The Helltank. The devil has a lot of cash"
                 .to_string()
@@ -125,7 +120,7 @@ impl<'a> InventoryOverlay<'a> {
     }
 }
 
-const CONS_W: usize = 11;
+const CONS_WIDTH: usize = 11;
 
 fn word_wrap(text: &str, width: usize) -> Vec<String> {
     if width == 0 || text.is_empty() {
@@ -180,7 +175,7 @@ impl Widget for InventoryOverlay<'_> {
             .max(table::visual_width("Quantity"));
 
         let avail = (area.width as usize).saturating_sub(2);
-        let base_inner = item_w + 1 + qty_w + 1 + CONS_W;
+        let base_inner = item_w + 1 + qty_w + 1 + CONS_WIDTH;
         let avail_for_desc = avail.saturating_sub(base_inner + 1);
         let show_desc = avail_for_desc >= table::visual_width("Description");
         let desc_w = avail_for_desc;
@@ -224,10 +219,10 @@ impl Widget for InventoryOverlay<'_> {
         let left_hint = if scrollable {
             format!(" ↑↓ scroll ({}/{})", state.selected + 1, n)
         } else {
-            " ↑↓ navigate".to_string()
+            HINT_NAV.to_string()
         };
-        let consume_hint = "ENTER consume";
-        let right_hint = "ESC/q close";
+        let consume_hint = HINT_ENTER_CONSUME;
+        let right_hint = HINT_CLOSE;
         let left_w = table::visual_width(&left_hint);
         let consume_w = table::visual_width(consume_hint);
         let right_w = table::visual_width(right_hint);
@@ -237,38 +232,18 @@ impl Widget for InventoryOverlay<'_> {
         let overlay_w = (inner_w + 2) as u16;
         let overlay_h = (visible_data_rows as u16 + 6).min(area.height);
 
-        if area.width < overlay_w || area.height < overlay_h {
+        let Some(layout) = table::OverlayLayout::centered(area, overlay_w, overlay_h) else {
             return;
-        }
+        };
+        layout.clear_bg(buf, bg);
 
-        let ox = area.x + (area.width - overlay_w) / 2;
-        let oy = area.y + (area.height - overlay_h) / 2;
+        let (ox, oy) = (layout.ox, layout.oy);
 
-        for dy in 0..overlay_h {
-            for dx in 0..overlay_w {
-                let px = ox + dx;
-                let py = oy + dy;
-                if px < area.right() && py < area.bottom() {
-                    buf[(px, py)].reset();
-                    buf[(px, py)].set_bg(bg);
-                }
-            }
-        }
-
-        table::draw_box_border(
-            buf,
-            ox,
-            oy,
-            overlay_w,
-            overlay_h,
-            " Inventory#index ",
-            Color::White,
-            bg,
-        );
+        layout.draw_border(buf, " Inventory#index ", Color::White, bg);
 
         let sep1_x = ox + 1 + item_w as u16;
         let sep2_x = sep1_x + 1 + qty_w as u16;
-        let sep3_x = sep2_x + 1 + CONS_W as u16;
+        let sep3_x = sep2_x + 1 + CONS_WIDTH as u16;
         let sep_xs_2 = [sep1_x, sep2_x];
         let sep_xs_3 = [sep1_x, sep2_x, sep3_x];
         let sep_xs: &[u16] = if show_desc { &sep_xs_3 } else { &sep_xs_2 };
@@ -359,10 +334,10 @@ fn draw_header(
 
     let c_x = q_x + 1 + qty_w as u16;
     buf[(c_x, y)].set_char('│').set_style(sep);
-    buf.set_string(c_x + 1, y, table::pad_right("Consumable?", CONS_W), bold);
+    buf.set_string(c_x + 1, y, table::pad_right("Consumable?", CONS_WIDTH), bold);
 
     if show_desc {
-        let d_x = c_x + 1 + CONS_W as u16;
+        let d_x = c_x + 1 + CONS_WIDTH as u16;
         buf[(d_x, y)].set_char('│').set_style(sep);
         buf.set_string(d_x + 1, y, table::truncate_str("Description", desc_w), bold);
     }
@@ -384,8 +359,8 @@ fn draw_row(
     base_bg: Color,
 ) {
     let item_h = desc_lines.len().max(1);
-    let row_bg = if selected { COL_SELECTED } else { base_bg };
-    let fg = if selected { Color::Black } else { COL_SELECTED_TANK };
+    let row_bg = if selected { SELECTED_COLOR } else { base_bg };
+    let fg = if selected { Color::Black } else { SELECTED_TANK_COLOR };
     let text_style = Style::default().fg(fg).bg(row_bg);
     let sep_style = Style::default().fg(Color::White).bg(row_bg);
 
@@ -397,7 +372,7 @@ fn draw_row(
 
     let q_x = x + item_w as u16;
     let c_x = q_x + 1 + qty_w as u16;
-    let d_x = c_x + 1 + CONS_W as u16;
+    let d_x = c_x + 1 + CONS_WIDTH as u16;
 
     for dy in 0..item_h as u16 {
         let py = start_y + dy;
@@ -425,7 +400,7 @@ fn draw_row(
     buf.set_string(
         c_x + 1,
         center_y,
-        table::pad_right(cons_val, CONS_W),
+        table::pad_right(cons_val, CONS_WIDTH),
         text_style,
     );
 

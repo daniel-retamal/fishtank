@@ -1,4 +1,6 @@
 pub mod catch_overlay;
+pub mod input_action;
+pub mod hints;
 pub mod command_bar;
 pub mod fields;
 pub mod fishing_overlay;

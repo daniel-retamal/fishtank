@@ -4,12 +4,10 @@ use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use ratatui::style::Color;
 use unicode_width::UnicodeWidthChar;
 
-use super::components::{Position, SwayState, Velocity, tick_sway};
-use super::mutant::{EXTRA_BODY_FOR_DOUBLE, MutantState, derive_glistening_palette};
-use super::species::{
-    BodyChars, BodyTemplate, DEADFISH_BC_PLUS, DEADFISH_BC_SEMI, FishSpecies, PatternKind,
-    SizeCategory, TailKind,
-};
+use crate::entities::components::{Position, SwayState, Velocity, tick_sway};
+use super::mutant::{EXTRA_BODY_FOR_DOUBLE, MutantState, MutationRecord};
+use crate::entities::glistening::{GlisteningMode, color_for_glisten, derive_glistening_palette};
+use super::species::{BodyChars, BodyTemplate, FishSpecies, PatternKind, SizeCategory, TailKind};
 use super::unfish::{
     BALL_WIDTH, BLINKER_BASE_COLOR, BLINKER_GLISTEN_MID, BLINKER_GLISTEN_PEAK, BLINKER_MID_COLOR,
     BLINKER_PEAK_COLOR, SKULL_WIDTH, UNFISH_BODY_COLOR, UNFISH_EYE_COLOR, UnfishKind, UnfishState,
@@ -28,10 +26,7 @@ const ZOOMIE_DURATION_MIN: f32 = 0.8;
 const ZOOMIE_DURATION_MAX: f32 = 1.2;
 const ZOOMIE_TURN_THRESHOLD: f32 = 0.35;
 const DY_FRACTION: f32 = 0.4;
-const WORM_DY_FRACTION: f32 = 0.05;
 const WAVE_THRESHOLD: f32 = 0.8;
-const GLISTEN_PEAK_THRESHOLD: f32 = 0.6;
-const GLISTEN_MID_THRESHOLD: f32 = 0.1;
 const VELOCITY_NORM_MIN: f32 = 0.01;
 const DIRECTION_TIMER_MIN: u32 = 180;
 const DIRECTION_TIMER_MAX: u32 = 480;
@@ -89,7 +84,7 @@ pub struct Fish {
     pub display_width: usize,
     pub sway_speed: f32,
     pub mutant: Option<Box<MutantState>>,
-    pub body_chars_override: Option<BodyChars>,
+    pub mutations: Option<Box<MutationRecord>>,
     pub weight_g: u32,
     pub size_category: SizeCategory,
     pub devil_marked: bool,
@@ -115,85 +110,83 @@ fn roll_size_category(rng: &mut impl RngExt) -> SizeCategory {
     SizeCategory::XL
 }
 
+struct BodyFields {
+    body_size: usize,
+    weight_g: u32,
+    speed: f32,
+    pattern_seed: u64,
+    color: Color,
+    mutant: Option<Box<MutantState>>,
+    display_width: usize,
+    sway_speed: f32,
+}
+
+fn init_body_fields(species: FishSpecies, size_cat: SizeCategory, rng: &mut impl RngExt) -> BodyFields {
+    let config = species.config();
+    let body_size = match config.body {
+        BodyTemplate::Fixed { .. } => 0,
+        _ => config.sizes[size_cat as usize],
+    };
+    let weight_g = config.weight_base[size_cat as usize];
+    let speed = rng.random_range(config.speed_range.0..config.speed_range.1);
+    let pattern_seed: u64 = rng.random();
+    let color = if species == FishSpecies::Mutantfish {
+        FishSpecies::mutant_color_for_seed(pattern_seed)
+    } else {
+        config.palette[rng.random_range(0..config.palette.len())]
+    };
+    let mutant = if species == FishSpecies::Mutantfish {
+        Some(Box::new(MutantState::new(body_size, pattern_seed, rng)))
+    } else {
+        None
+    };
+    let display_width = mutant
+        .as_ref()
+        .map(|mutant| mutant.display_width(body_size))
+        .unwrap_or_else(|| compute_display_width(species, body_size));
+    BodyFields {
+        body_size,
+        weight_g,
+        speed,
+        pattern_seed,
+        color,
+        mutant,
+        display_width,
+        sway_speed: config.sway_speed,
+    }
+}
+
 impl Fish {
     pub fn new(species: FishSpecies, name: String, x: f32, y: f32, rng: &mut impl RngExt) -> Self {
-        let cfg = species.config();
-
         let size_cat = if species == FishSpecies::Mutantfish {
             SizeCategory::M
         } else {
             roll_size_category(rng)
         };
-        let body_size = match cfg.body {
-            BodyTemplate::Standard(_) => cfg.sizes[size_cat as usize],
-            BodyTemplate::Fixed { .. } => 0,
-        };
-        let weight_g = if species == FishSpecies::Mutantfish {
-            cfg.weight_base[1]
-        } else {
-            cfg.weight_base[size_cat as usize]
-        };
-
-        let speed: f32 = rng.random_range(cfg.speed_range.0..cfg.speed_range.1);
-        let pattern_seed: u64 = rng.random();
-        let color = if species == FishSpecies::Mutantfish {
-            FishSpecies::mutant_color_for_seed(pattern_seed)
-        } else {
-            cfg.palette[rng.random_range(0..cfg.palette.len())]
-        };
-
-        let mutant = if species == FishSpecies::Mutantfish {
-            Some(Box::new(MutantState::new(body_size, pattern_seed, rng)))
-        } else {
-            None
-        };
-
-        let body_chars_override = if species == FishSpecies::Deadfish {
-            Some(if pattern_seed.is_multiple_of(2) {
-                DEADFISH_BC_SEMI
-            } else {
-                DEADFISH_BC_PLUS
-            })
-        } else {
-            None
-        };
-
-        let display_width = if let Some(ref m) = mutant {
-            m.display_width(body_size)
-        } else {
-            compute_display_width(species, body_size)
-        };
-
+        let fields = init_body_fields(species, size_cat, rng);
         let angle = rng.random::<f32>() * TAU;
-        let dx = angle.cos() * speed;
-        let dy = angle.sin() * speed * DY_FRACTION;
-
+        let dx = angle.cos() * fields.speed;
+        let dy = angle.sin() * fields.speed * DY_FRACTION;
         Self {
             name,
             position: Position { x, y },
             velocity: Velocity { dx, dy },
-            sway: SwayState {
-                phase: rng.random::<f32>() * TAU,
-            },
+            sway: SwayState { phase: rng.random::<f32>() * TAU },
             state: FishState::Idle,
-            facing: if dx < 0.0 {
-                Direction::Left
-            } else {
-                Direction::Right
-            },
-            body_size,
-            color,
-            speed,
+            facing: if dx < 0.0 { Direction::Left } else { Direction::Right },
+            body_size: fields.body_size,
+            color: fields.color,
+            speed: fields.speed,
             seek_boost: 0.0,
             direction_timer: rng.random_range(DIRECTION_TIMER_MIN..DIRECTION_TIMER_MAX),
             zoomie_timer: rng.random_range(ZOOMIE_INITIAL_TIMER_MIN..ZOOMIE_INITIAL_TIMER_MAX),
             species,
-            pattern_seed,
-            display_width,
-            sway_speed: cfg.sway_speed,
-            mutant,
-            body_chars_override,
-            weight_g,
+            pattern_seed: fields.pattern_seed,
+            display_width: fields.display_width,
+            sway_speed: fields.sway_speed,
+            mutant: fields.mutant,
+            mutations: None,
+            weight_g: fields.weight_g,
             size_category: size_cat,
             devil_marked: false,
             unfish_state: None,
@@ -201,62 +194,28 @@ impl Fish {
     }
 
     pub fn new_for_display(species: FishSpecies, rng: &mut impl RngExt) -> Self {
-        let cfg = species.config();
-        let size_cat = SizeCategory::M;
-        let body_size = match cfg.body {
-            BodyTemplate::Standard(_) => cfg.sizes[size_cat as usize],
-            BodyTemplate::Fixed { .. } => 0,
-        };
-        let weight_g = cfg.weight_base[size_cat as usize];
-        let speed: f32 = rng.random_range(cfg.speed_range.0..cfg.speed_range.1);
-        let pattern_seed: u64 = rng.random();
-        let color = if species == FishSpecies::Mutantfish {
-            FishSpecies::mutant_color_for_seed(pattern_seed)
-        } else {
-            cfg.palette[rng.random_range(0..cfg.palette.len())]
-        };
-        let mutant = if species == FishSpecies::Mutantfish {
-            Some(Box::new(MutantState::new(body_size, pattern_seed, rng)))
-        } else {
-            None
-        };
-        let body_chars_override = if species == FishSpecies::Deadfish {
-            Some(if pattern_seed.is_multiple_of(2) {
-                DEADFISH_BC_SEMI
-            } else {
-                DEADFISH_BC_PLUS
-            })
-        } else {
-            None
-        };
-        let display_width = if let Some(ref m) = mutant {
-            m.display_width(body_size)
-        } else {
-            compute_display_width(species, body_size)
-        };
+        let fields = init_body_fields(species, SizeCategory::M, rng);
         Self {
             name: String::new(),
             position: Position { x: 0.0, y: 0.0 },
-            velocity: Velocity { dx: speed, dy: 0.0 },
-            sway: SwayState {
-                phase: rng.random::<f32>() * TAU,
-            },
+            velocity: Velocity { dx: fields.speed, dy: 0.0 },
+            sway: SwayState { phase: rng.random::<f32>() * TAU },
             state: FishState::Idle,
             facing: Direction::Right,
-            body_size,
-            color,
-            speed,
+            body_size: fields.body_size,
+            color: fields.color,
+            speed: fields.speed,
             seek_boost: 0.0,
             direction_timer: DIRECTION_TIMER_DISPLAY_DEFAULT,
             zoomie_timer: ZOOMIE_TIMER_DISPLAY_DEFAULT,
             species,
-            pattern_seed,
-            display_width,
-            sway_speed: cfg.sway_speed,
-            mutant,
-            body_chars_override,
-            weight_g,
-            size_category: size_cat,
+            pattern_seed: fields.pattern_seed,
+            display_width: fields.display_width,
+            sway_speed: fields.sway_speed,
+            mutant: fields.mutant,
+            mutations: None,
+            weight_g: fields.weight_g,
+            size_category: SizeCategory::M,
             devil_marked: false,
             unfish_state: None,
         }
@@ -269,11 +228,8 @@ impl Fish {
         y: f32,
         rng: &mut impl RngExt,
     ) -> Self {
-        let speed = match kind {
-            UnfishKind::Phantom => rng.random_range(0.3_f32..0.8),
-            UnfishKind::Worm => rng.random_range(2.88_f32..5.04),
-            _ => rng.random_range(2.0_f32..4.0),
-        };
+        let (speed_lo, speed_hi) = kind.speed_range();
+        let speed = rng.random_range(speed_lo..speed_hi);
         let display_width = match kind {
             UnfishKind::Skull => SKULL_WIDTH as usize,
             UnfishKind::Ball => BALL_WIDTH as usize,
@@ -282,25 +238,14 @@ impl Fish {
         };
         let angle = rng.random::<f32>() * TAU;
         let dx = angle.cos() * speed;
-        let worm_dy_frac = if kind == UnfishKind::Worm {
-            WORM_DY_FRACTION
-        } else {
-            DY_FRACTION
-        };
-        let dy = angle.sin() * speed * worm_dy_frac;
+        let dy = angle.sin() * speed * kind.dy_fraction();
         Self {
             name,
             position: Position { x, y },
             velocity: Velocity { dx, dy },
-            sway: SwayState {
-                phase: rng.random::<f32>() * TAU,
-            },
+            sway: SwayState { phase: rng.random::<f32>() * TAU },
             state: FishState::Idle,
-            facing: if dx < 0.0 {
-                Direction::Left
-            } else {
-                Direction::Right
-            },
+            facing: if dx < 0.0 { Direction::Left } else { Direction::Right },
             body_size: 5,
             color: ratatui::style::Color::White,
             speed,
@@ -312,7 +257,7 @@ impl Fish {
             display_width,
             sway_speed: FishSpecies::Unfish.config().sway_speed,
             mutant: None,
-            body_chars_override: None,
+            mutations: None,
             weight_g: 1,
             size_category: SizeCategory::M,
             devil_marked: false,
@@ -335,30 +280,30 @@ impl Fish {
     }
 
     pub fn segments(&self) -> Vec<(char, Color)> {
-        if self.species == FishSpecies::Unfish {
+        if self.unfish_state.is_some() {
             return self.segments_unfish();
         }
         if self.mutant.is_some() {
             return self.segments_mutant();
         }
-        let cfg = self.species.config();
-        let chars = self.build_chars(&cfg.body);
-        let colors = if matches!(cfg.pattern, PatternKind::Glistening) {
+        let config = self.species.config();
+        let chars = self.build_chars(&config.body);
+        let colors = if matches!(config.pattern, PatternKind::Glistening) {
             self.build_glistening_colors(
                 chars.len(),
-                cfg.palette[0],
-                cfg.palette[1],
-                cfg.palette[2],
+                config.palette[0],
+                config.palette[1],
+                config.palette[2],
             )
         } else {
-            self.build_colors(chars.len(), cfg.palette, cfg.pattern)
+            self.build_colors(chars.len(), config.palette, config.pattern)
         };
         let mut segs: Vec<(char, Color)> = chars.into_iter().zip(colors).collect();
-        if matches!(cfg.body, BodyTemplate::Standard(_)) && matches!(self.facing, Direction::Right)
+        if !matches!(config.body, BodyTemplate::Fixed { .. }) && matches!(self.facing, Direction::Right)
         {
             segs.reverse();
         }
-        if matches!(cfg.body, BodyTemplate::Standard(_))
+        if !matches!(config.body, BodyTemplate::Fixed { .. })
             && segs.len() >= 2
             && self.unfish_state.is_some()
         {
@@ -374,8 +319,10 @@ impl Fish {
 
     fn build_chars(&self, body: &BodyTemplate) -> Vec<char> {
         match *body {
-            BodyTemplate::Standard(bc) => {
-                self.build_standard_chars(self.body_chars_override.unwrap_or(bc))
+            BodyTemplate::Standard(body_chars) => self.build_standard_chars(body_chars),
+            BodyTemplate::Alternating(even_body_chars, odd_body_chars) => {
+                let body_chars = if self.pattern_seed.is_multiple_of(2) { even_body_chars } else { odd_body_chars };
+                self.build_standard_chars(body_chars)
             }
             BodyTemplate::Fixed { left, right } => {
                 let variants = match self.facing {
@@ -388,14 +335,14 @@ impl Fish {
         }
     }
 
-    fn build_standard_chars(&self, bc: BodyChars) -> Vec<char> {
-        self.build_standard_chars_for(bc, self.facing)
+    fn build_standard_chars(&self, body_chars: BodyChars) -> Vec<char> {
+        self.build_standard_chars_for(body_chars, self.facing)
     }
 
-    fn build_standard_chars_for(&self, bc: BodyChars, facing: Direction) -> Vec<char> {
+    fn build_standard_chars_for(&self, body_chars: BodyChars, facing: Direction) -> Vec<char> {
         let (body_char, wave_char, raw_mouth, eye) = match facing {
-            Direction::Left => (bc.body_left, bc.wave_left, bc.mouth_left, bc.eye_left),
-            Direction::Right => (bc.body_right, bc.wave_right, bc.mouth_right, bc.eye_right),
+            Direction::Left => (body_chars.body_left, body_chars.wave_left, body_chars.mouth_left, body_chars.eye_left),
+            Direction::Right => (body_chars.body_right, body_chars.wave_right, body_chars.mouth_right, body_chars.eye_right),
         };
         let mouth = if matches!(self.state, FishState::Eating { .. }) {
             invert_mouth(raw_mouth)
@@ -406,7 +353,7 @@ impl Fish {
         let body: Vec<char> = (0..self.body_size)
             .map(|_| if substituting { wave_char } else { body_char })
             .collect();
-        let tail = tail_chars(bc, facing, self.sway.phase);
+        let tail = tail_chars(body_chars, facing, self.sway.phase);
         let mut chars = vec![mouth, eye];
         chars.extend(body);
         chars.extend(tail);
@@ -414,41 +361,41 @@ impl Fish {
     }
 
     fn segments_unfish(&self) -> Vec<(char, Color)> {
-        let us = self.unfish_state.as_ref().unwrap();
-        if is_multi_row(us.kind) {
+        let unfish_state = self.unfish_state.as_ref().unwrap();
+        if is_multi_row(unfish_state.kind) {
             return vec![];
         }
-        let cfg = FishSpecies::Unfish.config();
-        let bc = match cfg.body {
+        let config = FishSpecies::Unfish.config();
+        let body_chars = match config.body {
             BodyTemplate::Standard(b) => b,
             _ => unreachable!(),
         };
-        match us.kind {
+        match unfish_state.kind {
             UnfishKind::Worm => {
                 let facing_left = matches!(self.facing, Direction::Left);
                 let sprite = build_worm(
                     facing_left,
-                    us.worm_forward,
-                    us.worm_segments,
-                    us.worm_extra_eyes,
-                    us.worm_is_double,
+                    unfish_state.worm_forward,
+                    unfish_state.worm_segments,
+                    unfish_state.worm_extra_eyes,
+                    unfish_state.worm_is_double,
                 );
                 let eye_cols = worm_eye_cols(
                     facing_left,
-                    us.worm_segments,
-                    us.worm_extra_eyes,
-                    us.worm_is_double,
+                    unfish_state.worm_segments,
+                    unfish_state.worm_extra_eyes,
+                    unfish_state.worm_is_double,
                 );
-                let body_color = us.slime_body_color.unwrap_or(UNFISH_BODY_COLOR);
+                let body_color = unfish_state.slime_body_color.unwrap_or(UNFISH_BODY_COLOR);
                 let n = sprite.chars().count();
-                let glisten_colors: Vec<Color> = if us.slime_glisten_enabled {
+                let glisten_colors: Vec<Color> = if unfish_state.slime_glisten_enabled {
                     let (base, mid, peak_default) = derive_glistening_palette(body_color);
-                    let peak = us.slime_glisten_color.unwrap_or(peak_default);
+                    let peak = unfish_state.slime_glisten_color.unwrap_or(peak_default);
                     (0..n)
                         .map(|i| {
                             color_for_glisten(
-                                us.slime_glisten_mode,
-                                us.slime_glisten_phase,
+                                unfish_state.slime_glisten_mode,
+                                unfish_state.slime_glisten_phase,
                                 i,
                                 n,
                                 base,
@@ -459,7 +406,7 @@ impl Fish {
                         .collect()
                 } else {
                     let mut colors = vec![body_color; n];
-                    for &(pos, color) in &us.slime_color_patches {
+                    for &(pos, color) in &unfish_state.slime_color_patches {
                         if pos < n && !eye_cols.contains(&pos) {
                             colors[pos] = color;
                         }
@@ -471,8 +418,8 @@ impl Fish {
                     .enumerate()
                     .map(|(i, c)| {
                         if eye_cols.contains(&i) {
-                            let ch = if us.eye.is_open { '0' } else { '-' };
-                            (ch, us.slime_eye_color.unwrap_or(UNFISH_EYE_COLOR))
+                            let ch = if unfish_state.eye.is_open { '0' } else { '-' };
+                            (ch, unfish_state.slime_eye_color.unwrap_or(UNFISH_EYE_COLOR))
                         } else {
                             (c, glisten_colors[i])
                         }
@@ -484,14 +431,14 @@ impl Fish {
                     Direction::Left => Direction::Right,
                     Direction::Right => Direction::Left,
                 };
-                let chars = self.build_standard_chars_for(bc, opposite);
+                let chars = self.build_standard_chars_for(body_chars, opposite);
                 let colors = vec![UNFISH_BODY_COLOR; chars.len()];
                 let mut segs: Vec<(char, Color)> = chars.into_iter().zip(colors).collect();
                 if matches!(self.facing, Direction::Left) {
                     segs.reverse();
                 }
                 let n = segs.len();
-                for &(pos, color) in &us.slime_color_patches {
+                for &(pos, color) in &unfish_state.slime_color_patches {
                     if pos < n {
                         segs[pos].1 = color;
                     }
@@ -507,11 +454,11 @@ impl Fish {
                 segs
             }
             UnfishKind::Blinker => {
-                let chars = self.build_standard_chars(bc);
+                let chars = self.build_standard_chars(body_chars);
                 let n = chars.len();
                 let colors: Vec<Color> = (0..n)
                     .map(|i| {
-                        let s = (us.glistening_phase - i as f32 * CHAR_SPREAD).sin();
+                        let s = (unfish_state.glistening_phase - i as f32 * CHAR_SPREAD).sin();
                         if s > BLINKER_GLISTEN_PEAK {
                             BLINKER_PEAK_COLOR
                         } else if s > BLINKER_GLISTEN_MID {
@@ -525,7 +472,7 @@ impl Fish {
                 if matches!(self.facing, Direction::Right) {
                     segs.reverse();
                 }
-                for &(pos, color) in &us.slime_color_patches {
+                for &(pos, color) in &unfish_state.slime_color_patches {
                     if pos < n {
                         segs[pos].1 = color;
                     }
@@ -533,14 +480,14 @@ impl Fish {
                 segs
             }
             _ => {
-                let chars = self.build_standard_chars(bc);
+                let chars = self.build_standard_chars(body_chars);
                 let colors = vec![UNFISH_BODY_COLOR; chars.len()];
                 let mut segs: Vec<(char, Color)> = chars.into_iter().zip(colors).collect();
                 if matches!(self.facing, Direction::Right) {
                     segs.reverse();
                 }
                 let n = segs.len();
-                for &(pos, color) in &us.slime_color_patches {
+                for &(pos, color) in &unfish_state.slime_color_patches {
                     if pos < n {
                         segs[pos].1 = color;
                     }
@@ -597,21 +544,12 @@ impl Fish {
         peak: Color,
     ) -> Vec<Color> {
         (0..len)
-            .map(|i| {
-                let s = (self.sway.phase - i as f32 * CHAR_SPREAD).sin();
-                if s > GLISTEN_PEAK_THRESHOLD {
-                    peak
-                } else if s > GLISTEN_MID_THRESHOLD {
-                    mid
-                } else {
-                    base
-                }
-            })
+            .map(|i| color_for_glisten(GlisteningMode::Wave, self.sway.phase, i, len, base, mid, peak))
             .collect()
     }
 
     fn segments_mutant(&self) -> Vec<(char, Color)> {
-        let m = self.mutant.as_ref().unwrap();
+        let mutant = self.mutant.as_ref().unwrap();
 
         if let BodyTemplate::Fixed { left, right } = self.species.config().body {
             let facing_left_fixed = matches!(self.facing, Direction::Left);
@@ -620,14 +558,14 @@ impl Fish {
 
             if chars_left.len() <= 1 {
                 let jelly_char = chars_left.first().copied().unwrap_or(' ');
-                let n = if m.is_double { 2 } else { 1 };
-                if m.glistening_color.is_some() {
+                let n = if mutant.is_double { 2 } else { 1 };
+                if mutant.glistening_color.is_some() {
                     let (base, mid, peak_default) = derive_glistening_palette(self.color);
-                    let peak = m.glistening_color.unwrap_or(peak_default);
+                    let peak = mutant.glistening_color.unwrap_or(peak_default);
                     return (0..n)
                         .map(|i| {
                             let c = color_for_glisten(
-                                m.glistening_mode,
+                                mutant.glistening_mode,
                                 self.sway.phase,
                                 i,
                                 n,
@@ -661,9 +599,9 @@ impl Fish {
             };
 
             let eye_chars: Vec<char> = if facing_left_fixed {
-                m.left_eyes.iter().map(|e| e.small_char()).collect()
+                mutant.left_eyes.iter().map(|e| e.small_char()).collect()
             } else {
-                m.right_eyes.iter().map(|e| e.big_char()).collect()
+                mutant.right_eyes.iter().map(|e| e.big_char()).collect()
             };
             let eye_start = 1usize;
             let eye_count = eye_chars.len();
@@ -674,14 +612,14 @@ impl Fish {
                 out_chars.push(body_ch);
             }
 
-            let (double_eye_start, double_eye_count) = if m.is_double {
+            let (double_eye_start, double_eye_count) = if mutant.is_double {
                 let mirror_body = invert_mouth(body_ch);
                 let mirror_mouth = invert_mouth(mouth_ch);
                 for _ in 0..self.body_size {
                     out_chars.push(mirror_body);
                 }
                 let d_start = out_chars.len();
-                let double_eyes: Vec<char> = m
+                let double_eyes: Vec<char> = mutant
                     .double_head_eyes
                     .iter()
                     .map(|e| {
@@ -702,13 +640,13 @@ impl Fish {
             };
 
             let n = out_chars.len();
-            let use_glisten = m.glistening_color.is_some();
+            let use_glisten = mutant.glistening_color.is_some();
             let mut colors: Vec<Color> = if use_glisten {
                 let (base, mid, peak_default) = derive_glistening_palette(self.color);
-                let peak = m.glistening_color.unwrap_or(peak_default);
+                let peak = mutant.glistening_color.unwrap_or(peak_default);
                 (0..n)
                     .map(|i| {
-                        color_for_glisten(m.glistening_mode, self.sway.phase, i, n, base, mid, peak)
+                        color_for_glisten(mutant.glistening_mode, self.sway.phase, i, n, base, mid, peak)
                     })
                     .collect()
             } else {
@@ -716,8 +654,8 @@ impl Fish {
             };
             apply_patches_and_eyes(
                 &mut colors,
-                &m.color_patches,
-                m.eye_color,
+                &mutant.color_patches,
+                mutant.eye_color,
                 eye_start,
                 eye_count,
                 double_eye_start,
@@ -736,7 +674,7 @@ impl Fish {
         let (mouth, body_ch, wave_ch, non_double_tail): (char, char, char, Vec<char>) =
             if self.species == FishSpecies::Mutantfish {
                 let (raw_mouth, bc, wc) =
-                    body_chars_for_variant(m.body_variant, facing_left, m.mouth_inverted);
+                    body_chars_for_variant(mutant.body_variant, facing_left, mutant.mouth_inverted);
                 let mo = if eating {
                     invert_mouth(raw_mouth)
                 } else {
@@ -746,20 +684,20 @@ impl Fish {
                     mo,
                     bc,
                     wc,
-                    m.tail_variant.chars(facing_left, self.sway.phase),
+                    mutant.tail_variant.chars(facing_left, self.sway.phase),
                 )
             } else {
-                let cfg = self.species.config();
-                let bc = match cfg.body {
+                let config = self.species.config();
+                let body_chars = match config.body {
                     BodyTemplate::Standard(b) => b,
                     _ => unreachable!(),
                 };
                 let (body_char, wave_char, raw_mouth) = if facing_left {
-                    (bc.body_left, bc.wave_left, bc.mouth_left)
+                    (body_chars.body_left, body_chars.wave_left, body_chars.mouth_left)
                 } else {
-                    (bc.body_right, bc.wave_right, bc.mouth_right)
+                    (body_chars.body_right, body_chars.wave_right, body_chars.mouth_right)
                 };
-                let pre_eat = if m.mouth_inverted {
+                let pre_eat = if mutant.mouth_inverted {
                     invert_mouth(raw_mouth)
                 } else {
                     raw_mouth
@@ -773,27 +711,27 @@ impl Fish {
                     mo,
                     body_char,
                     wave_char,
-                    tail_chars(bc, self.facing, self.sway.phase),
+                    tail_chars(body_chars, self.facing, self.sway.phase),
                 )
             };
 
         let sway_high = self.sway.phase.sin() > WAVE_THRESHOLD;
-        let max_eyes = m.left_eyes.len().max(m.right_eyes.len());
+        let max_eyes = mutant.left_eyes.len().max(mutant.right_eyes.len());
 
         let mut chars: Vec<char> = Vec::new();
         chars.push(mouth);
 
         let eye_start = chars.len();
         let eye_count = if facing_left {
-            for e in &m.left_eyes {
+            for e in &mutant.left_eyes {
                 chars.push(e.small_char());
             }
-            m.left_eyes.len()
+            mutant.left_eyes.len()
         } else {
-            for e in &m.right_eyes {
+            for e in &mutant.right_eyes {
                 chars.push(e.big_char());
             }
-            m.right_eyes.len()
+            mutant.right_eyes.len()
         };
         let extra_body = max_eyes - eye_count;
 
@@ -804,19 +742,19 @@ impl Fish {
         let double_eye_start;
         let double_eye_count;
 
-        if m.is_double {
+        if mutant.is_double {
             for _ in 0..EXTRA_BODY_FOR_DOUBLE {
                 chars.push(if sway_high { wave_ch } else { body_ch });
             }
             double_eye_start = chars.len();
-            for e in &m.double_head_eyes {
+            for e in &mutant.double_head_eyes {
                 chars.push(if facing_left {
                     e.big_char()
                 } else {
                     e.small_char()
                 });
             }
-            double_eye_count = m.double_head_eyes.len();
+            double_eye_count = mutant.double_head_eyes.len();
             chars.push(if facing_left { '>' } else { '<' });
         } else {
             chars.extend(non_double_tail);
@@ -825,13 +763,13 @@ impl Fish {
         }
 
         let n = chars.len();
-        let use_glisten = m.glistening_color.is_some() || self.species == FishSpecies::Mutantfish;
+        let use_glisten = mutant.glistening_color.is_some() || self.species.config().auto_glisten;
         let mut colors: Vec<Color> = if use_glisten {
             let (base, mid, peak_default) = derive_glistening_palette(self.color);
-            let peak = m.glistening_color.unwrap_or(peak_default);
+            let peak = mutant.glistening_color.unwrap_or(peak_default);
             (0..n)
                 .map(|i| {
-                    color_for_glisten(m.glistening_mode, self.sway.phase, i, n, base, mid, peak)
+                    color_for_glisten(mutant.glistening_mode, self.sway.phase, i, n, base, mid, peak)
                 })
                 .collect()
         } else {
@@ -839,8 +777,8 @@ impl Fish {
         };
         apply_patches_and_eyes(
             &mut colors,
-            &m.color_patches,
-            m.eye_color,
+            &mutant.color_patches,
+            mutant.eye_color,
             eye_start,
             eye_count,
             double_eye_start,
@@ -871,7 +809,7 @@ impl Fish {
 
         match self.state {
             FishState::Idle => {
-                if self.unfish_state.is_none() {
+                if self.species.config().can_zoomie {
                     let zoomie_dt = dt * (1.0 + COFFEE_ZOOMIE_DT_MULT * coffee_stacks as f32);
                     self.zoomie_timer -= zoomie_dt;
                     if self.zoomie_timer <= 0.0 {
@@ -943,8 +881,8 @@ impl Fish {
         };
         tick_sway(&mut self.sway, effective_sway_speed);
 
-        if let Some(ref mut m) = self.mutant {
-            m.tick_eyes(dt);
+        if let Some(ref mut mutant) = self.mutant {
+            mutant.tick_eyes(dt);
         }
         if let Some(ref mut us) = self.unfish_state {
             let mut rng = rand::rng();
@@ -968,15 +906,10 @@ impl Fish {
     pub fn randomize_direction(&mut self) {
         let mut rng = rand::rng();
         let angle = rng.random::<f32>() * TAU;
-        let dy_frac = if self
+        let dy_frac = self
             .unfish_state
             .as_ref()
-            .is_some_and(|us| us.kind == UnfishKind::Worm)
-        {
-            WORM_DY_FRACTION
-        } else {
-            DY_FRACTION
-        };
+            .map_or(DY_FRACTION, |us| us.kind.dy_fraction());
         self.velocity.dx = angle.cos() * self.speed;
         self.velocity.dy = angle.sin() * self.speed * dy_frac;
 
@@ -996,7 +929,7 @@ impl Fish {
         let duration = rng.random_range(ZOOMIE_DURATION_MIN..ZOOMIE_DURATION_MAX);
         let zoomie_speed = self.speed * ZOOMIE_SPEED_MULTIPLIER;
 
-        let will_turn = if self.species == FishSpecies::Jellyfish {
+        let will_turn = if self.species.config().zoomie_vertical {
             self.velocity.dx = 0.0;
             self.velocity.dy = -zoomie_speed;
             false
@@ -1034,8 +967,8 @@ impl Fish {
 
     pub fn tick_animation(&mut self, dt: f32) {
         tick_sway(&mut self.sway, self.sway_speed);
-        if let Some(ref mut m) = self.mutant {
-            m.tick_eyes(dt);
+        if let Some(ref mut mutant) = self.mutant {
+            mutant.tick_eyes(dt);
         }
         if let Some(ref mut us) = self.unfish_state {
             let mut rng = rand::rng();
@@ -1044,25 +977,31 @@ impl Fish {
     }
 
     pub fn static_left_segments(&self) -> Vec<(char, Color)> {
-        if self.species == FishSpecies::Unfish {
+        if self.unfish_state.is_some() {
             return self.static_left_segments_unfish();
         }
         if self.mutant.is_some() {
             return self.static_left_segments_mutant();
         }
-        let cfg = self.species.config();
-        match cfg.body {
+        let config = self.species.config();
+        match config.body {
             BodyTemplate::Fixed { left, .. } => {
                 let idx = self.pattern_seed as usize % left.len();
                 let chars: Vec<char> = left[idx].chars().collect();
                 let len = chars.len();
-                let colors = self.build_colors(len, cfg.palette, cfg.pattern);
+                let colors = self.build_colors(len, config.palette, config.pattern);
                 chars.into_iter().zip(colors).collect()
             }
-            BodyTemplate::Standard(bc) => {
-                let mut chars = vec![bc.mouth_left, bc.eye_left];
-                chars.extend(std::iter::repeat_n(bc.body_left, self.body_size));
-                let tail: Vec<char> = match bc.tail {
+            BodyTemplate::Standard(bc) | BodyTemplate::Alternating(bc, _) => {
+                let body_chars = match config.body {
+                    BodyTemplate::Alternating(even_body_chars, odd_body_chars) => {
+                        if self.pattern_seed.is_multiple_of(2) { even_body_chars } else { odd_body_chars }
+                    }
+                    _ => bc,
+                };
+                let mut chars = vec![body_chars.mouth_left, body_chars.eye_left];
+                chars.extend(std::iter::repeat_n(body_chars.body_left, self.body_size));
+                let tail: Vec<char> = match body_chars.tail {
                     TailKind::Wide => vec!['>', '<'],
                     TailKind::WideCurly => vec!['>', '<', '{'],
                     TailKind::Short => vec!['<'],
@@ -1072,15 +1011,15 @@ impl Fish {
                 };
                 chars.extend(tail);
                 let len = chars.len();
-                let colors = if matches!(cfg.pattern, PatternKind::Glistening) {
+                let colors = if matches!(config.pattern, PatternKind::Glistening) {
                     self.build_glistening_colors(
                         len,
-                        cfg.palette[0],
-                        cfg.palette[1],
-                        cfg.palette[2],
+                        config.palette[0],
+                        config.palette[1],
+                        config.palette[2],
                     )
                 } else {
-                    self.build_colors(len, cfg.palette, cfg.pattern)
+                    self.build_colors(len, config.palette, config.pattern)
                 };
                 chars.into_iter().zip(colors).collect()
             }
@@ -1088,43 +1027,43 @@ impl Fish {
     }
 
     fn static_left_segments_unfish(&self) -> Vec<(char, Color)> {
-        let us = self.unfish_state.as_ref().unwrap();
-        if is_multi_row(us.kind) {
+        let unfish_state = self.unfish_state.as_ref().unwrap();
+        if is_multi_row(unfish_state.kind) {
             return vec![];
         }
-        let cfg = FishSpecies::Unfish.config();
-        let bc = match cfg.body {
+        let config = FishSpecies::Unfish.config();
+        let body_chars = match config.body {
             BodyTemplate::Standard(b) => b,
             _ => unreachable!(),
         };
-        match us.kind {
+        match unfish_state.kind {
             UnfishKind::Worm => {
                 let sprite = build_worm(
                     true,
                     true,
-                    us.worm_segments,
-                    us.worm_extra_eyes,
-                    us.worm_is_double,
+                    unfish_state.worm_segments,
+                    unfish_state.worm_extra_eyes,
+                    unfish_state.worm_is_double,
                 );
                 let eye_cols = worm_eye_cols(
                     true,
-                    us.worm_segments,
-                    us.worm_extra_eyes,
-                    us.worm_is_double,
+                    unfish_state.worm_segments,
+                    unfish_state.worm_extra_eyes,
+                    unfish_state.worm_is_double,
                 );
-                let body_color = us.slime_body_color.unwrap_or(UNFISH_BODY_COLOR);
+                let body_color = unfish_state.slime_body_color.unwrap_or(UNFISH_BODY_COLOR);
                 let mut segs: Vec<(char, Color)> = sprite
                     .chars()
                     .enumerate()
                     .map(|(i, c)| {
                         if eye_cols.contains(&i) {
-                            ('0', us.slime_eye_color.unwrap_or(UNFISH_EYE_COLOR))
+                            ('0', unfish_state.slime_eye_color.unwrap_or(UNFISH_EYE_COLOR))
                         } else {
                             (c, body_color)
                         }
                     })
                     .collect();
-                for &(pos, color) in &us.slime_color_patches {
+                for &(pos, color) in &unfish_state.slime_color_patches {
                     if pos < segs.len() && !eye_cols.contains(&pos) {
                         segs[pos].1 = color;
                     }
@@ -1132,12 +1071,12 @@ impl Fish {
                 segs
             }
             UnfishKind::Reversed => {
-                let chars = self.build_standard_chars_for(bc, Direction::Right);
+                let chars = self.build_standard_chars_for(body_chars, Direction::Right);
                 let mut segs: Vec<(char, Color)> =
                     chars.into_iter().map(|c| (c, UNFISH_BODY_COLOR)).collect();
                 segs.reverse();
                 let n = segs.len();
-                for &(pos, color) in &us.slime_color_patches {
+                for &(pos, color) in &unfish_state.slime_color_patches {
                     if pos < n {
                         segs[pos].1 = color;
                     }
@@ -1148,11 +1087,11 @@ impl Fish {
                 segs
             }
             UnfishKind::Blinker => {
-                let chars = self.build_standard_chars_for(bc, Direction::Left);
+                let chars = self.build_standard_chars_for(body_chars, Direction::Left);
                 let mut segs: Vec<(char, Color)> =
                     chars.into_iter().map(|c| (c, BLINKER_BASE_COLOR)).collect();
                 let n = segs.len();
-                for &(pos, color) in &us.slime_color_patches {
+                for &(pos, color) in &unfish_state.slime_color_patches {
                     if pos < n {
                         segs[pos].1 = color;
                     }
@@ -1163,11 +1102,11 @@ impl Fish {
                 segs
             }
             _ => {
-                let chars = self.build_standard_chars_for(bc, Direction::Left);
+                let chars = self.build_standard_chars_for(body_chars, Direction::Left);
                 let mut segs: Vec<(char, Color)> =
                     chars.into_iter().map(|c| (c, UNFISH_BODY_COLOR)).collect();
                 let n = segs.len();
-                for &(pos, color) in &us.slime_color_patches {
+                for &(pos, color) in &unfish_state.slime_color_patches {
                     if pos < n {
                         segs[pos].1 = color;
                     }
@@ -1181,7 +1120,7 @@ impl Fish {
     }
 
     fn static_left_segments_mutant(&self) -> Vec<(char, Color)> {
-        let m = self.mutant.as_ref().unwrap();
+        let mutant = self.mutant.as_ref().unwrap();
 
         if let BodyTemplate::Fixed { left, .. } = self.species.config().body {
             let idx = self.pattern_seed as usize % left.len();
@@ -1189,14 +1128,14 @@ impl Fish {
 
             if chars_left.len() <= 1 {
                 let jelly_char = chars_left.first().copied().unwrap_or(' ');
-                let n = if m.is_double { 2 } else { 1 };
-                if m.glistening_color.is_some() {
+                let n = if mutant.is_double { 2 } else { 1 };
+                if mutant.glistening_color.is_some() {
                     let (base, mid, peak_default) = derive_glistening_palette(self.color);
-                    let peak = m.glistening_color.unwrap_or(peak_default);
+                    let peak = mutant.glistening_color.unwrap_or(peak_default);
                     return (0..n)
                         .map(|i| {
                             let c =
-                                color_for_glisten(m.glistening_mode, 0.0, i, n, base, mid, peak);
+                                color_for_glisten(mutant.glistening_mode, 0.0, i, n, base, mid, peak);
                             (jelly_char, c)
                         })
                         .collect();
@@ -1211,25 +1150,25 @@ impl Fish {
 
             let eye_start = 1usize;
             let mut out_chars: Vec<char> = vec![mouth_ch];
-            for e in &m.left_eyes {
+            for e in &mutant.left_eyes {
                 out_chars.push(e.small_char());
             }
-            let eye_count = m.left_eyes.len();
+            let eye_count = mutant.left_eyes.len();
             for _ in 0..self.body_size {
                 out_chars.push(body_ch);
             }
 
-            let (double_eye_start, double_eye_count) = if m.is_double {
+            let (double_eye_start, double_eye_count) = if mutant.is_double {
                 let mirror_body = invert_mouth(body_ch);
                 let mirror_mouth = invert_mouth(mouth_ch);
                 for _ in 0..self.body_size {
                     out_chars.push(mirror_body);
                 }
                 let d_start = out_chars.len();
-                for e in &m.double_head_eyes {
+                for e in &mutant.double_head_eyes {
                     out_chars.push(e.big_char());
                 }
-                let d_count = m.double_head_eyes.len();
+                let d_count = mutant.double_head_eyes.len();
                 out_chars.push(mirror_mouth);
                 (d_start, d_count)
             } else {
@@ -1238,20 +1177,20 @@ impl Fish {
             };
 
             let n = out_chars.len();
-            let use_glisten = m.glistening_color.is_some();
+            let use_glisten = mutant.glistening_color.is_some();
             let mut colors: Vec<Color> = if use_glisten {
                 let (base, mid, peak_default) = derive_glistening_palette(self.color);
-                let peak = m.glistening_color.unwrap_or(peak_default);
+                let peak = mutant.glistening_color.unwrap_or(peak_default);
                 (0..n)
-                    .map(|i| color_for_glisten(m.glistening_mode, 0.0, i, n, base, mid, peak))
+                    .map(|i| color_for_glisten(mutant.glistening_mode, 0.0, i, n, base, mid, peak))
                     .collect()
             } else {
                 vec![self.color; n]
             };
             apply_patches_and_eyes(
                 &mut colors,
-                &m.color_patches,
-                m.eye_color,
+                &mutant.color_patches,
+                mutant.eye_color,
                 eye_start,
                 eye_count,
                 double_eye_start,
@@ -1262,42 +1201,42 @@ impl Fish {
 
         let (raw_mouth, body_ch, non_double_tail): (char, char, Vec<char>) =
             if self.species == FishSpecies::Mutantfish {
-                let (rm, bc, _) = body_chars_for_variant(m.body_variant, true, m.mouth_inverted);
-                (rm, bc, m.tail_variant.chars(true, 0.0))
+                let (rm, bc, _) = body_chars_for_variant(mutant.body_variant, true, mutant.mouth_inverted);
+                (rm, bc, mutant.tail_variant.chars(true, 0.0))
             } else {
-                let cfg = self.species.config();
-                let bc = match cfg.body {
+                let config = self.species.config();
+                let body_chars = match config.body {
                     BodyTemplate::Standard(b) => b,
                     _ => unreachable!(),
                 };
-                let rm = if m.mouth_inverted {
-                    invert_mouth(bc.mouth_left)
+                let rm = if mutant.mouth_inverted {
+                    invert_mouth(body_chars.mouth_left)
                 } else {
-                    bc.mouth_left
+                    body_chars.mouth_left
                 };
-                (rm, bc.body_left, tail_chars(bc, Direction::Left, 0.0))
+                (rm, body_chars.body_left, tail_chars(body_chars, Direction::Left, 0.0))
             };
-        let max_eyes = m.left_eyes.len().max(m.right_eyes.len());
+        let max_eyes = mutant.left_eyes.len().max(mutant.right_eyes.len());
         let mut chars: Vec<char> = Vec::new();
         chars.push(raw_mouth);
         let eye_start = chars.len();
-        for e in &m.left_eyes {
+        for e in &mutant.left_eyes {
             chars.push(e.small_char());
         }
-        let eye_count = m.left_eyes.len();
+        let eye_count = mutant.left_eyes.len();
         let extra_body = max_eyes - eye_count;
         for _ in 0..(self.body_size + extra_body) {
             chars.push(body_ch);
         }
-        let (double_eye_start, double_eye_count) = if m.is_double {
+        let (double_eye_start, double_eye_count) = if mutant.is_double {
             for _ in 0..EXTRA_BODY_FOR_DOUBLE {
                 chars.push(body_ch);
             }
             let start = chars.len();
-            for e in &m.double_head_eyes {
+            for e in &mutant.double_head_eyes {
                 chars.push(e.big_char());
             }
-            let count = m.double_head_eyes.len();
+            let count = mutant.double_head_eyes.len();
             chars.push('>');
             (start, count)
         } else {
@@ -1305,20 +1244,20 @@ impl Fish {
             (0, 0)
         };
         let n = chars.len();
-        let use_glisten = m.glistening_color.is_some() || self.species == FishSpecies::Mutantfish;
+        let use_glisten = mutant.glistening_color.is_some() || self.species.config().auto_glisten;
         let mut colors: Vec<Color> = if use_glisten {
             let (base, mid, peak_default) = derive_glistening_palette(self.color);
-            let peak = m.glistening_color.unwrap_or(peak_default);
+            let peak = mutant.glistening_color.unwrap_or(peak_default);
             (0..n)
-                .map(|i| color_for_glisten(m.glistening_mode, 0.0, i, n, base, mid, peak))
+                .map(|i| color_for_glisten(mutant.glistening_mode, 0.0, i, n, base, mid, peak))
                 .collect()
         } else {
             vec![self.color; n]
         };
         apply_patches_and_eyes(
             &mut colors,
-            &m.color_patches,
-            m.eye_color,
+            &mutant.color_patches,
+            mutant.eye_color,
             eye_start,
             eye_count,
             double_eye_start,
@@ -1403,25 +1342,6 @@ fn body_chars_for_variant(
     (mouth, body, wave)
 }
 
-pub fn color_for_glisten(
-    mode: super::mutant::GlisteningMode,
-    phase: f32,
-    i: usize,
-    total: usize,
-    base: Color,
-    mid: Color,
-    peak: Color,
-) -> Color {
-    let v = mode.glistening_value(phase, i, total);
-    if v > GLISTEN_PEAK_THRESHOLD {
-        peak
-    } else if v > GLISTEN_MID_THRESHOLD {
-        mid
-    } else {
-        base
-    }
-}
-
 fn apply_patches_and_eyes(
     colors: &mut [Color],
     patches: &[(usize, Color)],
@@ -1450,8 +1370,8 @@ fn apply_patches_and_eyes(
     }
 }
 
-fn tail_chars(bc: BodyChars, facing: Direction, phase: f32) -> Vec<char> {
-    match bc.tail {
+fn tail_chars(body_chars: BodyChars, facing: Direction, phase: f32) -> Vec<char> {
+    match body_chars.tail {
         TailKind::Wide => vec!['>', '<'],
         TailKind::WideCurly => match facing {
             Direction::Left => vec!['>', '<', '{'],
@@ -1485,10 +1405,10 @@ fn tail_chars(bc: BodyChars, facing: Direction, phase: f32) -> Vec<char> {
 }
 
 pub fn compute_display_width(species: FishSpecies, body_size: usize) -> usize {
-    let cfg = species.config();
-    match cfg.body {
-        BodyTemplate::Standard(bc) => {
-            let tail_w = match bc.tail {
+    let config = species.config();
+    match config.body {
+        BodyTemplate::Standard(body_chars) | BodyTemplate::Alternating(body_chars, _) => {
+            let tail_w = match body_chars.tail {
                 TailKind::Wide => 2,
                 TailKind::WideCurly => 3,
                 TailKind::Short => 1,

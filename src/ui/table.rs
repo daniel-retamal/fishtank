@@ -1,8 +1,55 @@
 use ratatui::{
     buffer::Buffer,
+    layout::Rect,
     style::{Color, Modifier, Style},
 };
 use unicode_width::UnicodeWidthChar;
+
+pub struct OverlayLayout {
+    pub ox: u16,
+    pub oy: u16,
+    pub w: u16,
+    pub h: u16,
+}
+
+impl OverlayLayout {
+    pub fn centered(area: Rect, w: u16, h: u16) -> Option<Self> {
+        if area.width < w || area.height < h {
+            return None;
+        }
+        Some(Self {
+            ox: area.x + (area.width - w) / 2,
+            oy: area.y + (area.height - h) / 2,
+            w,
+            h,
+        })
+    }
+
+    pub fn clear_bg(&self, buf: &mut Buffer, bg: Color) {
+        for dy in 0..self.h {
+            for dx in 0..self.w {
+                buf[(self.ox + dx, self.oy + dy)].reset();
+                buf[(self.ox + dx, self.oy + dy)].set_bg(bg);
+            }
+        }
+    }
+
+    pub fn draw_border(&self, buf: &mut Buffer, title: &str, fg: Color, bg: Color) {
+        draw_box_border(buf, self.ox, self.oy, self.w, self.h, title, fg, bg);
+    }
+
+    pub fn inner_x(&self) -> u16 {
+        self.ox + 1
+    }
+
+    pub fn inner_y(&self) -> u16 {
+        self.oy + 1
+    }
+
+    pub fn inner_w(&self) -> u16 {
+        self.w.saturating_sub(2)
+    }
+}
 
 pub fn visual_width(s: &str) -> usize {
     s.chars()
@@ -68,6 +115,24 @@ pub fn draw_box_border(
 
     if !title.is_empty() && (title.len() as u16 + 4) < w {
         buf.set_string(ox + 2, oy, title, ts);
+    }
+}
+
+pub fn draw_hint_bar(
+    buf: &mut Buffer,
+    x: u16,
+    y: u16,
+    inner_w: u16,
+    left: &str,
+    right: &str,
+    bg: Color,
+) {
+    let s = Style::default().fg(Color::DarkGray).bg(bg);
+    buf.set_string(x, y, truncate_str(left, inner_w as usize), s);
+    let rw = visual_width(right) as u16;
+    let lw = visual_width(left) as u16;
+    if lw + rw + 2 <= inner_w {
+        buf.set_string(x + inner_w - rw, y, right, s);
     }
 }
 

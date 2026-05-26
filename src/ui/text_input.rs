@@ -4,6 +4,7 @@ use ratatui::{
     style::{Color, Style},
 };
 
+use crate::ui::input_action::InputAction;
 use crate::ui::table::truncate_str;
 
 pub struct TextInput {
@@ -48,12 +49,35 @@ impl TextInput {
             KeyCode::Right if self.cursor < self.value.len() => {
                 self.cursor = next_char_boundary(&self.value, self.cursor);
             }
-            KeyCode::Home => {
-                self.cursor = 0;
+            KeyCode::Home => { self.cursor = 0; }
+            KeyCode::End => { self.cursor = self.value.len(); }
+            _ => {}
+        }
+    }
+
+    pub fn handle_action(&mut self, action: &InputAction) {
+        match action {
+            InputAction::Char(c) => {
+                self.value.insert(self.cursor, *c);
+                self.cursor += c.len_utf8();
             }
-            KeyCode::End => {
-                self.cursor = self.value.len();
+            InputAction::Backspace if self.cursor > 0 => {
+                let prev = prev_char_boundary(&self.value, self.cursor);
+                self.value.drain(prev..self.cursor);
+                self.cursor = prev;
             }
+            InputAction::Delete if self.cursor < self.value.len() => {
+                let next = next_char_boundary(&self.value, self.cursor);
+                self.value.drain(self.cursor..next);
+            }
+            InputAction::Left if self.cursor > 0 => {
+                self.cursor = prev_char_boundary(&self.value, self.cursor);
+            }
+            InputAction::Right if self.cursor < self.value.len() => {
+                self.cursor = next_char_boundary(&self.value, self.cursor);
+            }
+            InputAction::Home => { self.cursor = 0; }
+            InputAction::End => { self.cursor = self.value.len(); }
             _ => {}
         }
     }

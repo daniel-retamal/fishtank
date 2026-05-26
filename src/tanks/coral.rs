@@ -4,10 +4,12 @@ use rand::RngExt;
 use ratatui::style::Color;
 use unicode_width::UnicodeWidthChar;
 
+use crate::colors::{CORAL_PINK, CORAL_PURPLE, ORANGE};
+
 pub const CORAL_A_ROWS: usize = 31;
 pub const ALGAE_COUNT: usize = 11;
-pub const CORAL_COLOR: Color = Color::Rgb(100, 60, 180);
-pub const FLOOR_ALGAE_COLOR: Color = Color::Rgb(255, 105, 180);
+pub const CORAL_COLOR: Color = CORAL_PURPLE;
+pub const FLOOR_ALGAE_COLOR: Color = CORAL_PINK;
 
 const ANIM_TIMER_MIN: f32 = 0.5;
 const ANIM_TIMER_MAX: f32 = 2.5;
@@ -45,7 +47,7 @@ const ALGAE_COLORS: &[Color] = &[
     Color::LightBlue,
     Color::Magenta,
     Color::LightMagenta,
-    Color::Rgb(255, 140, 0),
+    ORANGE,
 ];
 
 pub const CORAL_A_LINES: &[&str] = &[
@@ -107,7 +109,7 @@ const ALGAE_F: &[&str] = &["  .", ". |/.  .", r#"\_|/|_/."#, r#" \||/_/"#];
 
 const ALGAE_G: &[&str] = &[".__._.__.", "|;;|;|;;|", "|;;|;|;;|"];
 
-const ALGAE_H: &[&str] = &[
+const ALGAE_HEIGHT: &[&str] = &[
     r#". \_ | @ |  ."#,
     r#" \  \| | /_/"#,
     r#"  \__\\|//_."#,
@@ -141,7 +143,7 @@ pub fn algae_art(idx: usize) -> &'static [&'static str] {
         4 => ALGAE_E,
         5 => ALGAE_F,
         6 => ALGAE_G,
-        7 => ALGAE_H,
+        7 => ALGAE_HEIGHT,
         8 => ALGAE_I,
         9 => ALGAE_K,
         _ => ALGAE_J,

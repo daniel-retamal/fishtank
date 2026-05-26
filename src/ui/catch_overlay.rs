@@ -6,27 +6,28 @@ use ratatui::{
     widgets::Widget,
 };
 
-use crate::colors::COL_GOLD;
-use crate::entities::{
+use crate::colors::{CREAM, FOOD_BURGER, FOOD_CHEESE, GOLD};
+use crate::fishes::{
     fish::{Direction, Fish},
     species::FishSpecies,
 };
 use crate::loot::{
-    CashValue, ConsumableKind, JunkSprite, LootKind, bait_sprite_rows, coffee_sprite_rows,
+    CashValue, ConsumableKind, ItemKind, JunkSprite, LootKind, bait_sprite_rows, coffee_sprite_rows,
 };
 use crate::ui::{
+    hints::{HINT_CLOSE, HINT_ENTER_CAPTURE},
     render_fish_segs, table,
     text_input::{TextInput, draw_text_cursor},
 };
 
-const BG: Color = Color::Reset;
-const RIGHT_PANEL_W: u16 = 34;
-const OVERLAY_H: u16 = 7;
+const BACKGROUND: Color = Color::Reset;
+const RIGHT_PANEL_WIDTH: u16 = 34;
+const OVERLAY_HEIGHT: u16 = 7;
 
-const NECRO_OVERLAY_H: u16 = 8;
+const NECRO_OVERLAY_HEIGHT: u16 = 8;
 const NECRO_HOOK_COL: u16 = 12;
 const NECRO_HOOK_ROW: u16 = 0;
-const NECRO_LEFT_PANEL_W: u16 = NECRO_HOOK_COL + 4;
+const NECRO_LEFT_PANEL_WIDTH: u16 = NECRO_HOOK_COL + 4;
 const NECRO_BOOK_COLOR: Color = Color::Red;
 const NECRO_EYE_OPEN_CHAR: char = 'ʘ';
 const NECRO_EYE_CLOSED_CHAR: char = 'u';
@@ -34,9 +35,9 @@ const NECRO_EYE_OPEN_TIME: f32 = 0.7;
 const NECRO_EYE_CLOSED_TIME: f32 = 0.2;
 const NECRO_EYE_COUNT: usize = 9;
 
-const BREAD: Color = Color::Rgb(245, 230, 180);
-const CHEESE: Color = Color::Rgb(220, 180, 50);
-const BURGER: Color = Color::Rgb(140, 80, 30);
+const BREAD: Color = CREAM;
+const CHEESE: Color = FOOD_CHEESE;
+const BURGER: Color = FOOD_BURGER;
 
 pub struct CatchState {
     pub loot: LootKind,
@@ -104,7 +105,7 @@ impl CatchState {
                 self.cursor_visible = !self.cursor_visible;
             }
         }
-        if matches!(self.loot, LootKind::Consumable(ConsumableKind::Coffee)) {
+        if matches!(self.loot, LootKind::Item(ItemKind::Consumable(ConsumableKind::Coffee))) {
             self.anim_tick += 1.0;
             let half = (fps * 0.3).max(1.0);
             if self.anim_tick >= half {
@@ -112,7 +113,7 @@ impl CatchState {
                 self.anim_phase = !self.anim_phase;
             }
         }
-        if matches!(self.loot, LootKind::Necronomicon) {
+        if matches!(self.loot, LootKind::Item(ItemKind::Necronomicon)) {
             for i in 0..self.necro_eye_timers.len() {
                 self.necro_eye_timers[i] -= dt;
                 if self.necro_eye_timers[i] <= 0.0 {
@@ -147,55 +148,38 @@ impl Widget for CatchOverlay<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let state = self.state;
 
-        let overlay_h = if matches!(state.loot, LootKind::Necronomicon) {
-            NECRO_OVERLAY_H
+        let overlay_h = if matches!(state.loot, LootKind::Item(ItemKind::Necronomicon)) {
+            NECRO_OVERLAY_HEIGHT
         } else {
-            OVERLAY_H
+            OVERLAY_HEIGHT
         };
         let content_h = overlay_h - 2;
 
         let left_w = left_panel_inner_w(&state.loot, state.fish.as_ref());
-        let inner_w = left_w + 1 + RIGHT_PANEL_W;
+        let inner_w = left_w + 1 + RIGHT_PANEL_WIDTH;
         let overlay_w = inner_w + 2;
 
-        if area.width < overlay_w || area.height < overlay_h {
+        let Some(layout) = table::OverlayLayout::centered(area, overlay_w, overlay_h) else {
             return;
-        }
+        };
+        layout.clear_bg(buf, BACKGROUND);
 
-        let ox = area.x + (area.width - overlay_w) / 2;
-        let oy = area.y + (area.height - overlay_h) / 2;
-
-        for dy in 0..overlay_h {
-            for dx in 0..overlay_w {
-                buf[(ox + dx, oy + dy)].reset();
-                buf[(ox + dx, oy + dy)].set_bg(BG);
-            }
-        }
-
+        let ox = layout.ox;
+        let oy = layout.oy;
         let panel_sep_x = ox + 1 + left_w;
         let border_col = loot_border_color(state);
-
-        table::draw_box_border(
-            buf,
-            ox,
-            oy,
-            overlay_w,
-            overlay_h,
-            overlay_title(&state.loot),
-            border_col,
-            BG,
-        );
+        layout.draw_border(buf, overlay_title(&state.loot), border_col, BACKGROUND);
 
         buf[(panel_sep_x, oy + overlay_h - 1)]
             .set_char('┴')
             .set_fg(border_col)
-            .set_bg(BG);
+            .set_bg(BACKGROUND);
 
         for row in 1..=content_h {
             buf[(panel_sep_x, oy + row)]
                 .set_char('│')
                 .set_fg(border_col)
-                .set_bg(BG);
+                .set_bg(BACKGROUND);
         }
 
         draw_left_panel(buf, state, ox + 1, oy + 1, left_w, content_h);
@@ -204,7 +188,7 @@ impl Widget for CatchOverlay<'_> {
             state,
             panel_sep_x + 1,
             oy + 1,
-            RIGHT_PANEL_W,
+            RIGHT_PANEL_WIDTH,
             content_h,
         );
     }
@@ -215,10 +199,12 @@ fn left_panel_inner_w(loot: &LootKind, fish: Option<&Fish>) -> u16 {
         LootKind::Fish(_) => fish.map_or(10, |f| f.display_width as u16) + 3,
         LootKind::Cash(_) => 5 + 3,
         LootKind::Food(_) => 11 + 3,
-        LootKind::Junk(_) => JunkSprite::hook_col() + 3,
-        LootKind::Consumable(kind) => kind.panel_inner_w(),
-        LootKind::GoldBar => 5 + 3,
-        LootKind::Necronomicon => NECRO_LEFT_PANEL_W,
+        LootKind::Item(item) => match item {
+            ItemKind::Junk(_) => JunkSprite::hook_col() + 3,
+            ItemKind::Consumable(kind) => kind.panel_inner_w(),
+            ItemKind::GoldBar => 5 + 3,
+            ItemKind::Necronomicon => NECRO_LEFT_PANEL_WIDTH,
+        },
     }
 }
 
@@ -227,10 +213,8 @@ fn overlay_title(loot: &LootKind) -> &'static str {
         LootKind::Fish(_) => " Fish to the Fishtank! ",
         LootKind::Cash(_) => " Cash to the Fishtank! ",
         LootKind::Food(_) => " Food to the Fishtank! ",
-        LootKind::Junk(_) => " Junk to the Fishtank! ",
-        LootKind::Consumable(_) => " Junk to the Fishtank! ",
-        LootKind::GoldBar => " Cash to the Fishtank! ",
-        LootKind::Necronomicon => " Junk to the Fishtank! ",
+        LootKind::Item(ItemKind::GoldBar) => " Cash to the Fishtank! ",
+        LootKind::Item(_) => " Junk to the Fishtank! ",
     }
 }
 
@@ -241,7 +225,7 @@ fn loot_border_color(state: &CatchState) -> Color {
             FishSpecies::Mutantfish => state.fish.as_ref().map_or(Color::White, |f| f.color),
             _ => Color::White,
         },
-        LootKind::Necronomicon => Color::LightRed,
+        LootKind::Item(ItemKind::Necronomicon) => Color::LightRed,
         _ => Color::White,
     }
 }
@@ -258,12 +242,12 @@ fn draw_left_panel(buf: &mut Buffer, state: &CatchState, x: u16, y: u16, w: u16,
         }
         LootKind::Cash(cv) => draw_cash_panel(buf, *cv, x, y, w, h),
         LootKind::Food(_) => draw_food_panel(buf, x, y, w, h),
-        LootKind::Junk(sprite) => draw_junk_panel(buf, sprite, x, y, w, h),
-        LootKind::Consumable(kind) => {
-            draw_consumable_panel(buf, *kind, state.anim_phase, x, y, w, h)
-        }
-        LootKind::GoldBar => draw_goldbar_panel(buf, x, y, w, h),
-        LootKind::Necronomicon => draw_necro_panel(buf, &state.necro_eye_open, x, y, w, h),
+        LootKind::Item(item) => match item {
+            ItemKind::Junk(sprite) => draw_junk_panel(buf, sprite, x, y, w, h),
+            ItemKind::Consumable(kind) => draw_consumable_panel(buf, *kind, state.anim_phase, x, y, w, h),
+            ItemKind::GoldBar => draw_goldbar_panel(buf, x, y, w, h),
+            ItemKind::Necronomicon => draw_necro_panel(buf, &state.necro_eye_open, x, y, w, h),
+        },
     }
 }
 
@@ -275,15 +259,9 @@ fn draw_right_panel(buf: &mut Buffer, state: &CatchState, x: u16, y: u16, w: u16
         LootKind::Fish(species) => draw_fish_right_panel(buf, state, *species, x, y, w, h),
         LootKind::Cash(cv) => draw_cash_right_panel(buf, *cv, x, y, w, h),
         LootKind::Food(amount) => draw_food_right_panel(buf, *amount, x, y, w, h),
-        LootKind::Junk(_) => {
-            draw_consumable_item_right_panel(buf, "Junk", state.item_qty, x, y, w, h)
-        }
-        LootKind::Consumable(kind) => {
-            draw_consumable_item_right_panel(buf, kind.display_name(), state.item_qty, x, y, w, h)
-        }
-        LootKind::GoldBar => draw_goldbar_right_panel(buf, x, y, w, h),
-        LootKind::Necronomicon => {
-            draw_consumable_item_right_panel(buf, "Necronomicon", state.item_qty, x, y, w, h)
+        LootKind::Item(ItemKind::GoldBar) => draw_goldbar_right_panel(buf, x, y, w, h),
+        LootKind::Item(item) => {
+            draw_consumable_item_right_panel(buf, item.display_name(), state.item_qty, x, y, w, h)
         }
     }
 }
@@ -401,7 +379,7 @@ fn draw_necro_panel(buf: &mut Buffer, eye_open: &[bool], x: u16, y: u16, w: u16,
             buf[(hook_x, y + i)]
                 .set_char('⎹')
                 .set_fg(Color::DarkGray)
-                .set_bg(BG);
+                .set_bg(BACKGROUND);
         }
     }
 
@@ -415,7 +393,7 @@ fn draw_necro_panel(buf: &mut Buffer, eye_open: &[bool], x: u16, y: u16, w: u16,
             if col >= x + w {
                 break;
             }
-            buf[(col, row_y)].set_char(*ch).set_fg(*color).set_bg(BG);
+            buf[(col, row_y)].set_char(*ch).set_fg(*color).set_bg(BACKGROUND);
         }
     }
 
@@ -423,7 +401,7 @@ fn draw_necro_panel(buf: &mut Buffer, eye_open: &[bool], x: u16, y: u16, w: u16,
         buf[(hook_x, hook_y)]
             .set_char('J')
             .set_fg(Color::DarkGray)
-            .set_bg(BG);
+            .set_bg(BACKGROUND);
     }
 }
 
@@ -440,19 +418,19 @@ fn draw_fish_panel(buf: &mut Buffer, fish: &Fish, x: u16, y: u16, w: u16, h: u16
             buf[(hook_x, y + i)]
                 .set_char('⎹')
                 .set_fg(Color::DarkGray)
-                .set_bg(BG);
+                .set_bg(BACKGROUND);
         }
     }
 
     let segs = fish.segments();
     let max_w = (x + w).saturating_sub(fish_x);
-    render_fish_segs(buf, &segs, fish_x, fish_y, max_w, BG);
+    render_fish_segs(buf, &segs, fish_x, fish_y, max_w, BACKGROUND);
 
     if hook_x < x + w {
         buf[(hook_x, fish_y)]
             .set_char('J')
             .set_fg(Color::DarkGray)
-            .set_bg(BG);
+            .set_bg(BACKGROUND);
     }
 }
 
@@ -468,7 +446,7 @@ fn draw_cash_panel(buf: &mut Buffer, cv: CashValue, x: u16, y: u16, w: u16, h: u
             buf[(hook_x, y + i)]
                 .set_char('⎹')
                 .set_fg(Color::DarkGray)
-                .set_bg(BG);
+                .set_bg(BACKGROUND);
         }
     }
 
@@ -480,7 +458,7 @@ fn draw_cash_panel(buf: &mut Buffer, cv: CashValue, x: u16, y: u16, w: u16, h: u
             if col >= x + w {
                 break;
             }
-            buf[(col, sprite_y)].set_char(ch).set_fg(color).set_bg(BG);
+            buf[(col, sprite_y)].set_char(ch).set_fg(color).set_bg(BACKGROUND);
         }
     }
 
@@ -488,7 +466,7 @@ fn draw_cash_panel(buf: &mut Buffer, cv: CashValue, x: u16, y: u16, w: u16, h: u
         buf[(hook_x, sprite_y)]
             .set_char('J')
             .set_fg(Color::DarkGray)
-            .set_bg(BG);
+            .set_bg(BACKGROUND);
     }
 }
 
@@ -578,7 +556,7 @@ fn draw_food_panel(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
             buf[(hook_x, y + i)]
                 .set_char('⎹')
                 .set_fg(Color::DarkGray)
-                .set_bg(BG);
+                .set_bg(BACKGROUND);
         }
     }
 
@@ -592,7 +570,7 @@ fn draw_food_panel(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
             if col >= x + w {
                 break;
             }
-            buf[(col, row_y)].set_char(*ch).set_fg(*color).set_bg(BG);
+            buf[(col, row_y)].set_char(*ch).set_fg(*color).set_bg(BACKGROUND);
         }
     }
 
@@ -600,7 +578,7 @@ fn draw_food_panel(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
         buf[(hook_x, hook_y)]
             .set_char('J')
             .set_fg(Color::DarkGray)
-            .set_bg(BG);
+            .set_bg(BACKGROUND);
     }
 }
 
@@ -632,7 +610,7 @@ fn draw_consumable_panel(
             buf[(hook_x, y + i)]
                 .set_char('⎹')
                 .set_fg(Color::DarkGray)
-                .set_bg(BG);
+                .set_bg(BACKGROUND);
         }
     }
 
@@ -648,7 +626,7 @@ fn draw_consumable_panel(
             buf[(sprite_x + col as u16, row_y)]
                 .set_char(*ch)
                 .set_fg(*color)
-                .set_bg(BG);
+                .set_bg(BACKGROUND);
         }
     }
 
@@ -656,7 +634,7 @@ fn draw_consumable_panel(
         buf[(hook_x, hook_y)]
             .set_char('J')
             .set_fg(Color::DarkGray)
-            .set_bg(BG);
+            .set_bg(BACKGROUND);
     }
 }
 
@@ -676,7 +654,7 @@ fn draw_junk_panel(buf: &mut Buffer, sprite: &JunkSprite, x: u16, y: u16, w: u16
             buf[(hook_x, y + i)]
                 .set_char('⎹')
                 .set_fg(Color::DarkGray)
-                .set_bg(BG);
+                .set_bg(BACKGROUND);
         }
     }
 
@@ -694,7 +672,7 @@ fn draw_junk_panel(buf: &mut Buffer, sprite: &JunkSprite, x: u16, y: u16, w: u16
             buf[(sprite_x + col, row_y)]
                 .set_char(*ch)
                 .set_fg(*color)
-                .set_bg(BG);
+                .set_bg(BACKGROUND);
             col += cw;
         }
     }
@@ -703,7 +681,7 @@ fn draw_junk_panel(buf: &mut Buffer, sprite: &JunkSprite, x: u16, y: u16, w: u16
         buf[(hook_x, hook_y)]
             .set_char('J')
             .set_fg(Color::DarkGray)
-            .set_bg(BG);
+            .set_bg(BACKGROUND);
     }
 }
 
@@ -720,8 +698,8 @@ fn draw_fish_right_panel(
     let white_bold = Style::default()
         .fg(Color::White)
         .add_modifier(Modifier::BOLD)
-        .bg(BG);
-    let white = Style::default().fg(Color::White).bg(BG);
+        .bg(BACKGROUND);
+    let white = Style::default().fg(Color::White).bg(BACKGROUND);
 
     if h > 0 {
         buf.set_string(
@@ -742,12 +720,12 @@ fn draw_fish_right_panel(
             x,
             y + 3,
             w,
-            BG,
+            BACKGROUND,
         );
     }
     if h > 4 {
-        let hint = Style::default().fg(Color::DarkGray).bg(BG);
-        let right_hint = "ENTER capture";
+        let hint = Style::default().fg(Color::DarkGray).bg(BACKGROUND);
+        let right_hint = HINT_ENTER_CAPTURE;
         let rw = right_hint.len() as u16;
         if rw < w {
             buf.set_string(x + w - rw - 1, y + 4, right_hint, hint);
@@ -759,9 +737,9 @@ fn draw_cash_right_panel(buf: &mut Buffer, cv: CashValue, x: u16, y: u16, w: u16
     let white_bold = Style::default()
         .fg(Color::White)
         .add_modifier(Modifier::BOLD)
-        .bg(BG);
-    let cash_style = Style::default().fg(cv.color()).bg(BG);
-    let hint = Style::default().fg(Color::DarkGray).bg(BG);
+        .bg(BACKGROUND);
+    let cash_style = Style::default().fg(cv.color()).bg(BACKGROUND);
+    let hint = Style::default().fg(Color::DarkGray).bg(BACKGROUND);
 
     if h > 0 {
         buf.set_string(
@@ -781,7 +759,7 @@ fn draw_cash_right_panel(buf: &mut Buffer, cv: CashValue, x: u16, y: u16, w: u16
         buf.set_string(tx, y + 3, text, hint);
     }
     if h > 4 {
-        let text = "ESC/q to close";
+        let text = HINT_CLOSE;
         let tx = x + w - 1 - (text.len() as u16).min(w - 1);
         buf.set_string(tx, y + 4, text, hint);
     }
@@ -791,9 +769,9 @@ fn draw_food_right_panel(buf: &mut Buffer, amount: u32, x: u16, y: u16, w: u16, 
     let white_bold = Style::default()
         .fg(Color::White)
         .add_modifier(Modifier::BOLD)
-        .bg(BG);
-    let white = Style::default().fg(Color::White).bg(BG);
-    let hint = Style::default().fg(Color::DarkGray).bg(BG);
+        .bg(BACKGROUND);
+    let white = Style::default().fg(Color::White).bg(BACKGROUND);
+    let hint = Style::default().fg(Color::DarkGray).bg(BACKGROUND);
 
     if h > 0 {
         buf.set_string(
@@ -808,7 +786,7 @@ fn draw_food_right_panel(buf: &mut Buffer, amount: u32, x: u16, y: u16, w: u16, 
         buf.set_string(x, y + 1, table::truncate_str(&msg, w as usize), white);
     }
     if h > 4 {
-        let text = "ESC/q to close";
+        let text = HINT_CLOSE;
         let tx = x + w - 1 - (text.len() as u16).min(w - 1);
         buf.set_string(tx, y + 4, text, hint);
     }
@@ -823,8 +801,8 @@ fn draw_consumable_item_right_panel(
     w: u16,
     h: u16,
 ) {
-    let white = Style::default().fg(Color::White).bg(BG);
-    let hint = Style::default().fg(Color::DarkGray).bg(BG);
+    let white = Style::default().fg(Color::White).bg(BACKGROUND);
+    let hint = Style::default().fg(Color::DarkGray).bg(BACKGROUND);
 
     let line0 = format!("{}!", item_name);
     let line1 = "Added to inventory";
@@ -841,14 +819,14 @@ fn draw_consumable_item_right_panel(
         buf.set_string(tx, y + h - 2, qty_msg, hint);
     }
     if h >= 3 {
-        let text = "ESC/q to close";
+        let text = HINT_CLOSE;
         let tx = x + w - 1 - (text.len() as u16).min(w - 1);
         buf.set_string(tx, y + h - 1, text, hint);
     }
 }
 
 fn draw_goldbar_panel(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
-    let gold = COL_GOLD;
+    let gold = GOLD;
     let sprite = "[≡$≡]";
     let sprite_x = x + 1;
     let hook_x = sprite_x + 5;
@@ -860,7 +838,7 @@ fn draw_goldbar_panel(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
             buf[(hook_x, y + i)]
                 .set_char('⎹')
                 .set_fg(Color::DarkGray)
-                .set_bg(BG);
+                .set_bg(BACKGROUND);
         }
     }
 
@@ -870,25 +848,25 @@ fn draw_goldbar_panel(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
             if col >= x + w {
                 break;
             }
-            buf[(col, sprite_y)].set_char(ch).set_fg(gold).set_bg(BG);
+            buf[(col, sprite_y)].set_char(ch).set_fg(gold).set_bg(BACKGROUND);
         }
         if hook_x < x + w {
             buf[(hook_x, sprite_y)]
                 .set_char('J')
                 .set_fg(Color::DarkGray)
-                .set_bg(BG);
+                .set_bg(BACKGROUND);
         }
     }
 }
 
 fn draw_goldbar_right_panel(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
-    let gold = COL_GOLD;
+    let gold = GOLD;
     let s_gold = Style::default()
         .fg(gold)
         .add_modifier(Modifier::BOLD)
-        .bg(BG);
-    let s_white = Style::default().fg(Color::White).bg(BG);
-    let s_dim = Style::default().fg(Color::DarkGray).bg(BG);
+        .bg(BACKGROUND);
+    let s_white = Style::default().fg(Color::White).bg(BACKGROUND);
+    let s_dim = Style::default().fg(Color::DarkGray).bg(BACKGROUND);
 
     if h < 2 {
         return;

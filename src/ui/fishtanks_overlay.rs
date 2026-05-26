@@ -5,14 +5,15 @@ use ratatui::{
     widgets::Widget,
 };
 
-use crate::colors::{COL_SELECTED, COL_SELECTED_TANK};
-use crate::tank::{TANK_CAPACITY, Tank, TankKind};
-use crate::ui::{scroll_list, table};
+use crate::colors::{SELECTED_COLOR, SELECTED_TANK_COLOR};
+use crate::tank::{Tank, TankKind};
+use crate::ui::{hints::{HINT_CLOSE, HINT_ENTER_SWITCH, HINT_NAV, HINT_SCROLL}, scroll_list, table};
 
 struct FishtanksEntry {
     name: String,
     kind: TankKind,
     fish_count: usize,
+    capacity: usize,
 }
 
 pub struct FishtanksState {
@@ -30,6 +31,7 @@ impl FishtanksState {
                 name: t.name.clone(),
                 kind: t.kind,
                 fish_count: t.fish.len(),
+                capacity: t.capacity(),
             })
             .collect();
         let scroll = if current_tank >= visible_rows {
@@ -89,21 +91,26 @@ impl Widget for FishtanksOverlay<'_> {
             .max()
             .unwrap_or(4)
             .max(table::visual_width("Type"));
-        let count_str_max = format!("{}/{}", TANK_CAPACITY, TANK_CAPACITY);
-        let fishes_w = table::visual_width(&count_str_max).max(table::visual_width("Fishes"));
+        let fishes_w = state
+            .entries
+            .iter()
+            .map(|e| table::visual_width(&format!("{}/{}", e.fish_count, e.capacity)))
+            .max()
+            .unwrap_or(0)
+            .max(table::visual_width("Fishes"));
         let content_inner_w = name_w + 1 + type_w + 1 + fishes_w;
 
         let visible_data_rows = n.min(area.height.saturating_sub(6) as usize).max(1);
         let scrollable = n > visible_data_rows;
 
-        let enter_hint = "ENTER switch";
-        let close_hint = "ESC/q close";
+        let enter_hint = HINT_ENTER_SWITCH;
+        let close_hint = HINT_CLOSE;
         let enter_w = table::visual_width(enter_hint);
         let close_w = table::visual_width(close_hint);
         let nav_max_w = if scrollable {
-            table::visual_width(&format!(" \u{2191}\u{2193} scroll ({}/{})", n, n))
+            table::visual_width(&format!(" {} ({}/{})", HINT_SCROLL, n, n))
         } else {
-            table::visual_width(" \u{2191}\u{2193} navigate")
+            table::visual_width(&format!(" {}", HINT_NAV))
         };
         let footer_inner_w = nav_max_w + 2 + enter_w + 2 + close_w + 1;
 
@@ -111,36 +118,14 @@ impl Widget for FishtanksOverlay<'_> {
         let overlay_w = (inner_w + 2) as u16;
         let overlay_h = ((visible_data_rows + 6) as u16).min(area.height);
 
-        if area.width < overlay_w || area.height < overlay_h {
+        let Some(layout) = table::OverlayLayout::centered(area, overlay_w, overlay_h) else {
             return;
-        }
+        };
+        layout.clear_bg(buf, bg);
+        layout.draw_border(buf, " Fishtank#index ", Color::White, bg);
 
-        let ox = area.x + (area.width - overlay_w) / 2;
-        let oy = area.y + (area.height - overlay_h) / 2;
-
-        for dy in 0..overlay_h {
-            for dx in 0..overlay_w {
-                let px = ox + dx;
-                let py = oy + dy;
-                if px < area.right() && py < area.bottom() {
-                    buf[(px, py)].reset();
-                    buf[(px, py)].set_bg(bg);
-                }
-            }
-        }
-
-        table::draw_box_border(
-            buf,
-            ox,
-            oy,
-            overlay_w,
-            overlay_h,
-            " Fishtank#index ",
-            Color::White,
-            bg,
-        );
-
-        let inner_x = ox + 1;
+        let (ox, oy) = (layout.ox, layout.oy);
+        let inner_x = layout.inner_x();
         let sep_x = inner_x + name_w as u16;
         let sep2_x = sep_x + 1 + type_w as u16;
 
@@ -191,9 +176,9 @@ impl Widget for FishtanksOverlay<'_> {
         }
 
         let nav_hint = if scrollable {
-            format!(" \u{2191}\u{2193} scroll ({}/{})", state.selected + 1, n)
+            format!(" {} ({}/{})", HINT_SCROLL, state.selected + 1, n)
         } else {
-            " \u{2191}\u{2193} navigate".to_string()
+            format!(" {}", HINT_NAV)
         };
 
         let footer_y = oy + overlay_h - 2;
@@ -250,8 +235,8 @@ fn draw_row(
     selected: bool,
     base_bg: Color,
 ) {
-    let row_bg = if selected { COL_SELECTED } else { base_bg };
-    let fg = if selected { Color::Black } else { COL_SELECTED_TANK };
+    let row_bg = if selected { SELECTED_COLOR } else { base_bg };
+    let fg = if selected { Color::Black } else { SELECTED_TANK_COLOR };
     let text_style = Style::default().fg(fg).bg(row_bg);
     let sep_style = Style::default().fg(Color::White).bg(row_bg);
 
@@ -268,7 +253,7 @@ fn draw_row(
         text_style,
     );
     buf[(sep2_x, y)].set_char('│').set_style(sep_style);
-    let count_str = format!("{}/{}", entry.fish_count, TANK_CAPACITY);
+    let count_str = format!("{}/{}", entry.fish_count, entry.capacity);
     buf.set_string(
         sep2_x + 1,
         y,

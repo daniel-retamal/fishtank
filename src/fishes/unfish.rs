@@ -3,27 +3,11 @@ use ratatui::style::Color;
 use std::f32::consts::TAU;
 
 use crate::entities::components::BlinkTimer;
-use crate::entities::mutant::GlisteningMode;
+use crate::entities::glistening::GlisteningMode;
 use crate::util::sample_exponential;
 
 pub const VOID_SPAWN_MEAN_SECS: f32 = 3600.0;
 
-const EYE_OPEN_MIN: f32 = 0.5;
-const EYE_OPEN_MAX: f32 = 1.0;
-const EYE_CLOSED_MIN: f32 = 0.1;
-const EYE_CLOSED_MAX: f32 = 0.35;
-const WING_OPEN_MIN: f32 = 1.5;
-const WING_OPEN_MAX: f32 = 2.0;
-const WING_CLOSED_MIN: f32 = 0.15;
-const WING_CLOSED_MAX: f32 = 0.4;
-
-pub fn new_eye_timer(rng: &mut impl RngExt) -> BlinkTimer {
-    BlinkTimer::new(rng, EYE_OPEN_MIN, EYE_OPEN_MAX, EYE_CLOSED_MIN, EYE_CLOSED_MAX)
-}
-
-pub fn new_wing_timer(rng: &mut impl RngExt) -> BlinkTimer {
-    BlinkTimer::new(rng, WING_OPEN_MIN, WING_OPEN_MAX, WING_CLOSED_MIN, WING_CLOSED_MAX)
-}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum UnfishKind {
@@ -34,6 +18,26 @@ pub enum UnfishKind {
     Ball,
     Skull,
     Worm,
+}
+
+const WORM_DY_FRACTION: f32 = 0.05;
+const DEFAULT_DY_FRACTION: f32 = 0.4;
+
+impl UnfishKind {
+    pub fn dy_fraction(self) -> f32 {
+        match self {
+            UnfishKind::Worm => WORM_DY_FRACTION,
+            _ => DEFAULT_DY_FRACTION,
+        }
+    }
+
+    pub fn speed_range(self) -> (f32, f32) {
+        match self {
+            UnfishKind::Phantom => (0.3, 0.8),
+            UnfishKind::Worm => (2.88, 5.04),
+            _ => (2.0, 4.0),
+        }
+    }
 }
 
 pub const SPAWNABLE_UNFISH: &[UnfishKind] = &[
@@ -239,7 +243,7 @@ impl FloatingEye {
             col,
             vel,
             vel_y,
-            blink: new_eye_timer(rng),
+            blink: BlinkTimer::entity_eye(rng),
             dir_timer: rng.random_range(EYE_DIR_TIMER_MIN..EYE_DIR_TIMER_MAX),
         }
     }
@@ -319,9 +323,6 @@ pub struct UnfishState {
     pub worm_is_double: bool,
     pub slime_eye_color: Option<Color>,
     pub slime_color_patches: Vec<(usize, Color)>,
-    pub mutation_count: u32,
-    pub mutation_history: Vec<String>,
-    pub mitosis_partners: Vec<String>,
 }
 
 impl UnfishState {
@@ -367,8 +368,8 @@ impl UnfishState {
         };
         Self {
             kind,
-            eye: new_eye_timer(rng),
-            wings: new_wing_timer(rng),
+            eye: BlinkTimer::entity_eye(rng),
+            wings: BlinkTimer::wing(rng),
             floating_eyes,
             ball_has_center_eye,
             blinker_phase: BlinkerPhase::Glistening,
@@ -390,9 +391,6 @@ impl UnfishState {
             worm_is_double: false,
             slime_eye_color: None,
             slime_color_patches: Vec::new(),
-            mutation_count: 0,
-            mutation_history: Vec::new(),
-            mitosis_partners: Vec::new(),
         }
     }
 

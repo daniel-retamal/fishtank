@@ -1,4 +1,4 @@
-use crate::entities::species::{ALL_SPECIES, FishSpecies};
+use crate::fishes::species::{ALL_SPECIES, FishSpecies};
 use crate::tank::TankKind;
 use crate::util::hyperbolic_scale;
 
@@ -231,34 +231,13 @@ fn parse_give_target(rest: &str) -> Option<GiveTarget> {
         return Some(GiveTarget::Fish(species));
     }
 
-    if let Some(kind) = parse_tank_kind(rest.trim()) {
+    if let Some(kind) = TankKind::parse(rest.trim()) {
         return Some(GiveTarget::Tank(kind));
     }
 
     None
 }
 
-pub fn parse_tank_kind(s: &str) -> Option<TankKind> {
-    let normalized: String = s.to_ascii_lowercase().split_whitespace().collect();
-    match normalized.as_str() {
-        "fishtank" => Some(TankKind::Base),
-        "coralreeftank" => Some(TankKind::CoralReef),
-        "helltank" => Some(TankKind::Hell),
-        "voidtank" => Some(TankKind::Void),
-        "alientank" => Some(TankKind::Alien),
-        _ => None,
-    }
-}
-
-pub fn tank_kind_un_name(kind: TankKind) -> &'static str {
-    match kind {
-        TankKind::Base => "UnFishtank",
-        TankKind::CoralReef => "UnCoral Reef",
-        TankKind::Hell => "UnHelltank",
-        TankKind::Void => "UnVoidtank",
-        TankKind::Alien => "UnAlientank",
-    }
-}
 
 fn greedy_find_name(words: &[&str], candidates: &[String]) -> Option<String> {
     for end in (1..=words.len()).rev() {
@@ -331,39 +310,33 @@ mod tests {
 
     #[test]
     fn parse_tank_kind_alien_bare_is_none() {
-        assert!(parse_tank_kind("alien").is_none());
+        assert!(TankKind::parse("alien").is_none());
     }
 
     #[test]
     fn parse_tank_kind_alientank() {
-        assert!(matches!(
-            parse_tank_kind("alientank"),
-            Some(TankKind::Alien)
-        ));
+        assert!(matches!(TankKind::parse("alientank"), Some(TankKind::Alien)));
     }
 
     #[test]
     fn parse_tank_kind_alien_spaced() {
-        assert!(matches!(
-            parse_tank_kind("alien tank"),
-            Some(TankKind::Alien)
-        ));
+        assert!(matches!(TankKind::parse("alien tank"), Some(TankKind::Alien)));
     }
 
     #[test]
     fn parse_tank_kind_hell_bare_is_none() {
-        assert!(parse_tank_kind("hell").is_none());
+        assert!(TankKind::parse("hell").is_none());
     }
 
     #[test]
     fn parse_tank_kind_hell_tank_spaced() {
-        assert!(matches!(parse_tank_kind("hell tank"), Some(TankKind::Hell)));
+        assert!(matches!(TankKind::parse("hell tank"), Some(TankKind::Hell)));
     }
 
     #[test]
     fn parse_tank_kind_coral_reef_tank_spaced() {
         assert!(matches!(
-            parse_tank_kind("coral reef tank"),
+            TankKind::parse("coral reef tank"),
             Some(TankKind::CoralReef)
         ));
     }

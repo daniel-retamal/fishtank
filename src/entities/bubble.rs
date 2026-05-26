@@ -16,14 +16,28 @@ const HOVER_TIME_MIN: f32 = 0.5;
 const HOVER_TIME_MAX: f32 = 1.5;
 const SURFACE_LIFETIME_MIN: f32 = 3.0;
 const SURFACE_LIFETIME_MAX: f32 = 8.0;
+const BOTTOM_SPAWN_RATE_MIN: f32 = 0.2;
+const BOTTOM_SPAWN_RATE_MAX: f32 = 1.0;
+const SURFACE_SPAWN_RATE_MIN: f32 = 0.67;
+const SURFACE_SPAWN_RATE_MAX: f32 = 2.0;
 
-const BUBBLE_CHARS: [char; 3] = ['°', '◦', '○'];
+const CHARS: [char; 3] = ['°', '◦', '○'];
 
 #[derive(Copy, Clone)]
-enum BubblePhase {
+pub enum BubblePhase {
     Rising { hover_time: f32 },
     Hovering { remaining: f32 },
     Surface { remaining: f32 },
+}
+
+impl BubblePhase {
+    pub fn rising(rng: &mut impl RngExt) -> Self {
+        Self::Rising { hover_time: rng.random_range(HOVER_TIME_MIN..HOVER_TIME_MAX) }
+    }
+
+    pub fn surface(rng: &mut impl RngExt) -> Self {
+        Self::Surface { remaining: rng.random_range(SURFACE_LIFETIME_MIN..SURFACE_LIFETIME_MAX) }
+    }
 }
 
 pub struct Bubble {
@@ -39,98 +53,32 @@ pub struct Bubble {
 }
 
 impl Bubble {
-    pub fn new_rising(x: f32, y: f32) -> Self {
-        let mut rng = rand::rng();
+    pub fn new(
+        x: f32,
+        y: f32,
+        phase: BubblePhase,
+        color: Color,
+        ch: Option<char>,
+        rng: &mut impl RngExt,
+    ) -> Self {
+        let rise_speed = match phase {
+            BubblePhase::Rising { .. } | BubblePhase::Hovering { .. } => {
+                rng.random_range(RISE_SPEED_MIN..RISE_SPEED_MAX)
+            }
+            BubblePhase::Surface { .. } => {
+                rng.random_range(SURFACE_RISE_SPEED_MIN..SURFACE_RISE_SPEED_MAX)
+            }
+        };
         Self {
             position: Position { x, y },
-            sway: SwayState {
-                phase: rng.random::<f32>() * TAU,
-            },
+            sway: SwayState { phase: rng.random::<f32>() * TAU },
             base_x: x,
-            rise_speed: rng.random_range(RISE_SPEED_MIN..RISE_SPEED_MAX),
-            bubble_char: BUBBLE_CHARS[rng.random_range(0..BUBBLE_CHARS.len())],
-            color: Color::Cyan,
-            dead: false,
-            cash_value: None,
-            phase: BubblePhase::Rising {
-                hover_time: rng.random_range(HOVER_TIME_MIN..HOVER_TIME_MAX),
-            },
-        }
-    }
-
-    pub fn new_rising_custom(x: f32, y: f32, ch: char, color: Color) -> Self {
-        let mut rng = rand::rng();
-        Self {
-            position: Position { x, y },
-            sway: SwayState {
-                phase: rng.random::<f32>() * TAU,
-            },
-            base_x: x,
-            rise_speed: rng.random_range(RISE_SPEED_MIN..RISE_SPEED_MAX),
-            bubble_char: ch,
+            rise_speed,
+            bubble_char: ch.unwrap_or_else(|| CHARS[rng.random_range(0..CHARS.len())]),
             color,
             dead: false,
             cash_value: None,
-            phase: BubblePhase::Rising {
-                hover_time: rng.random_range(HOVER_TIME_MIN..HOVER_TIME_MAX),
-            },
-        }
-    }
-
-    pub fn new_rising_colored(x: f32, y: f32, color: Color) -> Self {
-        let mut rng = rand::rng();
-        Self {
-            position: Position { x, y },
-            sway: SwayState {
-                phase: rng.random::<f32>() * TAU,
-            },
-            base_x: x,
-            rise_speed: rng.random_range(RISE_SPEED_MIN..RISE_SPEED_MAX),
-            bubble_char: BUBBLE_CHARS[rng.random_range(0..BUBBLE_CHARS.len())],
-            color,
-            dead: false,
-            cash_value: None,
-            phase: BubblePhase::Rising {
-                hover_time: rng.random_range(HOVER_TIME_MIN..HOVER_TIME_MAX),
-            },
-        }
-    }
-
-    pub fn new_surface_colored(x: f32, y: f32, color: Color) -> Self {
-        let mut rng = rand::rng();
-        Self {
-            position: Position { x, y },
-            sway: SwayState {
-                phase: rng.random::<f32>() * TAU,
-            },
-            base_x: x,
-            rise_speed: rng.random_range(SURFACE_RISE_SPEED_MIN..SURFACE_RISE_SPEED_MAX),
-            bubble_char: BUBBLE_CHARS[rng.random_range(0..BUBBLE_CHARS.len())],
-            color,
-            dead: false,
-            cash_value: None,
-            phase: BubblePhase::Surface {
-                remaining: rng.random_range(SURFACE_LIFETIME_MIN..SURFACE_LIFETIME_MAX),
-            },
-        }
-    }
-
-    pub fn new_surface(x: f32, y: f32) -> Self {
-        let mut rng = rand::rng();
-        Self {
-            position: Position { x, y },
-            sway: SwayState {
-                phase: rng.random::<f32>() * TAU,
-            },
-            base_x: x,
-            rise_speed: rng.random_range(SURFACE_RISE_SPEED_MIN..SURFACE_RISE_SPEED_MAX),
-            bubble_char: BUBBLE_CHARS[rng.random_range(0..BUBBLE_CHARS.len())],
-            color: Color::Cyan,
-            dead: false,
-            cash_value: None,
-            phase: BubblePhase::Surface {
-                remaining: rng.random_range(SURFACE_LIFETIME_MIN..SURFACE_LIFETIME_MAX),
-            },
+            phase,
         }
     }
 
@@ -149,9 +97,7 @@ impl Bubble {
                 self.position.y -= self.rise_speed * dt;
                 if self.position.y <= 0.0 {
                     self.position.y = 0.0;
-                    self.phase = BubblePhase::Hovering {
-                        remaining: hover_time,
-                    };
+                    self.phase = BubblePhase::Hovering { remaining: hover_time };
                     return self.cash_value.unwrap_or(0);
                 }
             }
@@ -174,5 +120,49 @@ impl Bubble {
             }
         }
         0
+    }
+}
+
+pub struct BubbleSpawner {
+    bottom_timer: f32,
+    surface_timer: f32,
+}
+
+impl BubbleSpawner {
+    pub fn new(rng: &mut impl RngExt) -> Self {
+        Self {
+            bottom_timer: rng.random_range(BOTTOM_SPAWN_RATE_MIN..BOTTOM_SPAWN_RATE_MAX),
+            surface_timer: rng.random_range(SURFACE_SPAWN_RATE_MIN..SURFACE_SPAWN_RATE_MAX),
+        }
+    }
+
+    pub fn tick(
+        &mut self,
+        dt: f32,
+        width: u16,
+        height: u16,
+        color: Color,
+        rng: &mut impl RngExt,
+    ) -> Vec<Bubble> {
+        let mut bubbles = Vec::new();
+
+        self.bottom_timer -= dt;
+        if self.bottom_timer <= 0.0 {
+            let x = rng.random_range(0.0..width as f32);
+            let y = (height as f32 - 1.0).max(0.0);
+            bubbles.push(Bubble::new(x, y, BubblePhase::rising(rng), color, None, rng));
+            self.bottom_timer = rng.random_range(BOTTOM_SPAWN_RATE_MIN..BOTTOM_SPAWN_RATE_MAX);
+        }
+
+        self.surface_timer -= dt;
+        if self.surface_timer <= 0.0 {
+            let x = rng.random_range(0.0..width as f32);
+            let max_y = (height as f32 * 0.25).max(1.0);
+            let y = rng.random_range(0.0..max_y);
+            bubbles.push(Bubble::new(x, y, BubblePhase::surface(rng), color, None, rng));
+            self.surface_timer = rng.random_range(SURFACE_SPAWN_RATE_MIN..SURFACE_SPAWN_RATE_MAX);
+        }
+
+        bubbles
     }
 }

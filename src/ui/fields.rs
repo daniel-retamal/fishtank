@@ -1,9 +1,9 @@
 use rand::RngExt;
 use ratatui::style::Color;
 
-use crate::colors::{COL_FIELD_AIR, COL_FIELD_EARTH, COL_FIELD_FIRE, COL_FIELD_SPIRIT, COL_FIELD_WATER, COL_GOLD};
-use crate::entities::fish::Fish;
-use crate::entities::species::FishSpecies;
+use crate::colors::{FIELD_AIR_COLOR, FIELD_EARTH_COLOR, FIELD_FIRE_COLOR, FIELD_SPIRIT_COLOR, FIELD_WATER_COLOR, GOLD};
+use crate::fishes::fish::Fish;
+use crate::fishes::species::FishSpecies;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum FieldKind {
@@ -247,14 +247,14 @@ pub fn gen_field_value(
                 Color::LightYellow,
                 Color::LightMagenta,
                 Color::LightCyan,
-                COL_FIELD_FIRE,
-                COL_FIELD_EARTH,
-                COL_FIELD_WATER,
-                COL_FIELD_SPIRIT,
-                COL_FIELD_AIR,
+                FIELD_FIRE_COLOR,
+                FIELD_EARTH_COLOR,
+                FIELD_WATER_COLOR,
+                FIELD_SPIRIT_COLOR,
+                FIELD_AIR_COLOR,
             ];
             let c = if fish.species == FishSpecies::Goldenfish {
-                COL_GOLD
+                GOLD
             } else {
                 COLORS[rng.random_range(0..COLORS.len())]
             };

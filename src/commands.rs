@@ -1,4 +1,4 @@
-use crate::entities::species::FishSpecies;
+use crate::fishes::species::{ALL_SPECIES, FishSpecies};
 
 pub struct Completion {
     pub ghost: String,
@@ -50,26 +50,6 @@ static MUTATION_NAMES: &[&str] = &[
     "tailvariant",
 ];
 
-static SPECIES_NAMES: &[&str] = &[
-    "aka",
-    "anchoveta",
-    "betta",
-    "carpin",
-    "chromis",
-    "deadfish",
-    "goldenfish",
-    "goldfish",
-    "jellyfish",
-    "koi",
-    "kuro",
-    "merluza",
-    "mutantfish",
-    "nishiki",
-    "salmon",
-    "snapper",
-    "tang",
-    "turbofish",
-];
 
 pub fn autocomplete(
     input: &str,
@@ -395,10 +375,14 @@ fn complete_species(partial: &str) -> Option<Completion> {
         });
     }
     let partial_lower = partial.to_ascii_lowercase();
-    let matches: Vec<&str> = SPECIES_NAMES
+    let names: Vec<String> = ALL_SPECIES
         .iter()
-        .copied()
-        .filter(|&n| n.starts_with(partial_lower.as_str()))
+        .map(|s| s.display_name().to_ascii_lowercase())
+        .collect();
+    let matches: Vec<&str> = names
+        .iter()
+        .map(|s| s.as_str())
+        .filter(|n| n.starts_with(partial_lower.as_str()))
         .collect();
     if matches.is_empty() {
         return None;
@@ -1146,7 +1130,7 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
             if name_raw.is_empty() {
                 return Action::Unknown;
             }
-            match FishSpecies::from_str(species_str) {
+            match FishSpecies::parse(species_str) {
                 Some(species) => Action::Spawn(species, name_raw),
                 None => Action::Unknown,
             }

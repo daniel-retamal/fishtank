@@ -1,12 +1,15 @@
 pub mod app;
 pub mod colors;
 pub mod commands;
+pub mod economy;
 pub mod consumable;
 pub mod entities;
+pub mod fishes;
 pub mod loot;
 pub mod names;
 pub mod settings;
 pub mod tank;
+pub mod tanks;
 pub mod ui;
 pub mod util;
 pub mod void_ritual;

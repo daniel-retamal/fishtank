@@ -1,66 +1,14 @@
-use std::f32::consts::PI;
-
 use rand::RngExt;
 use ratatui::style::Color;
 use unicode_width::UnicodeWidthChar;
 
 use crate::entities::components::BlinkTimer;
+pub use crate::entities::glistening::GlisteningMode;
+use crate::fishes::species::{EYE_CIRCLE, EYE_ROUND, TAIL_EQUAL, TAIL_WAVE_LEFT, TAIL_WAVE_RIGHT};
 
-const EYE_OPEN_MIN: f32 = 0.8;
-const EYE_OPEN_MAX: f32 = 1.8;
-const EYE_CLOSED_MIN: f32 = 0.08;
-const EYE_CLOSED_MAX: f32 = 0.35;
-const CHAR_SPREAD: f32 = 1.0;
 const WAVE_THRESHOLD: f32 = 0.8;
-const GLISTEN_BASE_FACTOR: f32 = 0.70;
-const GLISTEN_PEAK_FACTOR: f32 = 0.65;
 pub const EXTRA_BODY_FOR_DOUBLE: usize = 2;
 pub const MIN_BODY_CHARS: usize = 2;
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum GlisteningMode {
-    Wave,
-    FullGlow,
-    HalfHalf,
-    CenterOut,
-    OutsideIn,
-}
-
-impl GlisteningMode {
-    pub fn random_other(self, rng: &mut impl RngExt) -> Self {
-        const ALL: [GlisteningMode; 5] = [
-            GlisteningMode::Wave,
-            GlisteningMode::FullGlow,
-            GlisteningMode::HalfHalf,
-            GlisteningMode::CenterOut,
-            GlisteningMode::OutsideIn,
-        ];
-        loop {
-            let m = ALL[rng.random_range(0..ALL.len())];
-            if m != self {
-                return m;
-            }
-        }
-    }
-
-    pub fn glistening_value(self, phase: f32, i: usize, total: usize) -> f32 {
-        let center = total as f32 / 2.0;
-        let dist = (i as f32 - center).abs();
-        match self {
-            GlisteningMode::Wave => (phase - i as f32 * CHAR_SPREAD).sin(),
-            GlisteningMode::FullGlow => phase.sin(),
-            GlisteningMode::HalfHalf => {
-                if i < total / 2 {
-                    phase.sin()
-                } else {
-                    (phase + PI).sin()
-                }
-            }
-            GlisteningMode::CenterOut => (phase - dist * CHAR_SPREAD).sin(),
-            GlisteningMode::OutsideIn => (phase + dist * CHAR_SPREAD).sin(),
-        }
-    }
-}
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum MutantTail {
@@ -82,11 +30,11 @@ impl MutantTail {
         match self {
             MutantTail::Wide => vec!['>', '<'],
             MutantTail::Swaying => {
-                let base = if facing_left { '彡' } else { 'ミ' };
+                let base = if facing_left { TAIL_WAVE_LEFT } else { TAIL_WAVE_RIGHT };
                 if phase.sin() > WAVE_THRESHOLD {
                     let bw = UnicodeWidthChar::width(base).unwrap_or(1);
-                    let ww = UnicodeWidthChar::width('≡').unwrap_or(1);
-                    let mut v = vec!['≡'];
+                    let ww = UnicodeWidthChar::width(TAIL_EQUAL).unwrap_or(1);
+                    let mut v = vec![TAIL_EQUAL];
                     v.extend(std::iter::repeat_n(' ', bw.saturating_sub(ww)));
                     v
                 } else {
@@ -105,24 +53,33 @@ impl MutantTail {
 }
 
 #[derive(Clone)]
-pub struct EyeState(BlinkTimer);
+pub struct EyeState {
+    blink: BlinkTimer,
+}
 
 impl EyeState {
     pub fn new(rng: &mut impl RngExt) -> Self {
-        Self(BlinkTimer::new(rng, EYE_OPEN_MIN, EYE_OPEN_MAX, EYE_CLOSED_MIN, EYE_CLOSED_MAX))
+        Self { blink: BlinkTimer::fish_eye(rng) }
     }
 
     pub fn tick(&mut self, dt: f32) {
-        self.0.tick(dt);
+        self.blink.tick(dt);
     }
 
     pub fn small_char(&self) -> char {
-        if self.0.is_open { 'º' } else { '¯' }
+        if self.blink.is_open { EYE_ROUND } else { '¯' }
     }
 
     pub fn big_char(&self) -> char {
-        if self.0.is_open { 'ʘ' } else { '-' }
+        if self.blink.is_open { EYE_CIRCLE } else { '-' }
     }
+}
+
+#[derive(Clone, Default)]
+pub struct MutationRecord {
+    pub count: u32,
+    pub history: Vec<String>,
+    pub partners: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -138,9 +95,6 @@ pub struct MutantState {
     pub color_patches: Vec<(usize, Color)>,
     pub is_double: bool,
     pub double_head_eyes: Vec<EyeState>,
-    pub mutation_count: u32,
-    pub mutation_history: Vec<String>,
-    pub mitosis_partners: Vec<String>,
 }
 
 impl MutantState {
@@ -157,9 +111,6 @@ impl MutantState {
             color_patches: Vec::new(),
             is_double: false,
             double_head_eyes: Vec::new(),
-            mutation_count: 0,
-            mutation_history: Vec::new(),
-            mitosis_partners: Vec::new(),
         }
     }
 
@@ -182,9 +133,6 @@ impl MutantState {
             color_patches: Vec::new(),
             is_double: false,
             double_head_eyes: Vec::new(),
-            mutation_count: 0,
-            mutation_history: Vec::new(),
-            mitosis_partners: Vec::new(),
         }
     }
 
@@ -215,25 +163,6 @@ pub fn pick_eye_counts(body_size: usize, rng: &mut impl RngExt) -> (usize, usize
     let left = rng.random_range(1..=max_eyes);
     let right = rng.random_range(1..=max_eyes);
     (left, right)
-}
-
-pub fn derive_glistening_palette(color: Color) -> (Color, Color, Color) {
-    match color {
-        Color::Rgb(r, g, b) => {
-            let base = Color::Rgb(
-                (r as f32 * GLISTEN_BASE_FACTOR) as u8,
-                (g as f32 * GLISTEN_BASE_FACTOR) as u8,
-                (b as f32 * GLISTEN_BASE_FACTOR) as u8,
-            );
-            let peak = Color::Rgb(
-                r.saturating_add(((255u16 - r as u16) as f32 * GLISTEN_PEAK_FACTOR) as u8),
-                g.saturating_add(((255u16 - g as u16) as f32 * GLISTEN_PEAK_FACTOR) as u8),
-                b.saturating_add(((255u16 - b as u16) as f32 * GLISTEN_PEAK_FACTOR) as u8),
-            );
-            (base, color, peak)
-        }
-        _ => (Color::DarkGray, color, Color::White),
-    }
 }
 
 pub fn random_rgb(rng: &mut impl RngExt) -> Color {

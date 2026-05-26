@@ -7,28 +7,27 @@ use ratatui::{
 use unicode_width::UnicodeWidthChar;
 
 use crate::{
-    entities::alien::{AlienPyramid, AlienStar, AlienTentacle, pyramid_canvas_w, pyramid_lines},
+    tanks::alien::{AlienPyramid, AlienStar, pyramid_canvas_w, pyramid_lines},
     entities::bubble::Bubble,
-    entities::coral::{
+    tanks::coral::{
         CORAL_A_LINES, CORAL_A_ROWS, CORAL_COLOR, CoralAlgaeInstance, CoralStructure,
         FLOOR_ALGAE_A, FLOOR_ALGAE_COLOR, FloorAlgae, algae_art, algae_row_shift, mirror_char,
         query_anim_char, vert_wave_char,
     },
-    entities::fish::{Fish, color_for_glisten},
+    entities::glistening::{color_for_glisten, derive_glistening_palette},
+    fishes::fish::Fish,
     entities::food::Food,
-    entities::hell::{
-        FACE_COLOR, H_WAVE_AMPLITUDE, H_WAVE_ROW_SPREAD, HellBackground, HellPlant,
-        RANDOM_FACE_COLOR,
+    tanks::hell::{
+        FACE_COLOR, H_WAVE_AMPLITUDE, H_WAVE_ROW_SPREAD, HellBackground, RANDOM_FACE_COLOR,
     },
-    entities::mutant::derive_glistening_palette,
-    entities::plant::Plant,
-    entities::species::FishSpecies,
-    entities::unfish::{
+    entities::plant::Seaweed,
+    fishes::species::FishSpecies,
+    fishes::unfish::{
         BALL_BASE, BALL_CENTER_ROW, BALL_EYE_COL, BALL_EYE_ROW, BALL_WIDTH, SKULL_CENTER_ROW,
         SKULL_CLOSED, SKULL_OPEN, SKULL_WIDTH, UNFISH_BODY_COLOR, UNFISH_EYE_COLOR, UnfishKind,
         is_multi_row,
     },
-    entities::void::{VOID_EYE_CENTER_X, VOID_EYE_VERTICAL_OFFSET, VoidBackground},
+    tanks::void::{VOID_EYE_CENTER_X, VOID_EYE_VERTICAL_OFFSET, VoidBackground},
     tank::{Tank, TankKind},
     void_ritual::VOID_TEXT_BELOW_EYE_OFFSET,
 };
@@ -64,7 +63,7 @@ impl Widget for TankView<'_> {
                     if plant.x >= area.width as i32 {
                         break;
                     }
-                    render_plant(plant, area, buf);
+                    render_seaweed(plant, area, buf);
                 }
             }
             TankKind::CoralReef => {
@@ -89,7 +88,7 @@ impl Widget for TankView<'_> {
                     if plant.x >= area.width as i32 {
                         break;
                     }
-                    render_hell_plant(plant, area, buf);
+                    render_seaweed(plant, area, buf);
                 }
             }
             TankKind::Void => {
@@ -116,7 +115,7 @@ impl Widget for TankView<'_> {
                         if tentacle.x >= area.width as i32 {
                             break;
                         }
-                        render_alien_tentacle(tentacle, area, buf);
+                        render_seaweed(tentacle, area, buf);
                     }
                 }
             }
@@ -178,16 +177,19 @@ fn display_w(line: &str) -> i32 {
         .sum()
 }
 
-fn render_plant(plant: &Plant, area: Rect, buf: &mut Buffer) {
-    let base_x = plant.x;
-    for h in 0..plant.height {
-        let (x_offset, ch) = plant.segment_at(h);
+fn render_seaweed(seaweed: &dyn Seaweed, area: Rect, buf: &mut Buffer) {
+    let base_x = seaweed.x();
+    for row in 0..seaweed.height() {
+        let (x_offset, ch) = seaweed.segment_at(row);
         let x = base_x + x_offset;
-        let y = area.height as i32 - 1 - h as i32;
-        if x >= 0 && x < area.width as i32 && y >= 0 {
+        let y = area.height as i32 - 1 - row as i32;
+        if y < 0 {
+            break;
+        }
+        if x >= 0 && x < area.width as i32 {
             buf[(area.x + x as u16, area.y + y as u16)]
                 .set_char(ch)
-                .set_fg(plant.color);
+                .set_fg(seaweed.color_at(row));
         }
     }
 }
@@ -610,29 +612,29 @@ pub(crate) fn render_multi_row_unfish_at(
     area: Rect,
     buf: &mut Buffer,
 ) {
-    let us = match fish.unfish_state.as_ref() {
+    let unfish_state = match fish.unfish_state.as_ref() {
         Some(s) => s,
         None => return,
     };
-    let eye_ch = if us.eye.is_open { '0' } else { '-' };
+    let eye_ch = if unfish_state.eye.is_open { '0' } else { '-' };
 
-    match us.kind {
+    match unfish_state.kind {
         UnfishKind::Ball | UnfishKind::Skull => {
-            let body_color = us.slime_body_color.unwrap_or(UNFISH_BODY_COLOR);
-            let interior_fg = us.slime_body_color.filter(|&c| c != UNFISH_BODY_COLOR);
-            let sprite_w = if us.kind == UnfishKind::Ball {
+            let body_color = unfish_state.slime_body_color.unwrap_or(UNFISH_BODY_COLOR);
+            let interior_fg = unfish_state.slime_body_color.filter(|&c| c != UNFISH_BODY_COLOR);
+            let sprite_w = if unfish_state.kind == UnfishKind::Ball {
                 BALL_WIDTH as usize
             } else {
                 SKULL_WIDTH as usize
             };
-            let glisten_colors: Vec<Color> = if us.slime_glisten_enabled {
+            let glisten_colors: Vec<Color> = if unfish_state.slime_glisten_enabled {
                 let (base, mid, peak_default) = derive_glistening_palette(body_color);
-                let peak = us.slime_glisten_color.unwrap_or(peak_default);
+                let peak = unfish_state.slime_glisten_color.unwrap_or(peak_default);
                 (0..sprite_w)
                     .map(|i| {
                         color_for_glisten(
-                            us.slime_glisten_mode,
-                            us.slime_glisten_phase,
+                            unfish_state.slime_glisten_mode,
+                            unfish_state.slime_glisten_phase,
                             i,
                             sprite_w,
                             base,
@@ -644,9 +646,9 @@ pub(crate) fn render_multi_row_unfish_at(
             } else {
                 vec![]
             };
-            let lines: &[&str] = if us.kind == UnfishKind::Ball {
+            let lines: &[&str] = if unfish_state.kind == UnfishKind::Ball {
                 &BALL_BASE
-            } else if us.wings.is_open {
+            } else if unfish_state.wings.is_open {
                 &SKULL_OPEN
             } else {
                 &SKULL_CLOSED
@@ -657,14 +659,14 @@ pub(crate) fn render_multi_row_unfish_at(
                     continue;
                 }
                 let mut eye_overrides: Vec<(usize, char, Color)> = Vec::new();
-                let eye_color = us.slime_eye_color.unwrap_or(UNFISH_EYE_COLOR);
-                if us.kind == UnfishKind::Ball && us.ball_has_center_eye && row_idx == BALL_EYE_ROW
+                let eye_color = unfish_state.slime_eye_color.unwrap_or(UNFISH_EYE_COLOR);
+                if unfish_state.kind == UnfishKind::Ball && unfish_state.ball_has_center_eye && row_idx == BALL_EYE_ROW
                 {
                     eye_overrides.push((BALL_EYE_COL - 1, '(', eye_color));
                     eye_overrides.push((BALL_EYE_COL, eye_ch, eye_color));
                     eye_overrides.push((BALL_EYE_COL + 1, ')', eye_color));
                 }
-                for eye in &us.floating_eyes {
+                for eye in &unfish_state.floating_eyes {
                     if eye.row != row_idx {
                         continue;
                     }
@@ -690,7 +692,7 @@ pub(crate) fn render_multi_row_unfish_at(
                     body_color,
                     interior_fg,
                     &glisten_colors,
-                    &us.slime_color_patches,
+                    &unfish_state.slime_color_patches,
                 );
             }
         }
@@ -699,12 +701,12 @@ pub(crate) fn render_multi_row_unfish_at(
 }
 
 fn render_multi_row_unfish(fish: &Fish, area: Rect, buf: &mut Buffer) {
-    let us = match fish.unfish_state.as_ref() {
+    let unfish_state = match fish.unfish_state.as_ref() {
         Some(s) => s,
         None => return,
     };
     let base_x = area.x as i32 + fish.position.x as i32;
-    let center_row = unfish_center_row(us.kind);
+    let center_row = unfish_center_row(unfish_state.kind);
     let base_y = area.y as i32 + fish.position.y as i32 - center_row;
     render_multi_row_unfish_at(fish, base_x, base_y, area, buf);
 }
@@ -801,20 +803,6 @@ fn render_hell_background(bg: &HellBackground, area: Rect, buf: &mut Buffer) {
                     .set_char(ch)
                     .set_fg(FACE_COLOR);
             }
-        }
-    }
-}
-
-fn render_hell_plant(plant: &HellPlant, area: Rect, buf: &mut Buffer) {
-    let base_x = plant.x;
-    for h in 0..plant.height {
-        let (x_offset, ch) = plant.segment_at(h);
-        let x = base_x + x_offset;
-        let y = area.height as i32 - 1 - h as i32;
-        if x >= 0 && x < area.width as i32 && y >= 0 {
-            buf[(area.x + x as u16, area.y + y as u16)]
-                .set_char(ch)
-                .set_fg(plant.color);
         }
     }
 }
@@ -965,23 +953,6 @@ fn render_alien_star(star: &AlienStar, area: Rect, buf: &mut Buffer) {
         buf[(x, y)]
             .set_char(star.ch)
             .set_style(Style::new().fg(color).remove_modifier(Modifier::all()));
-    }
-}
-
-fn render_alien_tentacle(tentacle: &AlienTentacle, area: Rect, buf: &mut Buffer) {
-    let base_x = tentacle.x;
-    for h in 0..tentacle.height {
-        let (x_offset, ch) = tentacle.segment_at(h);
-        let x = base_x + x_offset;
-        let y = area.height as i32 - 1 - h as i32;
-        if y < 0 {
-            continue;
-        }
-        if x >= 0 && x < area.width as i32 {
-            buf[(area.x + x as u16, area.y + y as u16)]
-                .set_char(ch)
-                .set_fg(tentacle.color_at(h));
-        }
     }
 }
 
