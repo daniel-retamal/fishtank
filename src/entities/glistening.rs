@@ -3,6 +3,8 @@ use std::f32::consts::PI;
 use rand::RngExt;
 use ratatui::style::Color;
 
+use crate::colors::{DARK_GRAY, WHITE};
+
 const CHAR_SPREAD: f32 = 1.0;
 const GLISTEN_BASE_FACTOR: f32 = 0.70;
 const GLISTEN_PEAK_FACTOR: f32 = 0.65;
@@ -39,13 +41,17 @@ impl GlisteningMode {
         let center = total as f32 / 2.0;
         let dist = (i as f32 - center).abs();
         match self {
-            GlisteningMode::Wave     => (phase - i as f32 * CHAR_SPREAD).sin(),
+            GlisteningMode::Wave => (phase - i as f32 * CHAR_SPREAD).sin(),
             GlisteningMode::FullGlow => phase.sin(),
             GlisteningMode::HalfHalf => {
-                if i < total / 2 { phase.sin() } else { (phase + PI).sin() }
+                if i < total / 2 {
+                    phase.sin()
+                } else {
+                    (phase + PI).sin()
+                }
             }
-            GlisteningMode::CenterOut  => (phase - dist * CHAR_SPREAD).sin(),
-            GlisteningMode::OutsideIn  => (phase + dist * CHAR_SPREAD).sin(),
+            GlisteningMode::CenterOut => (phase - dist * CHAR_SPREAD).sin(),
+            GlisteningMode::OutsideIn => (phase + dist * CHAR_SPREAD).sin(),
         }
     }
 }
@@ -65,7 +71,7 @@ pub fn derive_glistening_palette(color: Color) -> (Color, Color, Color) {
             );
             (base, color, peak)
         }
-        _ => (Color::DarkGray, color, Color::White),
+        _ => (DARK_GRAY, color, WHITE),
     }
 }
 

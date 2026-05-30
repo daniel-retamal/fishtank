@@ -3,13 +3,13 @@ use std::f32::consts::TAU;
 use rand::RngExt;
 use ratatui::style::Color;
 
-use crate::colors::DARK_RED;
+use crate::colors::{LIGHT_RED, RED, RED_DARK};
 use crate::entities::components::{EyeRow, SwayState, extend_spaced, sway_x_offset, tick_sway};
 use crate::entities::plant::Seaweed;
 use crate::fishes::species::EYE_CIRCLE;
 
-pub const FACE_COLOR: Color = DARK_RED;
-pub const RANDOM_FACE_COLOR: Color = Color::Red;
+pub const FACE_COLOR: Color = RED_DARK;
+pub const RANDOM_FACE_COLOR: Color = RED;
 
 pub const H_WAVE_AMPLITUDE: f32 = 3.0;
 pub const H_WAVE_ROW_SPREAD: f32 = 0.3;
@@ -36,13 +36,7 @@ const EYE_CLOSED_CHAR: char = '-';
 
 const RANDOM_CHARS: &[char] = &[' ', ' ', ' ', ' ', ' ', '.', ':', '.', ':', '.'];
 
-const HELL_PLANT_COLORS: &[Color] = &[
-    Color::Red,
-    Color::LightRed,
-    Color::Red,
-    Color::LightRed,
-    Color::Red,
-];
+const HELL_PLANT_COLORS: &[Color] = &[RED, LIGHT_RED, RED, LIGHT_RED, RED];
 
 pub const FACE_LINES: &[&str] = &[
     "                                        ..::::.",
@@ -222,7 +216,11 @@ impl Seaweed for HellPlant {
     fn segment_at(&self, row: usize) -> (i32, char) {
         let x_offset = sway_x_offset(self.sway.phase, row, self.height, WAVE_SPREAD, SWAY_AMOUNT);
         if let Some(eye) = self.eyes.iter().find(|e| e.height == row) {
-            let ch = if eye.blink.is_open { EYE_CIRCLE } else { EYE_CLOSED_CHAR };
+            let ch = if eye.blink.is_open {
+                EYE_CIRCLE
+            } else {
+                EYE_CLOSED_CHAR
+            };
             return (x_offset, ch);
         }
         let ch = if x_offset > 0 {
@@ -249,10 +247,19 @@ impl Seaweed for HellPlant {
 
 pub fn extend_hell_plants(plants: &mut Vec<HellPlant>, to_width: i32, rng: &mut impl RngExt) {
     extend_spaced(
-        plants, to_width, 0,
-        HELL_PLANT_SPACING_MIN, HELL_PLANT_SPACING_MAX,
-        rng, |p| p.x,
-        |x, rng| HellPlant::new(x, rng.random_range(HELL_PLANT_HEIGHT_MIN..=HELL_PLANT_HEIGHT_MAX), rng),
+        plants,
+        to_width,
+        0,
+        HELL_PLANT_SPACING_MIN..=HELL_PLANT_SPACING_MAX,
+        rng,
+        |p| p.x,
+        |x, rng| {
+            HellPlant::new(
+                x,
+                rng.random_range(HELL_PLANT_HEIGHT_MIN..=HELL_PLANT_HEIGHT_MAX),
+                rng,
+            )
+        },
     );
 }
 

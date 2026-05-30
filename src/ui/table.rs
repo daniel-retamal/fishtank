@@ -3,6 +3,8 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
 };
+
+use crate::colors::DARK_GRAY;
 use unicode_width::UnicodeWidthChar;
 
 pub struct OverlayLayout {
@@ -35,7 +37,18 @@ impl OverlayLayout {
     }
 
     pub fn draw_border(&self, buf: &mut Buffer, title: &str, fg: Color, bg: Color) {
-        draw_box_border(buf, self.ox, self.oy, self.w, self.h, title, fg, bg);
+        draw_box_border(
+            buf,
+            Rect {
+                x: self.ox,
+                y: self.oy,
+                width: self.w,
+                height: self.h,
+            },
+            title,
+            fg,
+            bg,
+        );
     }
 
     pub fn inner_x(&self) -> u16 {
@@ -80,17 +93,8 @@ pub fn truncate_str(s: &str, max_width: usize) -> String {
     out
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn draw_box_border(
-    buf: &mut Buffer,
-    ox: u16,
-    oy: u16,
-    w: u16,
-    h: u16,
-    title: &str,
-    fg: Color,
-    bg: Color,
-) {
+pub fn draw_box_border(buf: &mut Buffer, area: Rect, title: &str, fg: Color, bg: Color) {
+    let (ox, oy, w, h) = (area.x, area.y, area.width, area.height);
     if w < 2 || h < 2 {
         return;
     }
@@ -127,7 +131,7 @@ pub fn draw_hint_bar(
     right: &str,
     bg: Color,
 ) {
-    let s = Style::default().fg(Color::DarkGray).bg(bg);
+    let s = Style::default().fg(DARK_GRAY).bg(bg);
     buf.set_string(x, y, truncate_str(left, inner_w as usize), s);
     let rw = visual_width(right) as u16;
     let lw = visual_width(left) as u16;

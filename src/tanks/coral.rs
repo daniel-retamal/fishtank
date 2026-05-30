@@ -4,12 +4,15 @@ use rand::RngExt;
 use ratatui::style::Color;
 use unicode_width::UnicodeWidthChar;
 
-use crate::colors::{CORAL_PINK, CORAL_PURPLE, ORANGE};
+use crate::colors::{
+    BLUE, CYAN, GREEN, INDIGO, LIGHT_BLUE, LIGHT_CYAN, LIGHT_GREEN, LIGHT_MAGENTA, LIGHT_YELLOW,
+    MAGENTA, ORANGE, PINK,
+};
 
 pub const CORAL_A_ROWS: usize = 31;
 pub const ALGAE_COUNT: usize = 11;
-pub const CORAL_COLOR: Color = CORAL_PURPLE;
-pub const FLOOR_ALGAE_COLOR: Color = CORAL_PINK;
+pub const CORAL_COLOR: Color = INDIGO;
+pub const FLOOR_ALGAE_COLOR: Color = PINK;
 
 const ANIM_TIMER_MIN: f32 = 0.5;
 const ANIM_TIMER_MAX: f32 = 2.5;
@@ -37,16 +40,15 @@ const FLOOR_ALGAE_EXTRA_SPACING_MIN: i32 = 5;
 const FLOOR_ALGAE_EXTRA_SPACING_MAX: i32 = 20;
 
 const ALGAE_COLORS: &[Color] = &[
-    Color::Green,
-    Color::LightGreen,
-    Color::Yellow,
-    Color::LightYellow,
-    Color::Cyan,
-    Color::LightCyan,
-    Color::Blue,
-    Color::LightBlue,
-    Color::Magenta,
-    Color::LightMagenta,
+    GREEN,
+    LIGHT_GREEN,
+    LIGHT_YELLOW,
+    CYAN,
+    LIGHT_CYAN,
+    BLUE,
+    LIGHT_BLUE,
+    MAGENTA,
+    LIGHT_MAGENTA,
     ORANGE,
 ];
 

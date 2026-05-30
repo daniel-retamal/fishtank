@@ -4,16 +4,17 @@ use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use ratatui::style::Color;
 use unicode_width::UnicodeWidthChar;
 
-use crate::entities::components::{Position, SwayState, Velocity, tick_sway};
 use super::mutant::{EXTRA_BODY_FOR_DOUBLE, MutantState, MutationRecord};
-use crate::entities::glistening::{GlisteningMode, color_for_glisten, derive_glistening_palette};
 use super::species::{BodyChars, BodyTemplate, FishSpecies, PatternKind, SizeCategory, TailKind};
 use super::unfish::{
     BALL_WIDTH, BLINKER_BASE_COLOR, BLINKER_GLISTEN_MID, BLINKER_GLISTEN_PEAK, BLINKER_MID_COLOR,
     BLINKER_PEAK_COLOR, SKULL_WIDTH, UNFISH_BODY_COLOR, UNFISH_EYE_COLOR, UnfishKind, UnfishState,
     WORM_DEFAULT_SEGMENTS, build_worm, is_multi_row, worm_display_width, worm_eye_cols,
 };
+use crate::colors::{DARK_GRAY, WHITE};
 use crate::consumable::{COFFEE_SPEED_MULT, COFFEE_SWAY_MULT, COFFEE_ZOOMIE_DT_MULT};
+use crate::entities::components::{Position, SwayState, Velocity, tick_sway};
+use crate::entities::glistening::{GlisteningMode, color_for_glisten, derive_glistening_palette};
 use crate::settings::Settings;
 
 const CHAR_SPREAD: f32 = 1.0;
@@ -89,6 +90,8 @@ pub struct Fish {
     pub size_category: SizeCategory,
     pub devil_marked: bool,
     pub unfish_state: Option<Box<UnfishState>>,
+    pub sell_price_bonus_pct: u8,
+    pub abduction_lock: bool,
     direction_timer: u32,
     zoomie_timer: f32,
 }
@@ -121,7 +124,11 @@ struct BodyFields {
     sway_speed: f32,
 }
 
-fn init_body_fields(species: FishSpecies, size_cat: SizeCategory, rng: &mut impl RngExt) -> BodyFields {
+fn init_body_fields(
+    species: FishSpecies,
+    size_cat: SizeCategory,
+    rng: &mut impl RngExt,
+) -> BodyFields {
     let config = species.config();
     let body_size = match config.body {
         BodyTemplate::Fixed { .. } => 0,
@@ -171,9 +178,15 @@ impl Fish {
             name,
             position: Position { x, y },
             velocity: Velocity { dx, dy },
-            sway: SwayState { phase: rng.random::<f32>() * TAU },
+            sway: SwayState {
+                phase: rng.random::<f32>() * TAU,
+            },
             state: FishState::Idle,
-            facing: if dx < 0.0 { Direction::Left } else { Direction::Right },
+            facing: if dx < 0.0 {
+                Direction::Left
+            } else {
+                Direction::Right
+            },
             body_size: fields.body_size,
             color: fields.color,
             speed: fields.speed,
@@ -190,6 +203,8 @@ impl Fish {
             size_category: size_cat,
             devil_marked: false,
             unfish_state: None,
+            sell_price_bonus_pct: 0,
+            abduction_lock: false,
         }
     }
 
@@ -198,8 +213,13 @@ impl Fish {
         Self {
             name: String::new(),
             position: Position { x: 0.0, y: 0.0 },
-            velocity: Velocity { dx: fields.speed, dy: 0.0 },
-            sway: SwayState { phase: rng.random::<f32>() * TAU },
+            velocity: Velocity {
+                dx: fields.speed,
+                dy: 0.0,
+            },
+            sway: SwayState {
+                phase: rng.random::<f32>() * TAU,
+            },
             state: FishState::Idle,
             facing: Direction::Right,
             body_size: fields.body_size,
@@ -218,6 +238,8 @@ impl Fish {
             size_category: SizeCategory::M,
             devil_marked: false,
             unfish_state: None,
+            sell_price_bonus_pct: 0,
+            abduction_lock: false,
         }
     }
 
@@ -243,11 +265,17 @@ impl Fish {
             name,
             position: Position { x, y },
             velocity: Velocity { dx, dy },
-            sway: SwayState { phase: rng.random::<f32>() * TAU },
+            sway: SwayState {
+                phase: rng.random::<f32>() * TAU,
+            },
             state: FishState::Idle,
-            facing: if dx < 0.0 { Direction::Left } else { Direction::Right },
+            facing: if dx < 0.0 {
+                Direction::Left
+            } else {
+                Direction::Right
+            },
             body_size: 5,
-            color: ratatui::style::Color::White,
+            color: WHITE,
             speed,
             seek_boost: 0.0,
             direction_timer: rng.random_range(DIRECTION_TIMER_MIN..DIRECTION_TIMER_MAX),
@@ -262,11 +290,9 @@ impl Fish {
             size_category: SizeCategory::M,
             devil_marked: false,
             unfish_state: Some(Box::new(UnfishState::new(kind, rng))),
+            sell_price_bonus_pct: 0,
+            abduction_lock: false,
         }
-    }
-
-    pub fn len(&self) -> usize {
-        self.display_width
     }
 
     pub fn is_invisible(&self) -> bool {
@@ -299,7 +325,8 @@ impl Fish {
             self.build_colors(chars.len(), config.palette, config.pattern)
         };
         let mut segs: Vec<(char, Color)> = chars.into_iter().zip(colors).collect();
-        if !matches!(config.body, BodyTemplate::Fixed { .. }) && matches!(self.facing, Direction::Right)
+        if !matches!(config.body, BodyTemplate::Fixed { .. })
+            && matches!(self.facing, Direction::Right)
         {
             segs.reverse();
         }
@@ -312,7 +339,7 @@ impl Fish {
             } else {
                 1
             };
-            segs[eye_idx].1 = Color::DarkGray;
+            segs[eye_idx].1 = DARK_GRAY;
         }
         segs
     }
@@ -321,7 +348,11 @@ impl Fish {
         match *body {
             BodyTemplate::Standard(body_chars) => self.build_standard_chars(body_chars),
             BodyTemplate::Alternating(even_body_chars, odd_body_chars) => {
-                let body_chars = if self.pattern_seed.is_multiple_of(2) { even_body_chars } else { odd_body_chars };
+                let body_chars = if self.pattern_seed.is_multiple_of(2) {
+                    even_body_chars
+                } else {
+                    odd_body_chars
+                };
                 self.build_standard_chars(body_chars)
             }
             BodyTemplate::Fixed { left, right } => {
@@ -341,8 +372,18 @@ impl Fish {
 
     fn build_standard_chars_for(&self, body_chars: BodyChars, facing: Direction) -> Vec<char> {
         let (body_char, wave_char, raw_mouth, eye) = match facing {
-            Direction::Left => (body_chars.body_left, body_chars.wave_left, body_chars.mouth_left, body_chars.eye_left),
-            Direction::Right => (body_chars.body_right, body_chars.wave_right, body_chars.mouth_right, body_chars.eye_right),
+            Direction::Left => (
+                body_chars.body_left,
+                body_chars.wave_left,
+                body_chars.mouth_left,
+                body_chars.eye_left,
+            ),
+            Direction::Right => (
+                body_chars.body_right,
+                body_chars.wave_right,
+                body_chars.mouth_right,
+                body_chars.eye_right,
+            ),
         };
         let mouth = if matches!(self.state, FishState::Eating { .. }) {
             invert_mouth(raw_mouth)
@@ -544,7 +585,17 @@ impl Fish {
         peak: Color,
     ) -> Vec<Color> {
         (0..len)
-            .map(|i| color_for_glisten(GlisteningMode::Wave, self.sway.phase, i, len, base, mid, peak))
+            .map(|i| {
+                color_for_glisten(
+                    GlisteningMode::Wave,
+                    self.sway.phase,
+                    i,
+                    len,
+                    base,
+                    mid,
+                    peak,
+                )
+            })
             .collect()
     }
 
@@ -646,7 +697,15 @@ impl Fish {
                 let peak = mutant.glistening_color.unwrap_or(peak_default);
                 (0..n)
                     .map(|i| {
-                        color_for_glisten(mutant.glistening_mode, self.sway.phase, i, n, base, mid, peak)
+                        color_for_glisten(
+                            mutant.glistening_mode,
+                            self.sway.phase,
+                            i,
+                            n,
+                            base,
+                            mid,
+                            peak,
+                        )
                     })
                     .collect()
             } else {
@@ -693,9 +752,17 @@ impl Fish {
                     _ => unreachable!(),
                 };
                 let (body_char, wave_char, raw_mouth) = if facing_left {
-                    (body_chars.body_left, body_chars.wave_left, body_chars.mouth_left)
+                    (
+                        body_chars.body_left,
+                        body_chars.wave_left,
+                        body_chars.mouth_left,
+                    )
                 } else {
-                    (body_chars.body_right, body_chars.wave_right, body_chars.mouth_right)
+                    (
+                        body_chars.body_right,
+                        body_chars.wave_right,
+                        body_chars.mouth_right,
+                    )
                 };
                 let pre_eat = if mutant.mouth_inverted {
                     invert_mouth(raw_mouth)
@@ -769,7 +836,15 @@ impl Fish {
             let peak = mutant.glistening_color.unwrap_or(peak_default);
             (0..n)
                 .map(|i| {
-                    color_for_glisten(mutant.glistening_mode, self.sway.phase, i, n, base, mid, peak)
+                    color_for_glisten(
+                        mutant.glistening_mode,
+                        self.sway.phase,
+                        i,
+                        n,
+                        base,
+                        mid,
+                        peak,
+                    )
                 })
                 .collect()
         } else {
@@ -806,6 +881,14 @@ impl Fish {
         coffee_stacks: u32,
     ) {
         let dt = 1.0 / settings.fps;
+
+        if self.abduction_lock {
+            tick_sway(&mut self.sway, self.sway_speed);
+            if let Some(ref mut mutant) = self.mutant {
+                mutant.tick_eyes(dt);
+            }
+            return;
+        }
 
         match self.state {
             FishState::Idle => {
@@ -995,7 +1078,11 @@ impl Fish {
             BodyTemplate::Standard(bc) | BodyTemplate::Alternating(bc, _) => {
                 let body_chars = match config.body {
                     BodyTemplate::Alternating(even_body_chars, odd_body_chars) => {
-                        if self.pattern_seed.is_multiple_of(2) { even_body_chars } else { odd_body_chars }
+                        if self.pattern_seed.is_multiple_of(2) {
+                            even_body_chars
+                        } else {
+                            odd_body_chars
+                        }
                     }
                     _ => bc,
                 };
@@ -1057,7 +1144,10 @@ impl Fish {
                     .enumerate()
                     .map(|(i, c)| {
                         if eye_cols.contains(&i) {
-                            ('0', unfish_state.slime_eye_color.unwrap_or(UNFISH_EYE_COLOR))
+                            (
+                                '0',
+                                unfish_state.slime_eye_color.unwrap_or(UNFISH_EYE_COLOR),
+                            )
                         } else {
                             (c, body_color)
                         }
@@ -1134,8 +1224,15 @@ impl Fish {
                     let peak = mutant.glistening_color.unwrap_or(peak_default);
                     return (0..n)
                         .map(|i| {
-                            let c =
-                                color_for_glisten(mutant.glistening_mode, 0.0, i, n, base, mid, peak);
+                            let c = color_for_glisten(
+                                mutant.glistening_mode,
+                                0.0,
+                                i,
+                                n,
+                                base,
+                                mid,
+                                peak,
+                            );
                             (jelly_char, c)
                         })
                         .collect();
@@ -1201,7 +1298,8 @@ impl Fish {
 
         let (raw_mouth, body_ch, non_double_tail): (char, char, Vec<char>) =
             if self.species == FishSpecies::Mutantfish {
-                let (rm, bc, _) = body_chars_for_variant(mutant.body_variant, true, mutant.mouth_inverted);
+                let (rm, bc, _) =
+                    body_chars_for_variant(mutant.body_variant, true, mutant.mouth_inverted);
                 (rm, bc, mutant.tail_variant.chars(true, 0.0))
             } else {
                 let config = self.species.config();
@@ -1214,7 +1312,11 @@ impl Fish {
                 } else {
                     body_chars.mouth_left
                 };
-                (rm, body_chars.body_left, tail_chars(body_chars, Direction::Left, 0.0))
+                (
+                    rm,
+                    body_chars.body_left,
+                    tail_chars(body_chars, Direction::Left, 0.0),
+                )
             };
         let max_eyes = mutant.left_eyes.len().max(mutant.right_eyes.len());
         let mut chars: Vec<char> = Vec::new();

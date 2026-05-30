@@ -5,9 +5,12 @@ use ratatui::{
     widgets::Widget,
 };
 
-use crate::colors::{SELECTED_COLOR, SELECTED_TANK_COLOR};
+use crate::colors::{BLACK, DARK_GRAY, STEEL, WHITE};
 use crate::tank::{Tank, TankKind};
-use crate::ui::{hints::{HINT_CLOSE, HINT_ENTER_SWITCH, HINT_NAV, HINT_SCROLL}, scroll_list, table};
+use crate::ui::{
+    hints::{HINT_CLOSE, HINT_ENTER_SWITCH, HINT_NAV, HINT_SCROLL},
+    scroll_list, table,
+};
 
 struct FishtanksEntry {
     name: String,
@@ -122,33 +125,23 @@ impl Widget for FishtanksOverlay<'_> {
             return;
         };
         layout.clear_bg(buf, bg);
-        layout.draw_border(buf, " Fishtank#index ", Color::White, bg);
+        layout.draw_border(buf, " Fishtank#index ", WHITE, bg);
 
         let (ox, oy) = (layout.ox, layout.oy);
         let inner_x = layout.inner_x();
         let sep_x = inner_x + name_w as u16;
         let sep2_x = sep_x + 1 + type_w as u16;
-
-        draw_header(
-            buf,
-            inner_x,
-            oy + 1,
+        let cols = Columns {
             name_w,
             type_w,
             fishes_w,
             sep_x,
             sep2_x,
-            bg,
-        );
-        table::draw_box_separator(
-            buf,
-            ox,
-            oy + 2,
-            overlay_w,
-            &[sep_x, sep2_x],
-            Color::White,
-            bg,
-        );
+            total_inner_w: inner_w,
+        };
+
+        draw_header(buf, inner_x, oy + 1, &cols, bg);
+        table::draw_box_separator(buf, ox, oy + 2, overlay_w, &[sep_x, sep2_x], WHITE, bg);
 
         let data_start_y = oy + 3;
         let data_end_y = oy + overlay_h.saturating_sub(4);
@@ -164,12 +157,7 @@ impl Widget for FishtanksOverlay<'_> {
                 &state.entries[idx],
                 inner_x,
                 row_y,
-                name_w,
-                type_w,
-                fishes_w,
-                sep_x,
-                sep2_x,
-                inner_w,
+                &cols,
                 selected,
                 bg,
             );
@@ -182,7 +170,7 @@ impl Widget for FishtanksOverlay<'_> {
         };
 
         let footer_y = oy + overlay_h - 2;
-        let hint_style = Style::default().fg(Color::DarkGray).bg(bg);
+        let hint_style = Style::default().fg(DARK_GRAY).bg(bg);
 
         let close_x = inner_x + inner_w as u16 - 1 - close_w as u16;
         let enter_x = close_x - 2 - enter_w as u16;
@@ -195,69 +183,71 @@ impl Widget for FishtanksOverlay<'_> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn draw_header(
-    buf: &mut Buffer,
-    x: u16,
-    y: u16,
-    name_w: usize,
-    type_w: usize,
-    fishes_w: usize,
-    sep_x: u16,
-    sep2_x: u16,
-    bg: Color,
-) {
-    let bold = Style::default()
-        .fg(Color::White)
-        .add_modifier(Modifier::BOLD)
-        .bg(bg);
-    let sep = Style::default().fg(Color::White).bg(bg);
-
-    buf.set_string(x, y, table::pad_right("Name", name_w), bold);
-    buf[(sep_x, y)].set_char('│').set_style(sep);
-    buf.set_string(sep_x + 1, y, table::pad_right("Type", type_w), bold);
-    buf[(sep2_x, y)].set_char('│').set_style(sep);
-    buf.set_string(sep2_x + 1, y, table::pad_right("Fishes", fishes_w), bold);
-}
-
-#[allow(clippy::too_many_arguments)]
-fn draw_row(
-    buf: &mut Buffer,
-    entry: &FishtanksEntry,
-    x: u16,
-    y: u16,
+struct Columns {
     name_w: usize,
     type_w: usize,
     fishes_w: usize,
     sep_x: u16,
     sep2_x: u16,
     total_inner_w: usize,
+}
+
+fn draw_header(buf: &mut Buffer, x: u16, y: u16, cols: &Columns, bg: Color) {
+    let bold = Style::default()
+        .fg(WHITE)
+        .add_modifier(Modifier::BOLD)
+        .bg(bg);
+    let sep = Style::default().fg(WHITE).bg(bg);
+
+    buf.set_string(x, y, table::pad_right("Name", cols.name_w), bold);
+    buf[(cols.sep_x, y)].set_char('│').set_style(sep);
+    buf.set_string(
+        cols.sep_x + 1,
+        y,
+        table::pad_right("Type", cols.type_w),
+        bold,
+    );
+    buf[(cols.sep2_x, y)].set_char('│').set_style(sep);
+    buf.set_string(
+        cols.sep2_x + 1,
+        y,
+        table::pad_right("Fishes", cols.fishes_w),
+        bold,
+    );
+}
+
+fn draw_row(
+    buf: &mut Buffer,
+    entry: &FishtanksEntry,
+    x: u16,
+    y: u16,
+    cols: &Columns,
     selected: bool,
     base_bg: Color,
 ) {
-    let row_bg = if selected { SELECTED_COLOR } else { base_bg };
-    let fg = if selected { Color::Black } else { SELECTED_TANK_COLOR };
+    let row_bg = if selected { WHITE } else { base_bg };
+    let fg = if selected { BLACK } else { STEEL };
     let text_style = Style::default().fg(fg).bg(row_bg);
-    let sep_style = Style::default().fg(Color::White).bg(row_bg);
+    let sep_style = Style::default().fg(WHITE).bg(row_bg);
 
-    for dx in 0..total_inner_w as u16 {
+    for dx in 0..cols.total_inner_w as u16 {
         buf[(x + dx, y)].set_bg(row_bg);
     }
 
-    buf.set_string(x, y, table::pad_right(&entry.name, name_w), text_style);
-    buf[(sep_x, y)].set_char('│').set_style(sep_style);
+    buf.set_string(x, y, table::pad_right(&entry.name, cols.name_w), text_style);
+    buf[(cols.sep_x, y)].set_char('│').set_style(sep_style);
     buf.set_string(
-        sep_x + 1,
+        cols.sep_x + 1,
         y,
-        table::pad_right(entry.kind.display_name(), type_w),
+        table::pad_right(entry.kind.display_name(), cols.type_w),
         text_style,
     );
-    buf[(sep2_x, y)].set_char('│').set_style(sep_style);
+    buf[(cols.sep2_x, y)].set_char('│').set_style(sep_style);
     let count_str = format!("{}/{}", entry.fish_count, entry.capacity);
     buf.set_string(
-        sep2_x + 1,
+        cols.sep2_x + 1,
         y,
-        table::pad_right(&count_str, fishes_w),
+        table::pad_right(&count_str, cols.fishes_w),
         text_style,
     );
 }

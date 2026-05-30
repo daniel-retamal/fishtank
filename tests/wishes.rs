@@ -1,7 +1,8 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use fishtank::{
     app::App,
-    entities::{fish::Fish, species::FishSpecies},
+    entities::cow::CowVariant,
+    fishes::{fish::Fish, species::FishSpecies},
     tank::{Tank, TankKind},
     void_ritual::{
         EXPAND_AMOUNT, GIVE_BAIT_QTY, GIVE_COFFEE_QTY, GIVE_JUNK_QTY, GIVE_NECRONOMICON_QTY,
@@ -19,6 +20,21 @@ fn ctx<'a>(fish: &'a [String], tanks: &'a [String], graveyard: &'a [String]) -> 
         fish_names: fish,
         tank_names: tanks,
         graveyard_names: graveyard,
+        cow_names: &[],
+    }
+}
+
+fn ctx_with_cows<'a>(
+    fish: &'a [String],
+    tanks: &'a [String],
+    graveyard: &'a [String],
+    cows: &'a [String],
+) -> WishCtx<'a> {
+    WishCtx {
+        fish_names: fish,
+        tank_names: tanks,
+        graveyard_names: graveyard,
+        cow_names: cows,
     }
 }
 
@@ -705,7 +721,7 @@ fn four_invalid_wishes_then_valid_executes_and_aborts() {
     let mut app = App::new();
     for _ in 0..4 {
         app.void_ritual = VoidRitualState::Wish {
-            retries_left: MAX_WISH_RETRIES - (4 - 4),
+            retries_left: MAX_WISH_RETRIES,
         };
         app.command_input = "give foobar".to_string();
         app.submit_ritual_input();
@@ -910,4 +926,101 @@ fn wish_index_esc_closes_overlay_without_aborting_ritual() {
         matches!(app.void_ritual, VoidRitualState::Wish { .. }),
         "ESC from index must not abort the ritual"
     );
+}
+
+#[test]
+fn mutate_cow_parses_when_name_is_a_cow() {
+    let fish = names(&[]);
+    let tanks = names(&[]);
+    let grav = names(&[]);
+    let cows = names(&["Vaquita"]);
+    let c = ctx_with_cows(&fish, &tanks, &grav, &cows);
+    if let Some(WishAction::Mutate {
+        fish_name,
+        mutation,
+    }) = parse_wish("mutate vaquita colorpatch", &c)
+    {
+        assert_eq!(fish_name, "Vaquita");
+        assert_eq!(mutation, "colorpatch");
+    } else {
+        panic!("expected a Mutate action for a cow name");
+    }
+}
+
+#[test]
+fn mutate_cow_does_not_parse_without_cow_in_context() {
+    let fish = names(&[]);
+    let tanks = names(&[]);
+    let grav = names(&[]);
+    let c = ctx(&fish, &tanks, &grav);
+    assert!(parse_wish("mutate vaquita colorpatch", &c).is_none());
+}
+
+#[test]
+fn clone_cow_parses_when_name_is_a_cow() {
+    let fish = names(&[]);
+    let tanks = names(&[]);
+    let grav = names(&[]);
+    let cows = names(&["Vaquita"]);
+    let c = ctx_with_cows(&fish, &tanks, &grav, &cows);
+    if let Some(WishAction::Clone { fish_name }) = parse_wish("clone vaquita", &c) {
+        assert_eq!(fish_name, "Vaquita");
+    } else {
+        panic!("expected a Clone action for a cow name");
+    }
+}
+
+#[test]
+fn execute_mutate_cow_records_the_mutation() {
+    let mut app = App::new();
+    let mut rng = rand::rng();
+    let cow_name = app.tanks[0].spawn_cow(CowVariant::Brown, &mut rng);
+    let wish = format!("mutate {} colorpatch", cow_name.to_lowercase());
+    submit_wish(&mut app, &wish);
+    let cow = app.tanks[0]
+        .cows
+        .iter()
+        .find(|c| c.name == cow_name)
+        .expect("cow must still exist after the wish");
+    let record = cow
+        .mutations
+        .as_ref()
+        .expect("cow must have a mutation record after a mutate wish");
+    assert_eq!(record.count, 1);
+}
+
+#[test]
+fn execute_mutate_cow_aborts_ritual_to_idle() {
+    let mut app = App::new();
+    let mut rng = rand::rng();
+    let cow_name = app.tanks[0].spawn_cow(CowVariant::Brown, &mut rng);
+    let wish = format!("mutate {} colorpatch", cow_name.to_lowercase());
+    submit_wish(&mut app, &wish);
+    assert!(is_idle(&app));
+}
+
+#[test]
+fn execute_clone_cow_adds_clone_to_tank() {
+    let mut app = App::new();
+    let mut rng = rand::rng();
+    let cow_name = app.tanks[0].spawn_cow(CowVariant::Pink, &mut rng);
+    let cows_before = app.tanks[app.current_tank].cows.len();
+    let wish = format!("clone {}", cow_name.to_lowercase());
+    submit_wish(&mut app, &wish);
+    assert_eq!(app.tanks[app.current_tank].cows.len(), cows_before + 1);
+}
+
+#[test]
+fn execute_clone_cow_has_expected_name_suffix() {
+    let mut app = App::new();
+    let mut rng = rand::rng();
+    let cow_name = app.tanks[0].spawn_cow(CowVariant::Pink, &mut rng);
+    let expected_clone_name = format!("{}'s Clone", cow_name);
+    let wish = format!("clone {}", cow_name.to_lowercase());
+    submit_wish(&mut app, &wish);
+    let has_clone = app.tanks[app.current_tank]
+        .cows
+        .iter()
+        .any(|c| c.name == expected_clone_name);
+    assert!(has_clone, "cloned cow must be named '<original>'s Clone'");
 }

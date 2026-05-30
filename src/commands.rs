@@ -1,13 +1,69 @@
 use crate::fishes::species::{ALL_SPECIES, FishSpecies};
+use crate::loot::ConsumableKind;
+use crate::names::title_case;
 
 pub struct Completion {
     pub ghost: String,
     pub tab_result: Option<String>,
 }
 
+#[derive(Clone, Copy, Default)]
+pub struct EntityMutFlags {
+    pub is_double: bool,
+    pub has_glisten: bool,
+    pub allows_tail: bool,
+    pub allows_size: bool,
+    pub allows_body_variant: bool,
+    pub allows_mouth: bool,
+}
+
+#[derive(Default)]
+pub struct CompletionCtx<'a> {
+    pub fish_names: &'a [&'a str],
+    pub consumable_names: &'a [&'a str],
+    pub tank_names: &'a [&'a str],
+    pub current_tank: &'a str,
+    pub fish_in_tanks: &'a [(&'a str, &'a str)],
+    pub has_cow_in_current: bool,
+    pub entity_flags: &'a [(&'a str, EntityMutFlags)],
+}
+
+fn allowed_mutations(flags: EntityMutFlags) -> Vec<&'static str> {
+    MUTATION_NAMES
+        .iter()
+        .copied()
+        .filter(|&m| match m {
+            "mitosis" => flags.is_double,
+            "doublefish" => !flags.is_double,
+            "glistenenable" => !flags.has_glisten,
+            "glistendisable" => flags.has_glisten,
+            "tailvariant" => flags.allows_tail,
+            "size+" | "size-" => flags.allows_size,
+            "bodyvariant" => flags.allows_body_variant,
+            "mouthvariant" => flags.allows_mouth,
+            _ => true,
+        })
+        .collect()
+}
+
+fn entity_allowed_mutations(
+    name: &str,
+    entity_flags: &[(&str, EntityMutFlags)],
+) -> Vec<&'static str> {
+    if let Some((_, flags)) = entity_flags
+        .iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case(name))
+    {
+        allowed_mutations(*flags)
+    } else {
+        MUTATION_NAMES.to_vec()
+    }
+}
+
 static COMMAND_NAMES: &[&str] = &[
     "add",
     "consume",
+    "cowsay",
     "exit",
     "feed",
     "fish",
@@ -21,13 +77,23 @@ static COMMAND_NAMES: &[&str] = &[
     "shop",
     "show",
     "spawn",
+    "startcowabduction",
+    "startfishabduction",
     "stats",
     "subtract",
     "switch",
     "voidspawn",
 ];
 
-static RESOURCE_NAMES: &[&str] = &["food", "junk", "cash"];
+const BASE_RESOURCE_NAMES: &[&str] = &["food", "junk", "cash"];
+
+fn resource_names() -> Vec<String> {
+    let mut v: Vec<String> = BASE_RESOURCE_NAMES.iter().map(|s| s.to_string()).collect();
+    for k in ConsumableKind::all() {
+        v.push(k.lowercase_name());
+    }
+    v
+}
 
 static MUTATION_NAMES: &[&str] = &[
     "bodycolor",
@@ -50,65 +116,47 @@ static MUTATION_NAMES: &[&str] = &[
     "tailvariant",
 ];
 
-
-pub fn autocomplete(
-    input: &str,
-    fish_names: &[&str],
-    consumable_names: &[&str],
-    tank_names: &[&str],
-    current_tank: &str,
-    fish_in_tanks: &[(&str, &str)],
-) -> Option<Completion> {
+pub fn autocomplete(input: &str, ctx: &CompletionCtx) -> Option<Completion> {
     if !input.starts_with('/') {
         return None;
     }
     let body = &input[1..];
 
     match body.split_once(' ') {
-        None => complete_command(body),
+        None => complete_command(body, ctx.has_cow_in_current),
         Some((cmd, rest)) => match cmd.to_ascii_lowercase().as_str() {
             "add" => complete_add_subtract("add", rest),
-            "consume" => complete_consume(rest, consumable_names),
+            "consume" => complete_consume(rest, ctx.consumable_names),
             "feed" => complete_feed(rest),
             "fps" => complete_fps(rest),
-            "index" => complete_index(rest, tank_names),
-            "move" => complete_move(rest, fish_names, tank_names, fish_in_tanks),
-            "mutate" => complete_mutate(rest, fish_names),
-            "show" => complete_show(rest, fish_in_tanks),
+            "index" => complete_index(rest, ctx.tank_names),
+            "move" => complete_move(rest, ctx.fish_names, ctx.tank_names, ctx.fish_in_tanks),
+            "mutate" => complete_mutate(rest, ctx.fish_names, ctx.entity_flags),
+            "show" => complete_show(rest, ctx.fish_in_tanks),
             "spawn" => complete_spawn(rest),
             "subtract" => complete_add_subtract("subtract", rest),
-            "switch" => complete_switch(rest, tank_names, current_tank),
+            "switch" => complete_switch(rest, ctx.tank_names, ctx.current_tank),
             _ => None,
         },
     }
 }
 
-pub fn tab_complete(
-    input: &str,
-    fish_names: &[&str],
-    consumable_names: &[&str],
-    tank_names: &[&str],
-    current_tank: &str,
-    fish_in_tanks: &[(&str, &str)],
-) -> Option<String> {
-    autocomplete(
-        input,
-        fish_names,
-        consumable_names,
-        tank_names,
-        current_tank,
-        fish_in_tanks,
-    )
-    .and_then(|c| c.tab_result)
+pub fn tab_complete(input: &str, ctx: &CompletionCtx) -> Option<String> {
+    autocomplete(input, ctx).and_then(|c| c.tab_result)
 }
 
-fn complete_command(partial: &str) -> Option<Completion> {
+fn complete_command(partial: &str, has_cow_in_current: bool) -> Option<Completion> {
     if partial.is_empty() {
         return None;
     }
     let partial_lower = partial.to_ascii_lowercase();
+    let allowed: Vec<&str> = COMMAND_NAMES
+        .iter()
+        .copied()
+        .filter(|&n| has_cow_in_current || n != "cowsay")
+        .collect();
 
-    if COMMAND_NAMES.iter().any(|&n| n == partial_lower) {
+    if allowed.iter().any(|&n| n == partial_lower) {
         let args = command_args_placeholder(&partial_lower);
         return if args.is_empty() {
             None
@@ -120,7 +168,7 @@ fn complete_command(partial: &str) -> Option<Completion> {
         };
     }
 
-    let matches: Vec<&str> = COMMAND_NAMES
+    let matches: Vec<&str> = allowed
         .iter()
         .copied()
         .filter(|&n| n.starts_with(partial_lower.as_str()))
@@ -175,51 +223,66 @@ fn complete_fps(rest: &str) -> Option<Completion> {
 }
 
 fn complete_add_subtract(cmd: &str, rest: &str) -> Option<Completion> {
-    match rest.split_once(' ') {
-        None => {
-            if rest.is_empty() {
+    if rest.is_empty() {
+        return Some(Completion {
+            ghost: "<resource> <amount>".to_string(),
+            tab_result: None,
+        });
+    }
+    let resources = resource_names();
+    let rest_lower = rest.to_ascii_lowercase();
+    let rest_trimmed = rest_lower.trim_end();
+
+    for resource in &resources {
+        if rest_trimmed == resource.as_str() {
+            let space = if rest.ends_with(' ') { "" } else { " " };
+            return Some(Completion {
+                ghost: format!("{}<amount>", space),
+                tab_result: None,
+            });
+        }
+        let prefix_with_space = format!("{} ", resource);
+        if rest_lower.starts_with(&prefix_with_space) {
+            let after = &rest_lower[prefix_with_space.len()..];
+            if after.is_empty() {
                 return Some(Completion {
-                    ghost: "<resource> <amount>".to_string(),
+                    ghost: "<amount>".to_string(),
                     tab_result: None,
                 });
             }
-            let rest_lower = rest.to_ascii_lowercase();
-            let matches: Vec<&str> = RESOURCE_NAMES
-                .iter()
-                .copied()
-                .filter(|&r| r.starts_with(rest_lower.as_str()))
-                .collect();
-            if matches.is_empty() {
-                return None;
-            }
-            let first = matches[0];
-            let ghost = format!("{} <amount>", &first[rest.len()..]);
-            let tab_result = if matches.len() == 1 {
-                Some(format!("/{} {} ", cmd, first))
-            } else {
-                let cp = longest_common_prefix(&matches);
-                if cp.len() > rest.len() {
-                    Some(format!("/{} {}", cmd, cp))
-                } else {
-                    Some(format!("/{} {} ", cmd, first))
-                }
-            };
-            Some(Completion { ghost, tab_result })
-        }
-        Some((_, amount_rest)) => {
-            if amount_rest.is_empty() {
-                Some(Completion {
-                    ghost: "<amount>".to_string(),
-                    tab_result: None,
-                })
-            } else {
-                None
-            }
+            return None;
         }
     }
+
+    let typed_len = rest.len();
+    let matches: Vec<&str> = resources
+        .iter()
+        .map(|s| s.as_str())
+        .filter(|r| r.starts_with(rest_lower.as_str()))
+        .collect();
+    if matches.is_empty() {
+        return None;
+    }
+    let first = matches[0];
+    let ghost = format!("{} <amount>", &first[typed_len..]);
+    let tab_result = if matches.len() == 1 {
+        Some(format!("/{} {} ", cmd, first))
+    } else {
+        let cp = longest_common_prefix(&matches);
+        if cp.len() > typed_len {
+            Some(format!("/{} {}", cmd, cp))
+        } else {
+            Some(format!("/{} {} ", cmd, first))
+        }
+    };
+    Some(Completion { ghost, tab_result })
 }
 
-fn complete_mutate(rest: &str, fish_names: &[&str]) -> Option<Completion> {
+fn complete_mutate(
+    rest: &str,
+    fish_names: &[&str],
+    entity_flags: &[(&str, EntityMutFlags)],
+) -> Option<Completion> {
     if rest.is_empty() {
         return Some(Completion {
             ghost: "<name> <mutation>".to_string(),
@@ -243,7 +306,7 @@ fn complete_mutate(rest: &str, fish_names: &[&str]) -> Option<Completion> {
                     tab_result: Some(format!("/mutate \"{}\" ", name)),
                 });
             }
-            return complete_mutation_part(after, name, true);
+            return complete_mutation_part(after, name, true, entity_flags);
         }
         let inner_lower = inner.to_ascii_lowercase();
         let matches: Vec<&str> = fish_names
@@ -293,7 +356,7 @@ fn complete_mutate(rest: &str, fish_names: &[&str]) -> Option<Completion> {
                 });
             }
             let after = after_words.join(" ");
-            return complete_mutation_part(&after, display, false);
+            return complete_mutation_part(&after, display, false, entity_flags);
         }
     }
 
@@ -321,9 +384,15 @@ fn complete_mutate(rest: &str, fish_names: &[&str]) -> Option<Completion> {
     Some(Completion { ghost, tab_result })
 }
 
-fn complete_mutation_part(after: &str, name: &str, quoted: bool) -> Option<Completion> {
+fn complete_mutation_part(
+    after: &str,
+    name: &str,
+    quoted: bool,
+    entity_flags: &[(&str, EntityMutFlags)],
+) -> Option<Completion> {
     let after_lower = after.to_ascii_lowercase();
-    let matches: Vec<&str> = MUTATION_NAMES
+    let allowed = entity_allowed_mutations(name, entity_flags);
+    let matches: Vec<&str> = allowed
         .iter()
         .copied()
         .filter(|&m| m.starts_with(after_lower.as_str()))
@@ -403,9 +472,6 @@ fn complete_species(partial: &str) -> Option<Completion> {
 }
 
 fn complete_consume(rest: &str, consumable_names: &[&str]) -> Option<Completion> {
-    if rest.contains(' ') {
-        return None;
-    }
     if rest.is_empty() {
         if consumable_names.is_empty() {
             return None;
@@ -415,23 +481,51 @@ fn complete_consume(rest: &str, consumable_names: &[&str]) -> Option<Completion>
             tab_result: None,
         });
     }
-    let rest_lower = rest.to_ascii_lowercase();
+    let (quoted, inner) = if let Some(s) = rest.strip_prefix('"') {
+        (true, s)
+    } else {
+        (false, rest)
+    };
+    if quoted && inner.contains('"') {
+        return None;
+    }
+    let inner_lower = inner.to_ascii_lowercase();
     let matches: Vec<&str> = consumable_names
         .iter()
         .copied()
-        .filter(|&n| n.to_ascii_lowercase().starts_with(rest_lower.as_str()))
+        .filter(|&n| n.to_ascii_lowercase().starts_with(inner_lower.as_str()))
         .collect();
     if matches.is_empty() {
+        if quoted {
+            return Some(Completion {
+                ghost: "\"".to_string(),
+                tab_result: None,
+            });
+        }
         return None;
     }
     let first = matches[0];
-    let ghost = first[rest.len()..].to_string();
+    let ghost = if quoted {
+        format!("{}\"", &first[inner.len()..])
+    } else {
+        first[inner.len()..].to_string()
+    };
     let tab_result = if matches.len() == 1 {
-        Some(format!("/consume {}", first))
+        if quoted {
+            Some(format!("/consume \"{}\"", first))
+        } else {
+            Some(format!("/consume {}", first))
+        }
     } else {
         let cp = longest_common_prefix(&matches);
-        if cp.len() > rest.len() {
-            Some(format!("/consume {}", cp))
+        if cp.len() > inner.len() {
+            if quoted {
+                Some(format!("/consume \"{}", cp))
+            } else {
+                Some(format!("/consume {}", cp))
+            }
+        } else if quoted {
+            Some(format!("/consume \"{}\"", first))
         } else {
             Some(format!("/consume {}", first))
         }
@@ -514,7 +608,7 @@ fn complete_move(
 ) -> Option<Completion> {
     if rest.is_empty() {
         return Some(Completion {
-            ghost: "<fish> <tank>".to_string(),
+            ghost: "<entity> <tank>".to_string(),
             tab_result: None,
         });
     }
@@ -829,21 +923,14 @@ fn command_args_placeholder(cmd: &str) -> &'static str {
     match cmd {
         "add" | "subtract" => "<resource> <amount>",
         "consume" => "<consumable>",
+        "cowsay" => "\"<text>\"",
         "feed" => "<amount>",
         "fps" => "<n>",
         "index" | "show" | "switch" => "<name>",
-        "move" => "<fish> <tank>",
+        "move" => "<entity> <tank>",
         "mutate" => "<name> <mutation>",
         "spawn" => "<species> <name>",
         _ => "",
-    }
-}
-
-fn capitalize(s: &str) -> String {
-    let mut chars = s.chars();
-    match chars.next() {
-        None => String::new(),
-        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
     }
 }
 
@@ -898,10 +985,13 @@ pub enum Action {
     },
     Fishtanks,
     Exit,
+    Cowsay(String),
     VoidSpawn,
     StartVoidWish {
         skip: bool,
     },
+    StartFishAbduction,
+    StartCowAbduction,
     Unknown,
 }
 
@@ -913,6 +1003,21 @@ fn greedy_name_words<'a>(words: &[&str], names: &[&'a str]) -> Option<(usize, &'
         }
     }
     None
+}
+
+fn parse_rest_or_quoted(rest: &str) -> String {
+    let rest = rest.trim();
+    if let Some(inner) = rest.strip_prefix('"')
+        && let Some(end) = inner.find('"')
+    {
+        return inner[..end].to_string();
+    }
+    if let Some(inner) = rest.strip_prefix('\'')
+        && let Some(end) = inner.find('\'')
+    {
+        return inner[..end].to_string();
+    }
+    rest.to_string()
 }
 
 fn parse_raw_arg(rest: &str) -> String {
@@ -1080,7 +1185,7 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
             }
         }
         "consume" => {
-            let name = parse_raw_arg(rest);
+            let name = parse_rest_or_quoted(rest);
             if name.is_empty() {
                 Action::Unknown
             } else {
@@ -1095,14 +1200,12 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
         }
         "fps" => rest.parse().map(Action::SetFps).unwrap_or(Action::Unknown),
         "add" | "subtract" => {
-            let mut parts = rest.splitn(2, ' ');
-            let resource = match parts.next() {
-                Some(r) if !r.is_empty() => r,
+            let trimmed = rest.trim();
+            let (resource, n_str) = match trimmed.rsplit_once(char::is_whitespace) {
+                Some((r, n)) if !r.trim().is_empty() && !n.trim().is_empty() => {
+                    (r.trim(), n.trim())
+                }
                 _ => return Action::Unknown,
-            };
-            let n_str = match parts.next() {
-                Some(n) => n.trim(),
-                None => return Action::Unknown,
             };
             let Ok(qty) = n_str.parse::<u32>() else {
                 return Action::Unknown;
@@ -1113,7 +1216,7 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
                 -(qty as i32)
             };
             Action::ModResource {
-                name: capitalize(resource),
+                name: title_case(resource),
                 delta,
             }
         }
@@ -1143,7 +1246,17 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
             }
         }
         "exit" => Action::Exit,
+        "cowsay" => {
+            let text = parse_raw_arg(rest);
+            if text.is_empty() {
+                Action::Unknown
+            } else {
+                Action::Cowsay(text)
+            }
+        }
         "voidspawn" => Action::VoidSpawn,
+        "startfishabduction" => Action::StartFishAbduction,
+        "startcowabduction" => Action::StartCowAbduction,
         "startvoidwish" => {
             let flags: Vec<&str> = rest.split_whitespace().collect();
             Action::StartVoidWish {
@@ -1496,63 +1609,99 @@ mod tests {
 
     #[test]
     fn autocomplete_partial_command_ghost() {
-        let result = autocomplete("/fe", &[], &[], &[], "", &[]);
+        let result = autocomplete("/fe", &CompletionCtx::default());
         let c = result.unwrap();
         assert!(c.ghost.starts_with("ed"));
     }
 
     #[test]
     fn autocomplete_exact_command_with_args_ghost() {
-        let result = autocomplete("/feed", &[], &[], &[], "", &[]);
+        let result = autocomplete("/feed", &CompletionCtx::default());
         let c = result.unwrap();
         assert_eq!(c.ghost, " <amount>");
     }
 
     #[test]
     fn autocomplete_exact_command_tab_result_adds_space() {
-        let result = autocomplete("/feed", &[], &[], &[], "", &[]);
+        let result = autocomplete("/feed", &CompletionCtx::default());
         let c = result.unwrap();
         assert_eq!(c.tab_result, Some("/feed ".to_string()));
     }
 
     #[test]
     fn autocomplete_spawn_partial_species_ghost() {
-        let result = autocomplete("/spawn mer", &[], &[], &[], "", &[]);
+        let result = autocomplete("/spawn mer", &CompletionCtx::default());
         let c = result.unwrap();
         assert!(c.ghost.contains("luza"));
     }
 
     #[test]
     fn autocomplete_unknown_prefix_returns_none() {
-        let result = autocomplete("/zzz", &[], &[], &[], "", &[]);
+        let result = autocomplete("/zzz", &CompletionCtx::default());
         assert!(result.is_none());
     }
 
     #[test]
     fn autocomplete_fish_name_ghost_in_mutate() {
-        let result = autocomplete("/mutate Ne", &["Nemo"], &[], &[], "", &[]);
+        let result = autocomplete(
+            "/mutate Ne",
+            &CompletionCtx {
+                fish_names: &["Nemo"],
+                ..Default::default()
+            },
+        );
         let c = result.unwrap();
         assert!(c.ghost.contains("mo"));
     }
 
     #[test]
     fn autocomplete_mutation_name_ghost() {
-        let result = autocomplete("/mutate Nemo eye", &["Nemo"], &[], &[], "", &[]);
+        let result = autocomplete(
+            "/mutate Nemo eye",
+            &CompletionCtx {
+                fish_names: &["Nemo"],
+                ..Default::default()
+            },
+        );
         let c = result.unwrap();
         assert!(!c.ghost.is_empty());
     }
 
     #[test]
     fn autocomplete_show_fish_name() {
-        let result = autocomplete("/show Ne", &[], &[], &[], "", &[("Nemo", "Tank1")]);
+        let result = autocomplete(
+            "/show Ne",
+            &CompletionCtx {
+                fish_in_tanks: &[("Nemo", "Tank1")],
+                ..Default::default()
+            },
+        );
         let c = result.unwrap();
         assert!(c.ghost.contains("mo"));
     }
 
     #[test]
     fn autocomplete_no_input_returns_none() {
-        let result = autocomplete("", &[], &[], &[], "", &[]);
+        let result = autocomplete("", &CompletionCtx::default());
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn autocomplete_cowsay_hidden_when_no_cow() {
+        let result = autocomplete("/cow", &CompletionCtx::default());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn autocomplete_cowsay_visible_when_cow_present() {
+        let result = autocomplete(
+            "/cow",
+            &CompletionCtx {
+                has_cow_in_current: true,
+                ..Default::default()
+            },
+        );
+        assert!(result.is_some());
     }
 
     #[test]

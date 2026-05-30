@@ -4,12 +4,19 @@ use ratatui::{
     style::{Color, Style},
 };
 
+use crate::colors::{BLACK, WHITE};
 use crate::ui::input_action::InputAction;
 use crate::ui::table::truncate_str;
 
 pub struct TextInput {
     pub value: String,
     pub cursor: usize,
+}
+
+impl Default for TextInput {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TextInput {
@@ -49,8 +56,12 @@ impl TextInput {
             KeyCode::Right if self.cursor < self.value.len() => {
                 self.cursor = next_char_boundary(&self.value, self.cursor);
             }
-            KeyCode::Home => { self.cursor = 0; }
-            KeyCode::End => { self.cursor = self.value.len(); }
+            KeyCode::Home => {
+                self.cursor = 0;
+            }
+            KeyCode::End => {
+                self.cursor = self.value.len();
+            }
             _ => {}
         }
     }
@@ -76,8 +87,12 @@ impl TextInput {
             InputAction::Right if self.cursor < self.value.len() => {
                 self.cursor = next_char_boundary(&self.value, self.cursor);
             }
-            InputAction::Home => { self.cursor = 0; }
-            InputAction::End => { self.cursor = self.value.len(); }
+            InputAction::Home => {
+                self.cursor = 0;
+            }
+            InputAction::End => {
+                self.cursor = self.value.len();
+            }
             _ => {}
         }
     }
@@ -112,7 +127,7 @@ pub fn draw_text_cursor(
         return;
     }
 
-    let s_white = Style::default().fg(Color::White).bg(bg);
+    let s_white = Style::default().fg(WHITE).bg(bg);
 
     buf[(x, y)].set_char('>').set_style(s_white);
     buf[(x + 1, y)].set_char(' ').set_style(s_white);
@@ -137,8 +152,8 @@ pub fn draw_text_cursor(
         if cursor_vis {
             buf[(cursor_col, y)]
                 .set_char(ch)
-                .set_fg(Color::Black)
-                .set_bg(Color::White);
+                .set_fg(BLACK)
+                .set_bg(WHITE);
         } else if !at_end {
             buf[(cursor_col, y)].set_char(ch).set_style(s_white);
         }

@@ -1,12 +1,16 @@
 use rand::RngExt;
-use ratatui::{    buffer::Buffer,
+use ratatui::{
+    buffer::Buffer,
     layout::Rect,
     style::{Color, Modifier, Style},
     widgets::Widget,
 };
 use unicode_width::UnicodeWidthChar;
 
+use crate::colors::{DARK_GRAY, LIGHT_GREEN, LIGHT_RED, LIGHT_YELLOW, RED, WHITE};
+use crate::consumable::{PHYSICAL_INSTRUMENT_ALPHA, VISUAL_CALCULUS_ALPHA, VOLITION_ALPHA};
 use crate::ui::{hints::HINT_CLOSE, table};
+use crate::util::hyperbolic_scale;
 
 const FISH_FORCE: f32 = 0.022;
 const DAMPING: f32 = 0.95;
@@ -21,10 +25,11 @@ const BAD_REEL_PENALTY: f32 = 7.3;
 pub const DANGER_THRESHOLD: f32 = 0.10;
 pub const COMPLETION_START: f32 = 0.2;
 const REEL_PENALTY_THRESHOLD: f32 = 0.45;
+const BASE_GRACE_SECS: f32 = 1.0;
+const MAX_GRACE_SECS: f32 = 11.0;
 const INDICATOR_WARNING_ZONE: f32 = 0.4;
 const INDICATOR_DANGER_ZONE: f32 = 0.75;
-const COMPLETION_WARN: f32 = 0.35;
-const COMPLETION_MID: f32 = 0.66;
+const COMPLETION_WARN: f32 = 0.5;
 const OVERLAY_FILL: f32 = 0.75;
 const COMP_WIDTH: u16 = 3;
 const INDICATOR_FRACTION: f32 = 0.15;
@@ -94,6 +99,12 @@ pub struct FishingState {
     pub reel_anim_tick: u32,
 }
 
+impl Default for FishingState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FishingState {
     pub fn new() -> Self {
         Self {
@@ -115,10 +126,14 @@ impl FishingState {
         }
     }
 
-    pub fn tick(&mut self, fps: f32, coffee_stacks: u32) {
+    pub fn tick(&mut self, fps: f32, coffee_stacks: u32, milk: MilkBuffs) {
         if self.game_over || self.captured {
             return;
         }
+
+        let safe_zone = milk.safe_zone();
+        let grace_secs = milk.grace_secs();
+        let fish_force = FISH_FORCE * milk.fish_force_mult();
 
         if !self.no_fish {
             self.target_timer -= 1.0;
@@ -135,7 +150,7 @@ impl FishingState {
                 self.target_timer = rng.random_range(TARGET_DURATION_MIN..TARGET_DURATION_MAX);
             }
             let dx = self.target_pos - self.fish_pos;
-            self.fish_velocity += dx.signum() * FISH_FORCE;
+            self.fish_velocity += dx.signum() * fish_force;
         }
 
         if self.is_pushing_left {
@@ -156,7 +171,7 @@ impl FishingState {
         let abs_offset = (self.fish_pos - 0.5).abs() * 2.0;
         let drain = (EDGE_DRAIN_SLOPE * abs_offset) * EDGE_DRAIN_RATE;
 
-        let reel_punish = self.is_reeling && abs_offset > REEL_PENALTY_THRESHOLD;
+        let reel_punish = self.is_reeling && abs_offset > safe_zone;
 
         let reel_rate = REEL_RATE + 0.002 * coffee_stacks as f32;
         if self.is_reeling {
@@ -185,7 +200,7 @@ impl FishingState {
 
         if self.completion <= DANGER_THRESHOLD {
             self.danger_timer += 1.0;
-            if self.danger_timer >= fps && !self.no_death {
+            if self.danger_timer >= fps * grace_secs && !self.no_death {
                 self.game_over = true;
             }
         } else {
@@ -195,6 +210,43 @@ impl FishingState {
         if self.completion >= 1.0 {
             self.captured = true;
         }
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct MilkBuffs {
+    pub visual_calculus: u32,
+    pub volition: u32,
+    pub physical_instrument: u32,
+    pub reaction_speed: u32,
+}
+
+fn hyperbolic_ramp(stacks: u32, alpha: f32) -> f32 {
+    1.0 - hyperbolic_scale(1.0, stacks, alpha)
+}
+
+impl MilkBuffs {
+    fn safe_zone(&self) -> f32 {
+        if self.visual_calculus == 0 {
+            return REEL_PENALTY_THRESHOLD;
+        }
+        let ramp = hyperbolic_ramp(self.visual_calculus, VISUAL_CALCULUS_ALPHA);
+        REEL_PENALTY_THRESHOLD + (1.0 - REEL_PENALTY_THRESHOLD) * ramp
+    }
+
+    fn grace_secs(&self) -> f32 {
+        if self.volition == 0 {
+            return BASE_GRACE_SECS;
+        }
+        let ramp = hyperbolic_ramp(self.volition, VOLITION_ALPHA);
+        BASE_GRACE_SECS + (MAX_GRACE_SECS - BASE_GRACE_SECS) * ramp
+    }
+
+    fn fish_force_mult(&self) -> f32 {
+        if self.physical_instrument == 0 {
+            return 1.0;
+        }
+        1.0 - hyperbolic_ramp(self.physical_instrument, PHYSICAL_INSTRUMENT_ALPHA)
     }
 }
 
@@ -252,7 +304,7 @@ impl Widget for FishingOverlay<'_> {
         let sep_x = inner_x + art_w;
         let comp_x = sep_x + 1;
         let frame = &ART_FRAMES[art_frame_idx(state.fish_pos)];
-        let art_style = Style::default().fg(Color::White).bg(BACKGROUND);
+        let art_style = Style::default().fg(WHITE).bg(BACKGROUND);
 
         for row in 0..art_h {
             let y = art_y + row;
@@ -290,7 +342,7 @@ impl Widget for FishingOverlay<'_> {
             if sep_x < ox + overlay_w {
                 buf[(sep_x, y)]
                     .set_char('│')
-                    .set_fg(Color::DarkGray)
+                    .set_fg(DARK_GRAY)
                     .set_bg(BACKGROUND);
             }
 
@@ -330,18 +382,18 @@ fn art_frame_idx(fish_pos: f32) -> usize {
 fn state_border_color(state: &FishingState) -> Color {
     if state.danger_timer > 0.0 {
         if (state.danger_timer as u32) % 6 < 3 {
-            Color::LightRed
+            LIGHT_RED
         } else {
-            Color::White
+            WHITE
         }
     } else if state.reel_punish_timer > 0 {
         if state.reel_punish_timer % 6 < 3 {
-            Color::LightRed
+            LIGHT_RED
         } else {
-            Color::White
+            WHITE
         }
     } else {
-        Color::White
+        WHITE
     }
 }
 
@@ -351,7 +403,7 @@ fn draw_border(buf: &mut Buffer, ox: u16, oy: u16, w: u16, h: u16, border_color:
     }
     let border_style = Style::default().fg(border_color).bg(BACKGROUND);
     let title_style = Style::default()
-        .fg(Color::White)
+        .fg(WHITE)
         .add_modifier(Modifier::BOLD)
         .bg(BACKGROUND);
     let right = ox + w - 1;
@@ -412,20 +464,18 @@ fn draw_comp_row(buf: &mut Buffer, x: u16, y: u16, row: u16, art_h: u16, state: 
     let filled = row >= empty_rows;
 
     let (content, fg) = if state.captured {
-        ("███", Color::LightYellow)
+        ("███", LIGHT_YELLOW)
     } else if filled {
         let c = if state.completion <= DANGER_THRESHOLD {
             if in_danger && danger_flash {
-                Color::LightRed
+                LIGHT_RED
             } else {
-                Color::Red
+                RED
             }
         } else if state.completion < COMPLETION_WARN {
-            Color::Yellow
-        } else if state.completion < COMPLETION_MID {
-            Color::Green
+            LIGHT_YELLOW
         } else {
-            Color::LightGreen
+            LIGHT_GREEN
         };
         ("███", c)
     } else {
@@ -445,17 +495,17 @@ fn draw_control_bar(buf: &mut Buffer, x: u16, y: u16, inner_w: u16, state: &Fish
 
     let offset = (state.fish_pos - 0.5).abs() * 2.0;
     let indicator_color = if state.captured {
-        Color::LightYellow
+        LIGHT_YELLOW
     } else if offset > INDICATOR_DANGER_ZONE {
-        Color::LightRed
+        LIGHT_RED
     } else if offset > INDICATOR_WARNING_ZONE {
-        Color::LightYellow
+        LIGHT_YELLOW
     } else {
-        Color::LightGreen
+        LIGHT_GREEN
     };
 
-    let bracket_style = Style::default().fg(Color::DarkGray).bg(BACKGROUND);
-    let line_style = Style::default().fg(Color::DarkGray).bg(BACKGROUND);
+    let bracket_style = Style::default().fg(DARK_GRAY).bg(BACKGROUND);
+    let line_style = Style::default().fg(DARK_GRAY).bg(BACKGROUND);
     let indicator_style = Style::default()
         .fg(indicator_color)
         .add_modifier(Modifier::BOLD)
@@ -478,7 +528,7 @@ fn draw_control_bar(buf: &mut Buffer, x: u16, y: u16, inner_w: u16, state: &Fish
 }
 
 fn draw_footer(buf: &mut Buffer, x: u16, y: u16, inner_w: u16) {
-    let style = Style::default().fg(Color::DarkGray).bg(BACKGROUND);
+    let style = Style::default().fg(DARK_GRAY).bg(BACKGROUND);
     let left = " ←→ control the fish  ↓ reel";
     let right = HINT_CLOSE;
     let total = inner_w as usize;
@@ -508,4 +558,59 @@ fn truncate_to_width(s: &str, max_w: usize) -> String {
         w += cw;
     }
     out
+}
+
+#[cfg(test)]
+mod milk_buff_spec_tests {
+    use super::*;
+
+    fn approx(a: f32, b: f32, eps: f32) -> bool {
+        (a - b).abs() < eps
+    }
+
+    #[test]
+    fn visual_calculus_hits_80_percent_safe_at_10_stacks() {
+        let buffs = MilkBuffs {
+            visual_calculus: 10,
+            ..Default::default()
+        };
+        assert!(approx(buffs.safe_zone(), 0.80, 0.005));
+    }
+
+    #[test]
+    fn volition_hits_10_seconds_grace_at_10_stacks() {
+        let buffs = MilkBuffs {
+            volition: 10,
+            ..Default::default()
+        };
+        assert!(approx(buffs.grace_secs(), 10.0, 0.05));
+    }
+
+    #[test]
+    fn physical_instrument_hits_10_percent_fish_force_at_10_stacks() {
+        let buffs = MilkBuffs {
+            physical_instrument: 10,
+            ..Default::default()
+        };
+        assert!(approx(buffs.fish_force_mult(), 0.10, 0.005));
+    }
+
+    #[test]
+    fn zero_stacks_returns_base_values() {
+        let buffs = MilkBuffs::default();
+        assert_eq!(buffs.safe_zone(), REEL_PENALTY_THRESHOLD);
+        assert_eq!(buffs.grace_secs(), BASE_GRACE_SECS);
+        assert_eq!(buffs.fish_force_mult(), 1.0);
+    }
+
+    #[test]
+    fn reaction_speed_is_tracked_but_has_no_effect_on_other_buffs() {
+        let buffs = MilkBuffs {
+            reaction_speed: 99,
+            ..Default::default()
+        };
+        assert_eq!(buffs.safe_zone(), REEL_PENALTY_THRESHOLD);
+        assert_eq!(buffs.grace_secs(), BASE_GRACE_SECS);
+        assert_eq!(buffs.fish_force_mult(), 1.0);
+    }
 }

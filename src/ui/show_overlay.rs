@@ -7,6 +7,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthChar;
 
+use crate::colors::{LIGHT_YELLOW, WHITE};
 use crate::fishes::fish::{Direction, Fish};
 use crate::fishes::species::FishSpecies;
 use crate::fishes::unfish::{BALL_HEIGHT, SKULL_HEIGHT, UnfishKind, is_multi_row};
@@ -206,7 +207,10 @@ impl ShowState {
             .sum();
         let from_fields = total_field_rows.saturating_sub(1).saturating_add(4);
         let from_fish = fish_display_inner_h(&self.fish) + 4;
-        from_fields.max(from_fish).min(area_h).max(MIN_OVERLAY_HEIGHT)
+        from_fields
+            .max(from_fish)
+            .min(area_h)
+            .max(MIN_OVERLAY_HEIGHT)
     }
 }
 
@@ -358,13 +362,13 @@ impl Widget for ShowOverlay<'_> {
         }
 
         let border_color = match state.fish.species {
-            FishSpecies::Goldenfish => Color::LightYellow,
+            FishSpecies::Goldenfish => LIGHT_YELLOW,
             FishSpecies::Mutantfish => state.fish.color,
-            _ => Color::White,
+            _ => WHITE,
         };
         let border_style = Style::default().fg(border_color).bg(BACKGROUND);
         let title_style = Style::default()
-            .fg(Color::White)
+            .fg(WHITE)
             .add_modifier(Modifier::BOLD)
             .bg(BACKGROUND);
 
@@ -430,10 +434,10 @@ impl Widget for ShowOverlay<'_> {
         }
 
         let white_bold = Style::default()
-            .fg(Color::White)
+            .fg(WHITE)
             .add_modifier(Modifier::BOLD)
             .bg(BACKGROUND);
-        let white = Style::default().fg(Color::White).bg(BACKGROUND);
+        let white = Style::default().fg(WHITE).bg(BACKGROUND);
 
         let mut y = oy + 1;
         let mut rendered_count = 0usize;
@@ -486,6 +490,14 @@ impl Widget for ShowOverlay<'_> {
             ShowSource::FromIndex => HINT_RETURN,
             ShowSource::FromCommand => HINT_CLOSE,
         };
-        table::draw_hint_bar(buf, right_x, footer_y, right_inner_w.saturating_sub(1), &left_footer, right_footer, BACKGROUND);
+        table::draw_hint_bar(
+            buf,
+            right_x,
+            footer_y,
+            right_inner_w.saturating_sub(1),
+            &left_footer,
+            right_footer,
+            BACKGROUND,
+        );
     }
 }

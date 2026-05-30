@@ -783,6 +783,12 @@ pub struct VoidBackground {
     tick_counter: u32,
 }
 
+impl Default for VoidBackground {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VoidBackground {
     pub fn new() -> Self {
         let frames = VOID_FRAMES

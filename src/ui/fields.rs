@@ -1,7 +1,10 @@
 use rand::RngExt;
 use ratatui::style::Color;
 
-use crate::colors::{FIELD_AIR_COLOR, FIELD_EARTH_COLOR, FIELD_FIRE_COLOR, FIELD_SPIRIT_COLOR, FIELD_WATER_COLOR, GOLD};
+use crate::colors::{
+    BLUE, CYAN, GOLD, GREEN, LIGHT_BLUE, LIGHT_CYAN, LIGHT_GREEN, LIGHT_MAGENTA, LIGHT_RED,
+    LIGHT_YELLOW, MAGENTA, ORANGE, RED, TEAL, YELLOW,
+};
 use crate::fishes::fish::Fish;
 use crate::fishes::species::FishSpecies;
 
@@ -235,23 +238,20 @@ pub fn gen_field_value(
 
         FieldKind::FavoriteColor => {
             const COLORS: &[Color] = &[
-                Color::Red,
-                Color::Green,
-                Color::Blue,
-                Color::Yellow,
-                Color::Magenta,
-                Color::Cyan,
-                Color::LightRed,
-                Color::LightGreen,
-                Color::LightBlue,
-                Color::LightYellow,
-                Color::LightMagenta,
-                Color::LightCyan,
-                FIELD_FIRE_COLOR,
-                FIELD_EARTH_COLOR,
-                FIELD_WATER_COLOR,
-                FIELD_SPIRIT_COLOR,
-                FIELD_AIR_COLOR,
+                RED,
+                GREEN,
+                BLUE,
+                YELLOW,
+                MAGENTA,
+                CYAN,
+                LIGHT_RED,
+                LIGHT_GREEN,
+                LIGHT_BLUE,
+                LIGHT_YELLOW,
+                LIGHT_MAGENTA,
+                LIGHT_CYAN,
+                ORANGE,
+                TEAL,
             ];
             let c = if fish.species == FishSpecies::Goldenfish {
                 GOLD

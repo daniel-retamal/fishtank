@@ -8,9 +8,12 @@ use ratatui::{
     widgets::Widget,
 };
 
-use crate::colors::{SELECTED_COLOR, SELECTED_TANK_COLOR};
+use crate::colors::{BLACK, DARK_GRAY, STEEL, WHITE};
 use crate::loot::ConsumableKind;
-use crate::ui::{hints::{HINT_CLOSE, HINT_ENTER_CONSUME, HINT_NAV}, scroll_list, table};
+use crate::ui::{
+    hints::{HINT_CLOSE, HINT_ENTER_CONSUME, HINT_NAV},
+    scroll_list, table,
+};
 
 pub struct InventoryItem {
     pub name: String,
@@ -25,14 +28,21 @@ pub struct InventoryState {
     pub items: Vec<InventoryItem>,
 }
 
+fn consumable_for_name(name: &str) -> Option<ConsumableKind> {
+    ConsumableKind::all()
+        .into_iter()
+        .find(|k| k.display_name() == name)
+}
+
+pub fn is_consumable_name(name: &str) -> bool {
+    consumable_for_name(name).is_some()
+}
+
 fn item_desc(name: &str, rng: &mut impl RngExt) -> String {
+    if let Some(kind) = consumable_for_name(name) {
+        return kind.description().to_string();
+    }
     match name {
-        "Coffee" => ConsumableKind::Coffee.description().to_string(),
-        "Bait" => ConsumableKind::Bait.description().to_string(),
-        "Necronomicon" => {
-            "An Image [or Picture] of the Law of the Dead. Image and pre-image. Summons a Gate to Hell, The Helltank. The devil has a lot of cash"
-                .to_string()
-        }
         "Junk" => {
             if rng.random_range(0..10u32) == 0 {
                 "Junk... having 100 would be nice".to_string()
@@ -52,7 +62,7 @@ impl InventoryState {
             .map(|(name, qty)| InventoryItem {
                 name: name.clone(),
                 qty: *qty,
-                is_consumable: matches!(name.as_str(), "Coffee" | "Bait" | "Necronomicon"),
+                is_consumable: is_consumable_name(name),
                 desc: item_desc(name, rng),
             })
             .collect();
@@ -85,7 +95,7 @@ impl InventoryState {
                 InventoryItem {
                     name: name.clone(),
                     qty: *qty,
-                    is_consumable: matches!(name.as_str(), "Coffee" | "Bait" | "Necronomicon"),
+                    is_consumable: is_consumable_name(name),
                     desc,
                 }
             })
@@ -239,7 +249,7 @@ impl Widget for InventoryOverlay<'_> {
 
         let (ox, oy) = (layout.ox, layout.oy);
 
-        layout.draw_border(buf, " Inventory#index ", Color::White, bg);
+        layout.draw_border(buf, " Inventory#index ", WHITE, bg);
 
         let sep1_x = ox + 1 + item_w as u16;
         let sep2_x = sep1_x + 1 + qty_w as u16;
@@ -249,8 +259,16 @@ impl Widget for InventoryOverlay<'_> {
         let sep_xs: &[u16] = if show_desc { &sep_xs_3 } else { &sep_xs_2 };
 
         let inner_x = ox + 1;
-        draw_header(buf, inner_x, oy + 1, item_w, qty_w, show_desc, desc_w, bg);
-        table::draw_box_separator(buf, ox, oy + 2, overlay_w, sep_xs, Color::White, bg);
+        let row_layout = RowLayout {
+            x: inner_x,
+            item_w,
+            qty_w,
+            total_inner_w: inner_w,
+            show_desc,
+            desc_w,
+        };
+        draw_header(buf, &row_layout, oy + 1, bg);
+        table::draw_box_separator(buf, ox, oy + 2, overlay_w, sep_xs, WHITE, bg);
 
         let data_start_y = oy + 3;
         let data_end_y = oy + overlay_h.saturating_sub(4);
@@ -271,13 +289,8 @@ impl Widget for InventoryOverlay<'_> {
                 buf,
                 item,
                 lines,
-                inner_x,
+                &row_layout,
                 current_y,
-                item_w,
-                qty_w,
-                inner_w,
-                show_desc,
-                desc_w,
                 idx == state.selected,
                 bg,
             );
@@ -285,7 +298,7 @@ impl Widget for InventoryOverlay<'_> {
         }
 
         let footer_y = oy + overlay_h - 2;
-        let hint_style = Style::default().fg(Color::DarkGray).bg(bg);
+        let hint_style = Style::default().fg(DARK_GRAY).bg(bg);
 
         buf.set_string(
             inner_x,
@@ -309,22 +322,30 @@ impl Widget for InventoryOverlay<'_> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn draw_header(
-    buf: &mut Buffer,
+#[derive(Clone, Copy)]
+struct RowLayout {
     x: u16,
-    y: u16,
     item_w: usize,
     qty_w: usize,
+    total_inner_w: usize,
     show_desc: bool,
     desc_w: usize,
-    bg: Color,
-) {
+}
+
+fn draw_header(buf: &mut Buffer, layout: &RowLayout, y: u16, bg: Color) {
+    let RowLayout {
+        x,
+        item_w,
+        qty_w,
+        show_desc,
+        desc_w,
+        ..
+    } = *layout;
     let bold = Style::default()
-        .fg(Color::White)
+        .fg(WHITE)
         .add_modifier(Modifier::BOLD)
         .bg(bg);
-    let sep = Style::default().fg(Color::White).bg(bg);
+    let sep = Style::default().fg(WHITE).bg(bg);
 
     buf.set_string(x, y, table::pad_right("Item", item_w), bold);
 
@@ -334,7 +355,12 @@ fn draw_header(
 
     let c_x = q_x + 1 + qty_w as u16;
     buf[(c_x, y)].set_char('│').set_style(sep);
-    buf.set_string(c_x + 1, y, table::pad_right("Consumable?", CONS_WIDTH), bold);
+    buf.set_string(
+        c_x + 1,
+        y,
+        table::pad_right("Consumable?", CONS_WIDTH),
+        bold,
+    );
 
     if show_desc {
         let d_x = c_x + 1 + CONS_WIDTH as u16;
@@ -343,26 +369,28 @@ fn draw_header(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn draw_row(
     buf: &mut Buffer,
     item: &InventoryItem,
     desc_lines: &[String],
-    x: u16,
+    layout: &RowLayout,
     start_y: u16,
-    item_w: usize,
-    qty_w: usize,
-    total_inner_w: usize,
-    show_desc: bool,
-    desc_w: usize,
     selected: bool,
     base_bg: Color,
 ) {
+    let RowLayout {
+        x,
+        item_w,
+        qty_w,
+        total_inner_w,
+        show_desc,
+        desc_w,
+    } = *layout;
     let item_h = desc_lines.len().max(1);
-    let row_bg = if selected { SELECTED_COLOR } else { base_bg };
-    let fg = if selected { Color::Black } else { SELECTED_TANK_COLOR };
+    let row_bg = if selected { WHITE } else { base_bg };
+    let fg = if selected { BLACK } else { STEEL };
     let text_style = Style::default().fg(fg).bg(row_bg);
-    let sep_style = Style::default().fg(Color::White).bg(row_bg);
+    let sep_style = Style::default().fg(WHITE).bg(row_bg);
 
     for dy in 0..item_h as u16 {
         for dx in 0..total_inner_w as u16 {

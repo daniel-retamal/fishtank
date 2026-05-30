@@ -1,23 +1,22 @@
 use rand::RngExt;
 
-use crate::colors::FLASH_YELLOW;
+use crate::colors::LIGHT_YELLOW;
 use crate::entities::bubble::{Bubble, BubblePhase};
 use crate::fishes::fish::{Direction, EATING_DURATION, FishState};
 use crate::fishes::species::FishSpecies;
 use crate::fishes::unfish::{
-    PHANTOM_CROSS_TANK_CHANCE, PHANTOM_TELEPORT_MEAN, SPAWNABLE_UNFISH,
-    VOID_SPAWN_MEAN_SECS,
+    PHANTOM_CROSS_TANK_CHANCE, PHANTOM_TELEPORT_MEAN, SPAWNABLE_UNFISH, VOID_SPAWN_MEAN_SECS,
 };
 use crate::names;
 use crate::settings::Settings;
 use crate::util::sample_exponential;
 
-use super::{Tank, TankEvent, TankKind};
+use super::FOOD_WEIGHT_GAIN_G;
 use super::{
     BUBBLE_ZOOMIE_CHANCE, SEEK_BOOST_GROWTH, SEEK_BOOST_INITIAL_MAX, SEEK_DX_DEADZONE,
     SEEK_DY_MULTIPLIER, SEEK_NORM_MIN,
 };
-use super::FOOD_WEIGHT_GAIN_G;
+use super::{Tank, TankEvent, TankKind};
 
 fn sq(x: f32) -> f32 {
     x * x
@@ -36,7 +35,9 @@ impl Tank {
         let alien_bubble_color = self.alien_bg.as_ref().map(|bg| bg.color.bubble_color());
         let bubble_color = alien_bubble_color.unwrap_or(self.kind.config().bubble_color);
 
-        let new_bubbles = self.bubble_spawner.tick(dt, self.width, self.height, bubble_color, &mut rng);
+        let new_bubbles =
+            self.bubble_spawner
+                .tick(dt, self.width, self.height, bubble_color, &mut rng);
         self.bubbles.extend(new_bubbles);
 
         for fish in &self.fish {
@@ -45,19 +46,38 @@ impl Tank {
             }
             if rng.random::<f32>() < BUBBLE_ZOOMIE_CHANCE {
                 let tail_x = match fish.facing {
-                    Direction::Left => fish.position.x + fish.len() as f32 - 1.0,
+                    Direction::Left => fish.position.x + fish.display_width as f32 - 1.0,
                     Direction::Right => fish.position.x,
                 };
                 let bubble = match fish.species {
                     FishSpecies::Goldenfish => {
-                        let mut b = Bubble::new(tail_x, fish.position.y, BubblePhase::rising(&mut rng), FLASH_YELLOW, Some('☆'), &mut rng);
+                        let mut b = Bubble::new(
+                            tail_x,
+                            fish.position.y,
+                            BubblePhase::rising(&mut rng),
+                            LIGHT_YELLOW,
+                            Some('☆'),
+                            &mut rng,
+                        );
                         b.cash_value = Some(5);
                         b
                     }
-                    FishSpecies::Mutantfish => {
-                        Bubble::new(tail_x, fish.position.y, BubblePhase::rising(&mut rng), fish.color, Some('X'), &mut rng)
-                    }
-                    _ => Bubble::new(tail_x, fish.position.y, BubblePhase::rising(&mut rng), bubble_color, None, &mut rng),
+                    FishSpecies::Mutantfish => Bubble::new(
+                        tail_x,
+                        fish.position.y,
+                        BubblePhase::rising(&mut rng),
+                        fish.color,
+                        Some('X'),
+                        &mut rng,
+                    ),
+                    _ => Bubble::new(
+                        tail_x,
+                        fish.position.y,
+                        BubblePhase::rising(&mut rng),
+                        bubble_color,
+                        None,
+                        &mut rng,
+                    ),
                 };
                 self.bubbles.push(bubble);
             }
@@ -79,7 +99,7 @@ impl Tank {
 
             let food_x = self.food[idx].position.x;
             let food_y = self.food[idx].position.y;
-            let fish_len = self.fish[i].len() as f32;
+            let fish_len = self.fish[i].display_width as f32;
             let fish_y = self.fish[i].position.y;
 
             let target_x = if approach_right {
@@ -159,7 +179,7 @@ impl Tank {
             ) {
                 continue;
             }
-            let fish_len = self.fish[i].len() as f32;
+            let fish_len = self.fish[i].display_width as f32;
             let head_x = self.fish[i].head_x() as f32;
             let fish_y = self.fish[i].position.y;
             let nearest_idx = self.food.iter().enumerate().min_by(|(_, a), (_, b)| {

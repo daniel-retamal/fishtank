@@ -9,10 +9,10 @@ pub const TAIL_WAVE_LEFT: char = '彡';
 pub const TAIL_WAVE_RIGHT: char = 'ミ';
 pub const TAIL_EQUAL: char = '≡';
 use crate::colors::{
-    AMBER, GOLDEN_BRIGHT, GOLDEN_PALE, GOLDEN_YELLOW, GOLDFISH_AMBER, GOLDFISH_ORANGE,
-    GOLDFISH_PALE, LIGHT_GRAY, MUTANT_GREEN, MUTANT_GREEN_BRIGHT, MUTANT_GREEN_DARK,
-    MUTANT_PURPLE, MUTANT_PURPLE_BRIGHT, MUTANT_PURPLE_DARK, ORANGE, SALMON, SALMON_DARK,
-    SALMON_LIGHT, SILVER, SNAPPER_RED, TANG_BLUE, TANG_BLUE_LIGHT, TANG_BLUE_MID,
+    AMBER, AMBER_DARK, AMBER_LIGHT, BLUE, CYAN, DARK_GRAY, FOREST, GOLD, GOLD_BRIGHT, GOLD_PALE,
+    GRAY, GREEN_BRIGHT, GREEN_LIGHT, LIGHT_BLUE, LIGHT_CYAN, LIGHT_RED, LIGHT_YELLOW, NAVY,
+    NAVY_DARK, NAVY_LIGHT, ORANGE, ORANGE_DARK, ORANGE_LIGHT, PURPLE, PURPLE_LIGHT, RED, RED_DARK,
+    SILVER, VIOLET, WHITE, YELLOW,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -137,8 +137,18 @@ pub struct BodyPair {
     pub right_wave: char,
 }
 
-pub const BODY_ROUND: BodyPair = BodyPair { left_body: '(', left_wave: '{', right_body: ')', right_wave: '}' };
-pub const BODY_CURLY: BodyPair = BodyPair { left_body: '}', left_wave: ')', right_body: '{', right_wave: '(' };
+pub const BODY_ROUND: BodyPair = BodyPair {
+    left_body: '(',
+    left_wave: '{',
+    right_body: ')',
+    right_wave: '}',
+};
+pub const BODY_CURLY: BodyPair = BodyPair {
+    left_body: '}',
+    left_wave: ')',
+    right_body: '{',
+    right_wave: '(',
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct BodyChars {
@@ -190,38 +200,32 @@ const fn standard(eye: char, tail: TailKind) -> BodyChars {
     standard_with(eye, tail, BODY_ROUND)
 }
 
-static MERLUZA_PALETTE: [Color; 2] = [Color::Gray, Color::White];
+static MERLUZA_PALETTE: [Color; 2] = [GRAY, WHITE];
 
-static BETTA_PALETTE: [Color; 3] = [Color::Blue, Color::LightBlue, Color::Cyan];
-static TANG_PALETTE: [Color; 3] = [TANG_BLUE, TANG_BLUE_MID, TANG_BLUE_LIGHT];
-static JELLYFISH_PALETTE: [Color; 3] = [Color::Blue, Color::Cyan, Color::LightBlue];
+static BETTA_PALETTE: [Color; 3] = [BLUE, LIGHT_BLUE, CYAN];
+static TANG_PALETTE: [Color; 3] = [NAVY_DARK, NAVY, NAVY_LIGHT];
+static JELLYFISH_PALETTE: [Color; 3] = [BLUE, CYAN, LIGHT_BLUE];
 
-static CHROMIS_PALETTE: [Color; 3] = [Color::Cyan, Color::LightCyan, Color::White];
-static ANCHOVETA_PALETTE: [Color; 2] = [Color::Cyan, Color::LightCyan];
+static CHROMIS_PALETTE: [Color; 3] = [CYAN, LIGHT_CYAN, WHITE];
+static ANCHOVETA_PALETTE: [Color; 2] = [CYAN, LIGHT_CYAN];
 
-static SALMON_PALETTE: [Color; 3] = [SALMON_DARK, SALMON, SALMON_LIGHT];
-static GOLDFISH_PALETTE: [Color; 3] = [GOLDFISH_ORANGE, GOLDFISH_AMBER, GOLDFISH_PALE];
-static SNAPPER_PALETTE: [Color; 3] = [Color::Red, Color::LightRed, SNAPPER_RED];
-static TURBOFISH_PALETTE: [Color; 2] = [Color::Yellow, ORANGE];
+static SALMON_PALETTE: [Color; 3] = [ORANGE_DARK, ORANGE, ORANGE_LIGHT];
+static GOLDFISH_PALETTE: [Color; 3] = [ORANGE, AMBER, AMBER_LIGHT];
+static SNAPPER_PALETTE: [Color; 3] = [RED_DARK, RED, LIGHT_RED];
+static TURBOFISH_PALETTE: [Color; 2] = [YELLOW, ORANGE];
 
-static GOLDENFISH_PALETTE: [Color; 3] = [GOLDEN_YELLOW, GOLDEN_PALE, GOLDEN_BRIGHT];
+static GOLDENFISH_PALETTE: [Color; 3] = [GOLD, GOLD_PALE, GOLD_BRIGHT];
 
-static AKA_PALETTE: [Color; 1] = [Color::Red];
-static KURO_PALETTE: [Color; 1] = [Color::DarkGray];
-static NISHIKI_PALETTE: [Color; 3] = [Color::White, Color::LightRed, Color::DarkGray];
+static AKA_PALETTE: [Color; 1] = [RED];
+static KURO_PALETTE: [Color; 1] = [DARK_GRAY];
+static NISHIKI_PALETTE: [Color; 3] = [WHITE, LIGHT_RED, DARK_GRAY];
 
-static KOI_PALETTE: [Color; 5] = [
-    Color::White,
-    Color::White,
-    Color::White,
-    Color::LightRed,
-    Color::DarkGray,
-];
+static KOI_PALETTE: [Color; 5] = [WHITE, WHITE, WHITE, LIGHT_RED, DARK_GRAY];
 
-static CARPIN_PALETTE: [Color; 3] = [Color::Yellow, Color::LightYellow, AMBER];
+static CARPIN_PALETTE: [Color; 3] = [YELLOW, LIGHT_YELLOW, AMBER_DARK];
 
-static DEADFISH_PALETTE: [Color; 2] = [Color::White, Color::DarkGray];
-static UNFISH_PALETTE: [Color; 1] = [Color::White];
+static DEADFISH_PALETTE: [Color; 2] = [WHITE, DARK_GRAY];
+static UNFISH_PALETTE: [Color; 1] = [WHITE];
 
 pub const DEADFISH_BC_SEMI: BodyChars = BodyChars {
     mouth_left: '<',
@@ -247,9 +251,9 @@ pub const DEADFISH_BC_PLUS: BodyChars = BodyChars {
     tail: TailKind::Wide,
 };
 
-pub static MUTANT_GREEN_PALETTE: [Color; 3] = [MUTANT_GREEN, MUTANT_GREEN_DARK, MUTANT_GREEN_BRIGHT];
-pub static MUTANT_PURPLE_PALETTE: [Color; 3] = [MUTANT_PURPLE, MUTANT_PURPLE_DARK, MUTANT_PURPLE_BRIGHT];
-pub static MUTANT_WHITE_PALETTE: [Color; 3] = [LIGHT_GRAY, SILVER, Color::White];
+pub static MUTANT_GREEN_PALETTE: [Color; 3] = [FOREST, GREEN_LIGHT, GREEN_BRIGHT];
+pub static MUTANT_PURPLE_PALETTE: [Color; 3] = [PURPLE_LIGHT, PURPLE, VIOLET];
+pub static MUTANT_WHITE_PALETTE: [Color; 3] = [GRAY, SILVER, WHITE];
 
 static ANCHOVETA_L: [&str; 1] = ["<><"];
 static ANCHOVETA_R: [&str; 1] = ["><>"];
@@ -257,8 +261,8 @@ static JELLYFISH_LR: [&str; 1] = ["ള"];
 
 fn rarity_arrays(rarity: Rarity) -> ([usize; 4], [u32; 4], [u32; 4]) {
     match rarity {
-        Rarity::Common    => (COMMON_SIZES,    COMMON_SELL_BASE,    COMMON_SELL_CAP),
-        Rarity::Rare      => (RARE_SIZES,      RARE_SELL_BASE,      RARE_SELL_CAP),
+        Rarity::Common => (COMMON_SIZES, COMMON_SELL_BASE, COMMON_SELL_CAP),
+        Rarity::Rare => (RARE_SIZES, RARE_SELL_BASE, RARE_SELL_CAP),
         Rarity::Legendary => (LEGENDARY_SIZES, LEGENDARY_SELL_BASE, LEGENDARY_SELL_CAP),
     }
 }
@@ -329,16 +333,96 @@ impl FishSpecies {
         use PatternKind::*;
         use Rarity::*;
         match self {
-            Merluza  => standard_config("Merluza",  standard(EYE_ROUND, TailKind::Wide),      &MERLUZA_PALETTE,  Solid,     0.10, (2.5, 4.0), Common),
-            Betta    => standard_config("Betta",    standard('\'', TailKind::Wide),      &BETTA_PALETTE,    Striped,   0.09, (2.0, 3.5), Common),
-            Salmon   => standard_config("Salmon",   standard('*',  TailKind::Wide),      &SALMON_PALETTE,   Striped,   0.10, (4.0, 6.0), Common),
-            Chromis  => standard_config("Chromis",  standard(EYE_ROUND, TailKind::Short),     &CHROMIS_PALETTE,  Striped,   0.13, (3.0, 5.0), Common),
-            Tang     => standard_config("Tang",     standard('\'', TailKind::Wide),      &TANG_PALETTE,     Striped,   0.09, (2.5, 4.0), Common),
-            Goldfish => standard_config("Goldfish", standard(EYE_ROUND, TailKind::WideCurly), &GOLDFISH_PALETTE, Striped,   0.08, (1.5, 3.0), Common),
-            Snapper  => standard_config("Snapper",  standard(EYE_ROUND, TailKind::Wide),      &SNAPPER_PALETTE,  Striped,   0.10, (2.5, 4.0), Common),
-            Nishiki  => standard_config("Nishiki",  standard(EYE_ROUND, TailKind::WideCurly), &NISHIKI_PALETTE,  PatchyAll, 0.08, (1.5, 3.0), Common),
-            Aka      => standard_config("Aka",      standard(EYE_ROUND, TailKind::WideCurly), &AKA_PALETTE,      Solid,     0.09, (2.0, 3.5), Common),
-            Kuro     => standard_config("Kuro",     standard(EYE_ROUND, TailKind::WideCurly), &KURO_PALETTE,     Solid,     0.07, (1.5, 3.0), Common),
+            Merluza => standard_config(
+                "Merluza",
+                standard(EYE_ROUND, TailKind::Wide),
+                &MERLUZA_PALETTE,
+                Solid,
+                0.10,
+                (2.5, 4.0),
+                Common,
+            ),
+            Betta => standard_config(
+                "Betta",
+                standard('\'', TailKind::Wide),
+                &BETTA_PALETTE,
+                Striped,
+                0.09,
+                (2.0, 3.5),
+                Common,
+            ),
+            Salmon => standard_config(
+                "Salmon",
+                standard('*', TailKind::Wide),
+                &SALMON_PALETTE,
+                Striped,
+                0.10,
+                (4.0, 6.0),
+                Common,
+            ),
+            Chromis => standard_config(
+                "Chromis",
+                standard(EYE_ROUND, TailKind::Short),
+                &CHROMIS_PALETTE,
+                Striped,
+                0.13,
+                (3.0, 5.0),
+                Common,
+            ),
+            Tang => standard_config(
+                "Tang",
+                standard('\'', TailKind::Wide),
+                &TANG_PALETTE,
+                Striped,
+                0.09,
+                (2.5, 4.0),
+                Common,
+            ),
+            Goldfish => standard_config(
+                "Goldfish",
+                standard(EYE_ROUND, TailKind::WideCurly),
+                &GOLDFISH_PALETTE,
+                Striped,
+                0.08,
+                (1.5, 3.0),
+                Common,
+            ),
+            Snapper => standard_config(
+                "Snapper",
+                standard(EYE_ROUND, TailKind::Wide),
+                &SNAPPER_PALETTE,
+                Striped,
+                0.10,
+                (2.5, 4.0),
+                Common,
+            ),
+            Nishiki => standard_config(
+                "Nishiki",
+                standard(EYE_ROUND, TailKind::WideCurly),
+                &NISHIKI_PALETTE,
+                PatchyAll,
+                0.08,
+                (1.5, 3.0),
+                Common,
+            ),
+            Aka => standard_config(
+                "Aka",
+                standard(EYE_ROUND, TailKind::WideCurly),
+                &AKA_PALETTE,
+                Solid,
+                0.09,
+                (2.0, 3.5),
+                Common,
+            ),
+            Kuro => standard_config(
+                "Kuro",
+                standard(EYE_ROUND, TailKind::WideCurly),
+                &KURO_PALETTE,
+                Solid,
+                0.07,
+                (1.5, 3.0),
+                Common,
+            ),
             Deadfish => {
                 let (sizes, sell_base, sell_cap) = rarity_arrays(Rare);
                 SpeciesConfig {
@@ -360,34 +444,105 @@ impl FishSpecies {
                     sell_cap,
                 }
             }
-            Anchoveta => fixed_config("Anchoveta", &ANCHOVETA_L, &ANCHOVETA_R, &ANCHOVETA_PALETTE, Solid, (5.0, 7.0), Common),
+            Anchoveta => fixed_config(
+                "Anchoveta",
+                &ANCHOVETA_L,
+                &ANCHOVETA_R,
+                &ANCHOVETA_PALETTE,
+                Solid,
+                (5.0, 7.0),
+                Common,
+            ),
             Jellyfish => {
-                let mut config = fixed_config("Jellyfish", &JELLYFISH_LR, &JELLYFISH_LR, &JELLYFISH_PALETTE, Solid, (1.5, 3.0), Rare);
+                let mut config = fixed_config(
+                    "Jellyfish",
+                    &JELLYFISH_LR,
+                    &JELLYFISH_LR,
+                    &JELLYFISH_PALETTE,
+                    Solid,
+                    (1.5, 3.0),
+                    Rare,
+                );
                 config.zoomie_vertical = true;
                 config
             }
-            Turbofish => standard_config("Turbofish", BodyChars {
-                mouth_left: '<', mouth_right: '>',
-                eye_left: '>', eye_right: '<',
-                body_left: ':', wave_left: '~',
-                body_right: ':', wave_right: '~',
-                tail: TailKind::None,
-            }, &TURBOFISH_PALETTE, Striped, 0.18, (6.0, 9.0), Rare),
-            Koi => standard_config("Koi", BodyChars {
-                mouth_left: '>', mouth_right: '<',
-                eye_left: EYE_ROUND, eye_right: EYE_ROUND,
-                body_left: BODY_CURLY.left_body, wave_left: BODY_CURLY.left_wave,
-                body_right: BODY_CURLY.right_body, wave_right: BODY_CURLY.right_wave,
-                tail: TailKind::Swaying { left: TAIL_WAVE_LEFT, right: TAIL_WAVE_RIGHT, wave: TAIL_EQUAL },
-            }, &KOI_PALETTE, Patchy, 0.07, (1.5, 3.0), Rare),
-            Carpin => standard_config("Carpin", standard_with(EYE_CIRCLE, TailKind::Custom { left: '(', right: ')' }, BODY_CURLY), &CARPIN_PALETTE, Patchy, 0.09, (2.0, 3.5), Common),
-            Goldenfish => standard_config("Goldenfish", BodyChars {
-                mouth_left: '<', mouth_right: '>',
-                eye_left: EYE_ROUND, eye_right: EYE_ROUND,
-                body_left: '(', wave_left: '(',
-                body_right: ')', wave_right: ')',
-                tail: TailKind::Wide,
-            }, &GOLDENFISH_PALETTE, Glistening, 0.20, (2.0, 3.5), Legendary),
+            Turbofish => standard_config(
+                "Turbofish",
+                BodyChars {
+                    mouth_left: '<',
+                    mouth_right: '>',
+                    eye_left: '>',
+                    eye_right: '<',
+                    body_left: ':',
+                    wave_left: '~',
+                    body_right: ':',
+                    wave_right: '~',
+                    tail: TailKind::None,
+                },
+                &TURBOFISH_PALETTE,
+                Striped,
+                0.18,
+                (6.0, 9.0),
+                Rare,
+            ),
+            Koi => standard_config(
+                "Koi",
+                BodyChars {
+                    mouth_left: '>',
+                    mouth_right: '<',
+                    eye_left: EYE_ROUND,
+                    eye_right: EYE_ROUND,
+                    body_left: BODY_CURLY.left_body,
+                    wave_left: BODY_CURLY.left_wave,
+                    body_right: BODY_CURLY.right_body,
+                    wave_right: BODY_CURLY.right_wave,
+                    tail: TailKind::Swaying {
+                        left: TAIL_WAVE_LEFT,
+                        right: TAIL_WAVE_RIGHT,
+                        wave: TAIL_EQUAL,
+                    },
+                },
+                &KOI_PALETTE,
+                Patchy,
+                0.07,
+                (1.5, 3.0),
+                Rare,
+            ),
+            Carpin => standard_config(
+                "Carpin",
+                standard_with(
+                    EYE_CIRCLE,
+                    TailKind::Custom {
+                        left: '(',
+                        right: ')',
+                    },
+                    BODY_CURLY,
+                ),
+                &CARPIN_PALETTE,
+                Patchy,
+                0.09,
+                (2.0, 3.5),
+                Common,
+            ),
+            Goldenfish => standard_config(
+                "Goldenfish",
+                BodyChars {
+                    mouth_left: '<',
+                    mouth_right: '>',
+                    eye_left: EYE_ROUND,
+                    eye_right: EYE_ROUND,
+                    body_left: '(',
+                    wave_left: '(',
+                    body_right: ')',
+                    wave_right: ')',
+                    tail: TailKind::Wide,
+                },
+                &GOLDENFISH_PALETTE,
+                Glistening,
+                0.20,
+                (2.0, 3.5),
+                Legendary,
+            ),
             Mutantfish => SpeciesConfig {
                 name: "Mutantfish",
                 body: BodyTemplate::Standard(standard(EYE_CIRCLE, TailKind::Wide)),
@@ -447,7 +602,8 @@ impl FishSpecies {
         if weight_cap == 0 || weight_g <= weight_base {
             return sell_base;
         }
-        let frac = (weight_g - weight_base).min(weight_cap - weight_base) as f32 / (weight_cap - weight_base) as f32;
+        let frac = (weight_g - weight_base).min(weight_cap - weight_base) as f32
+            / (weight_cap - weight_base) as f32;
         sell_base + (frac * (sell_cap - sell_base) as f32) as u32
     }
 
@@ -470,11 +626,19 @@ impl FishSpecies {
 }
 
 impl Purchasable for FishSpecies {
-    fn buy_price(&self) -> u32 { self.config().rarity.fish_buy_price() }
-    fn display_name(&self) -> &str { self.config().name }
+    fn buy_price(&self) -> u32 {
+        self.config().rarity.fish_buy_price()
+    }
+    fn display_name(&self) -> &str {
+        self.config().name
+    }
 }
 
 impl Sellable for FishSpecies {
-    fn sell_price(&self) -> u32 { self.config().sell_base[0] }
-    fn display_name(&self) -> &str { self.config().name }
+    fn sell_price(&self) -> u32 {
+        self.config().sell_base[0]
+    }
+    fn display_name(&self) -> &str {
+        self.config().name
+    }
 }

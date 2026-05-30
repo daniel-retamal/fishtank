@@ -1,4 +1,4 @@
-use fishtank::entities::species::FishSpecies;
+use fishtank::fishes::species::FishSpecies;
 use fishtank::tank::{Tank, TankKind};
 
 fn make_tank() -> Tank {

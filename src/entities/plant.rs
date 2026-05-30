@@ -3,8 +3,8 @@ use std::f32::consts::TAU;
 use rand::RngExt;
 use ratatui::style::Color;
 
-use crate::colors::PLANT_DARK_COLOR;
 use super::components::{SwayState, sway_x_offset, tick_sway};
+use crate::colors::{GREEN, GREEN_DARK, LIGHT_GREEN};
 
 const SWAY_SPEED: f32 = 0.04;
 const WAVE_SPREAD: f32 = 0.5;
@@ -28,7 +28,7 @@ pub struct Plant {
 impl Plant {
     pub fn new(x: i32, height: usize) -> Self {
         let mut rng = rand::rng();
-        let colors = [Color::Green, Color::LightGreen, PLANT_DARK_COLOR];
+        let colors = [GREEN, LIGHT_GREEN, GREEN_DARK];
         let color = colors[rng.random_range(0..colors.len())];
         Self {
             x,

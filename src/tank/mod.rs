@@ -4,21 +4,25 @@ use rand::RngExt;
 
 use ratatui::style::Color;
 
+use crate::colors::{CYAN, RED};
+
 use crate::economy::{Purchasable, Rarity, Sellable};
-use crate::tanks::alien::{AlienBackground, extend_alien_pyramids, extend_alien_tentacles};
 use crate::entities::bubble::{Bubble, BubbleSpawner};
-use crate::tanks::coral::{CoralStructure, FloorAlgae, extend_coral_reef};
-use crate::fishes::fish::{Fish, FishState};
-use crate::entities::food::Food;
-use crate::tanks::hell::{HellBackground, HellPlant, extend_hell_plants};
 use crate::entities::components::extend_spaced;
+use crate::entities::cow::{Cow, CowVariant, cow_display_width};
+use crate::entities::food::Food;
 use crate::entities::plant::{Plant, Seaweed};
+use crate::entities::ufo::Ufo;
+use crate::fishes::fish::{Fish, FishState};
 use crate::fishes::species::FishSpecies;
 use crate::fishes::unfish::VOID_SPAWN_MEAN_SECS;
-use crate::tanks::void::VoidBackground;
 use crate::loot::ConsumableKind;
 use crate::names;
 use crate::settings::Settings;
+use crate::tanks::alien::{AlienBackground, extend_alien_pyramids, extend_alien_tentacles};
+use crate::tanks::coral::{CoralStructure, FloorAlgae, extend_coral_reef};
+use crate::tanks::hell::{HellBackground, HellPlant, extend_hell_plants};
+use crate::tanks::void::VoidBackground;
 use crate::util::sample_exponential;
 
 mod mutations;
@@ -26,6 +30,12 @@ mod simulation;
 
 pub enum TankEvent {
     PhantomCrossTank { fish_name: String },
+    UfoTimerFired,
+    UfoLockFish { fish_name: String },
+    UfoTakeFish { fish_name: String },
+    UfoReleaseFish(Box<Fish>),
+    UfoReleaseCow(Box<Cow>),
+    UfoFinished,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -60,7 +70,7 @@ impl TankKind {
                 buy_price: 3000,
                 sell_price: 2500,
                 capacity: 50,
-                bubble_color: Color::Cyan,
+                bubble_color: CYAN,
                 rarity: Rarity::Common,
             },
             TankKind::CoralReef => TankConfig {
@@ -71,7 +81,7 @@ impl TankKind {
                 buy_price: 5000,
                 sell_price: 2500,
                 capacity: 50,
-                bubble_color: Color::Cyan,
+                bubble_color: CYAN,
                 rarity: Rarity::Rare,
             },
             TankKind::Hell => TankConfig {
@@ -82,7 +92,7 @@ impl TankKind {
                 buy_price: 8000,
                 sell_price: 7000,
                 capacity: 100,
-                bubble_color: Color::Red,
+                bubble_color: RED,
                 rarity: Rarity::Legendary,
             },
             TankKind::Void => TankConfig {
@@ -93,7 +103,7 @@ impl TankKind {
                 buy_price: 8000,
                 sell_price: 7000,
                 capacity: 100,
-                bubble_color: Color::Cyan,
+                bubble_color: CYAN,
                 rarity: Rarity::Legendary,
             },
             TankKind::Alien => TankConfig {
@@ -104,34 +114,54 @@ impl TankKind {
                 buy_price: 5000,
                 sell_price: 2500,
                 capacity: 75,
-                bubble_color: Color::Cyan,
+                bubble_color: CYAN,
                 rarity: Rarity::Rare,
             },
         }
     }
 
-    pub fn display_name(self) -> &'static str { self.config().display_name }
-    pub fn un_name(self) -> &'static str { self.config().un_name }
-    pub fn buy_price(self) -> u32 { self.config().buy_price }
-    pub fn sell_price(self) -> u32 { self.config().sell_price }
-    pub fn shop_name(self) -> &'static str { self.config().shop_name }
+    pub fn display_name(self) -> &'static str {
+        self.config().display_name
+    }
+    pub fn un_name(self) -> &'static str {
+        self.config().un_name
+    }
+    pub fn buy_price(self) -> u32 {
+        self.config().buy_price
+    }
+    pub fn sell_price(self) -> u32 {
+        self.config().sell_price
+    }
+    pub fn shop_name(self) -> &'static str {
+        self.config().shop_name
+    }
 }
 
 impl Purchasable for TankKind {
-    fn buy_price(&self) -> u32 { TankKind::buy_price(*self) }
-    fn display_name(&self) -> &str { TankKind::display_name(*self) }
+    fn buy_price(&self) -> u32 {
+        TankKind::buy_price(*self)
+    }
+    fn display_name(&self) -> &str {
+        TankKind::display_name(*self)
+    }
 }
 
 impl Sellable for TankKind {
-    fn sell_price(&self) -> u32 { TankKind::sell_price(*self) }
-    fn display_name(&self) -> &str { TankKind::display_name(*self) }
+    fn sell_price(&self) -> u32 {
+        TankKind::sell_price(*self)
+    }
+    fn display_name(&self) -> &str {
+        TankKind::display_name(*self)
+    }
 }
 
 impl TankKind {
-
     pub fn parse(s: &str) -> Option<Self> {
         let normalized: String = s.to_ascii_lowercase().split_whitespace().collect();
-        Self::all().iter().find(|&&k| k.config().parse_name == normalized.as_str()).copied()
+        Self::all()
+            .iter()
+            .find(|&&k| k.config().parse_name == normalized.as_str())
+            .copied()
     }
 
     pub fn all() -> &'static [TankKind] {
@@ -150,7 +180,6 @@ pub struct ActiveConsumable {
     pub stacks: u32,
     pub time_remaining: f32,
 }
-
 
 const PLANT_SPACING_MIN: i32 = 3;
 const PLANT_SPACING_MAX: i32 = 6;
@@ -171,6 +200,7 @@ const MUTATION_INTERVAL_BASE: f32 = 30.0 * 60.0;
 const MUTATION_ALPHA: f32 = 1.0 / 3.0;
 const MUTATION_MEAN_FLOOR_SECS: f32 = 3.0;
 const MIN_SPLIT_BODY_SIZE: usize = 2;
+pub const UFO_MEAN_SECS: f32 = 3.0 * 60.0 * 60.0;
 const FISH_SPAWN_X_MIN: f32 = 5.0;
 const FISH_SPAWN_X_MAX_OFFSET: f32 = 15.0;
 const FISH_SPAWN_X_SAFE_MIN: f32 = 6.0;
@@ -183,6 +213,7 @@ pub struct Tank {
     pub name: String,
     pub kind: TankKind,
     pub fish: Vec<Fish>,
+    pub cows: Vec<Cow>,
     pub food: Vec<Food>,
     pub plants: Vec<Plant>,
     pub corals: Vec<CoralStructure>,
@@ -195,11 +226,15 @@ pub struct Tank {
     pub width: u16,
     pub height: u16,
     pub used_names: HashSet<String>,
+    pub used_cow_names: HashSet<String>,
     pub pending_star_cash: u32,
     pub extra_capacity: u32,
+    pub cow_abduction_count: u32,
     bubble_spawner: BubbleSpawner,
     mutation_timer: f32,
     void_spawn_timer: f32,
+    pub ufo_timer: f32,
+    pub ufo: Option<Ufo>,
 }
 
 impl Tank {
@@ -257,6 +292,7 @@ impl Tank {
             name,
             kind,
             fish: Vec::new(),
+            cows: Vec::new(),
             food: Vec::new(),
             plants,
             corals,
@@ -269,11 +305,15 @@ impl Tank {
             width: INITIAL_WIDTH,
             height: INITIAL_HEIGHT,
             used_names: HashSet::new(),
+            used_cow_names: HashSet::new(),
             pending_star_cash: 0,
             extra_capacity: 0,
+            cow_abduction_count: 0,
             bubble_spawner: BubbleSpawner::new(&mut rng),
             mutation_timer: MUTATION_INTERVAL_BASE,
             void_spawn_timer: sample_exponential(&mut rng, VOID_SPAWN_MEAN_SECS),
+            ufo_timer: sample_exponential(&mut rng, UFO_MEAN_SECS),
+            ufo: None,
         }
     }
 
@@ -305,6 +345,14 @@ impl Tank {
         for food in &mut self.food {
             if food.position.y > max_y {
                 food.position.y = max_y;
+            }
+        }
+        let cow_floor = (height as f32) - (crate::entities::cow::Cow::sprite_height() as f32);
+        for cow in &mut self.cows {
+            cow.position.y = cow_floor.max(0.0);
+            let max_x = (width as i32 - cow.display_width as i32).max(0) as f32;
+            if cow.position.x > max_x {
+                cow.position.x = max_x;
             }
         }
         let mut rng = rand::rng();
@@ -466,22 +514,154 @@ impl Tank {
         self.assign_food_to_idle_fish();
         self.tick_mutations(dt);
         self.tick_dopplegangers();
+        self.tick_cows(dt);
         if self.kind == TankKind::Void {
             self.tick_void_spawn(dt, &mut rng);
         }
-        self.tick_phantoms(dt, &mut rng)
+        let mut events = self.tick_phantoms(dt, &mut rng);
+        self.tick_ufo_timer(dt, &mut rng, &mut events);
+        self.tick_ufo_animation(dt, &mut events);
+        events
+    }
+
+    fn tick_ufo_timer(&mut self, dt: f32, rng: &mut impl RngExt, events: &mut Vec<TankEvent>) {
+        self.ufo_timer -= dt;
+        if self.ufo_timer <= 0.0 {
+            self.ufo_timer = sample_exponential(rng, UFO_MEAN_SECS);
+            events.push(TankEvent::UfoTimerFired);
+        }
+    }
+
+    fn tick_ufo_animation(&mut self, dt: f32, events: &mut Vec<TankEvent>) {
+        use crate::entities::ufo::{
+            UFO_CENTER_COL, UFO_PAYLOAD_CONE_ROW, UFO_SHIP_ROWS, UfoPayload, UfoPhase,
+            UfoTickResult,
+        };
+        let Some(ufo) = self.ufo.as_mut() else { return };
+        if let UfoPayload::AbductingFish { fish_name } = &ufo.payload
+            && let Some(fish) = self.fish.iter().find(|f| &f.name == fish_name)
+        {
+            let target_x =
+                fish.position.x + fish.display_width as f32 / 2.0 - UFO_CENTER_COL as f32;
+            let target_y = fish.position.y - (UFO_SHIP_ROWS + UFO_PAYLOAD_CONE_ROW) as f32;
+            match ufo.phase {
+                UfoPhase::Descending => {
+                    ufo.x = target_x;
+                    ufo.target_y = target_y;
+                }
+                UfoPhase::GrowingCone { .. } => {
+                    ufo.x = target_x;
+                    ufo.y = target_y;
+                }
+                _ => {}
+            }
+        }
+        match ufo.tick(dt) {
+            UfoTickResult::None => {}
+            UfoTickResult::LockFish(name) => {
+                events.push(TankEvent::UfoLockFish { fish_name: name });
+            }
+            UfoTickResult::TakeFish(name) => {
+                events.push(TankEvent::UfoTakeFish { fish_name: name });
+            }
+            UfoTickResult::ReleaseFish(f) => {
+                events.push(TankEvent::UfoReleaseFish(Box::new(f)));
+            }
+            UfoTickResult::ReleaseCow(c) => {
+                events.push(TankEvent::UfoReleaseCow(Box::new(c)));
+            }
+            UfoTickResult::Finished => {
+                events.push(TankEvent::UfoFinished);
+            }
+        }
+        if ufo.is_done() {
+            self.ufo = None;
+        }
     }
 
     fn unique_name(&self, requested: &str) -> String {
         names::unique_name_in(&self.used_names, requested)
     }
+
+    pub fn unique_cow_name(&self, requested: &str) -> String {
+        names::unique_name_in(&self.used_cow_names, requested)
+    }
+
+    pub fn spawn_cow(&mut self, variant: CowVariant, rng: &mut impl RngExt) -> String {
+        let name = self.unique_cow_name("Vaquita");
+        let cow = Cow::new(name.clone(), variant, 0.0, 0.0, rng);
+        self.used_cow_names.insert(name.clone());
+        let cow_floor = (self.height as f32) - (Cow::sprite_height() as f32);
+        let max_x = (self.width as i32 - cow_display_width(&cow) as i32).max(0);
+        let x = if max_x > 0 {
+            rng.random_range(0..max_x) as f32
+        } else {
+            0.0
+        };
+        self.cows.push(Cow {
+            position: crate::entities::components::Position {
+                x,
+                y: cow_floor.max(0.0),
+            },
+            ..cow
+        });
+        name
+    }
+
+    pub fn place_cow_dropped(&mut self, mut cow: Cow) {
+        let actual = self.unique_cow_name(&cow.name);
+        cow.name = actual.clone();
+        let cow_floor = (self.height as f32) - (Cow::sprite_height() as f32);
+        cow.position.y = cow_floor.max(0.0);
+        let max_x = (self.width as i32 - cow.display_width as i32).max(0) as f32;
+        if cow.position.x > max_x {
+            cow.position.x = max_x;
+        }
+        if cow.position.x < 0.0 {
+            cow.position.x = 0.0;
+        }
+        self.used_cow_names.insert(actual);
+        self.cows.push(cow);
+    }
+
+    pub fn place_cow(&mut self, mut cow: Cow, rng: &mut impl RngExt) {
+        let actual = self.unique_cow_name(&cow.name);
+        cow.name = actual.clone();
+        let cow_floor = (self.height as f32) - (Cow::sprite_height() as f32);
+        let max_x = (self.width as i32 - cow.display_width as i32).max(0);
+        cow.position.x = if max_x > 0 {
+            rng.random_range(0..max_x) as f32
+        } else {
+            0.0
+        };
+        cow.position.y = cow_floor.max(0.0);
+        self.used_cow_names.insert(actual);
+        self.cows.push(cow);
+    }
+
+    pub fn cow_count_by_variant(&self, variant: CowVariant) -> u32 {
+        self.cows.iter().filter(|c| c.variant == variant).count() as u32
+    }
+
+    pub fn has_cow(&self) -> bool {
+        !self.cows.is_empty()
+    }
+
+    fn tick_cows(&mut self, dt: f32) {
+        for cow in &mut self.cows {
+            cow.tick(dt);
+        }
+    }
 }
 
 fn extend_plants(plants: &mut Vec<Plant>, to_width: i32, rng: &mut impl RngExt) {
     extend_spaced(
-        plants, to_width, 0,
-        PLANT_SPACING_MIN, PLANT_SPACING_MAX,
-        rng, |p| p.x,
+        plants,
+        to_width,
+        0,
+        PLANT_SPACING_MIN..=PLANT_SPACING_MAX,
+        rng,
+        |p| p.x,
         |x, rng| Plant::new(x, rng.random_range(PLANT_HEIGHT_MIN..=PLANT_HEIGHT_MAX)),
     );
 }

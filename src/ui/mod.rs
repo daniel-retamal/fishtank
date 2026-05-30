@@ -1,11 +1,12 @@
 pub mod catch_overlay;
-pub mod input_action;
-pub mod hints;
 pub mod command_bar;
+pub mod consume_picker;
 pub mod fields;
 pub mod fishing_overlay;
 pub mod fishtanks_overlay;
+pub mod hints;
 pub mod index_overlay;
+pub mod input_action;
 pub mod inventory_overlay;
 pub mod scroll_list;
 pub mod shop_overlay;

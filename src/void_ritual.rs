@@ -1,3 +1,4 @@
+use crate::entities::cow::CowVariant;
 use crate::fishes::species::{ALL_SPECIES, FishSpecies};
 use crate::tank::TankKind;
 use crate::util::hyperbolic_scale;
@@ -42,6 +43,7 @@ pub const GIVE_COFFEE_QTY: u32 = 937;
 pub const GIVE_BAIT_QTY: u32 = 625;
 pub const GIVE_JUNK_QTY: u32 = 1000;
 pub const GIVE_NECRONOMICON_QTY: u32 = 1;
+pub const GIVE_MILK_QTY: u32 = 15;
 pub const GIVE_RESOURCE_AMOUNT: u32 = 5000;
 pub const EXPAND_AMOUNT: u32 = 75;
 
@@ -98,6 +100,7 @@ pub enum GiveTarget {
     Item { name: &'static str, qty: u32 },
     Fish(FishSpecies),
     Tank(TankKind),
+    Cow(Option<CowVariant>),
 }
 
 pub enum WishAction {
@@ -107,6 +110,7 @@ pub enum WishAction {
     Clone { fish_name: String },
     Bless { fish_name: String },
     Expand { tank_name: String },
+    Restore { name: String },
     Anything,
     Nothing,
 }
@@ -115,6 +119,7 @@ pub struct WishCtx<'a> {
     pub fish_names: &'a [String],
     pub tank_names: &'a [String],
     pub graveyard_names: &'a [String],
+    pub cow_names: &'a [String],
 }
 
 pub fn parse_wish(input: &str, ctx: &WishCtx) -> Option<WishAction> {
@@ -146,7 +151,13 @@ pub fn parse_wish(input: &str, ctx: &WishCtx) -> Option<WishAction> {
         if rest_words.is_empty() {
             return None;
         }
-        let (fish_name, mutation) = greedy_split_fish_then_rest(rest_words, ctx.fish_names)?;
+        let combined: Vec<String> = ctx
+            .fish_names
+            .iter()
+            .chain(ctx.cow_names.iter())
+            .cloned()
+            .collect();
+        let (fish_name, mutation) = greedy_split_fish_then_rest(rest_words, &combined)?;
         return Some(WishAction::Mutate {
             fish_name,
             mutation,
@@ -167,7 +178,13 @@ pub fn parse_wish(input: &str, ctx: &WishCtx) -> Option<WishAction> {
         if rest_words.is_empty() {
             return None;
         }
-        let fish_name = greedy_find_name(rest_words, ctx.fish_names)?;
+        let combined: Vec<String> = ctx
+            .fish_names
+            .iter()
+            .chain(ctx.cow_names.iter())
+            .cloned()
+            .collect();
+        let fish_name = greedy_find_name(rest_words, &combined)?;
         return Some(WishAction::Clone { fish_name });
     }
 
@@ -189,38 +206,53 @@ pub fn parse_wish(input: &str, ctx: &WishCtx) -> Option<WishAction> {
         return Some(WishAction::Expand { tank_name });
     }
 
+    if words.first().copied() == Some("restore") {
+        let rest_words = &words[1..];
+        if rest_words.is_empty() {
+            return None;
+        }
+        let combined: Vec<String> = ctx
+            .fish_names
+            .iter()
+            .chain(ctx.cow_names.iter())
+            .cloned()
+            .collect();
+        let name = greedy_find_name(rest_words, &combined)?;
+        return Some(WishAction::Restore { name });
+    }
+
     None
 }
 
 fn parse_give_target(rest: &str) -> Option<GiveTarget> {
-    match rest.trim() {
+    let trimmed = rest.trim();
+    if trimmed == "cow" {
+        return Some(GiveTarget::Cow(None));
+    }
+    if let Some(prefix) = trimmed.strip_suffix(" cow")
+        && let Some(variant) = CowVariant::parse(prefix.trim())
+    {
+        return Some(GiveTarget::Cow(Some(variant)));
+    }
+    match trimmed {
         "cash" => return Some(GiveTarget::Cash),
         "food" => return Some(GiveTarget::Food),
-        "coffee" => {
-            return Some(GiveTarget::Item {
-                name: "Coffee",
-                qty: GIVE_COFFEE_QTY,
-            });
-        }
-        "bait" => {
-            return Some(GiveTarget::Item {
-                name: "Bait",
-                qty: GIVE_BAIT_QTY,
-            });
-        }
         "junk" => {
             return Some(GiveTarget::Item {
                 name: "Junk",
                 qty: GIVE_JUNK_QTY,
             });
         }
-        "necronomicon" => {
+        _ => {}
+    }
+
+    for kind in crate::loot::ConsumableKind::all() {
+        if kind.lowercase_name() == trimmed {
             return Some(GiveTarget::Item {
-                name: "Necronomicon",
-                qty: GIVE_NECRONOMICON_QTY,
+                name: kind.display_name(),
+                qty: give_qty_for(kind),
             });
         }
-        _ => {}
     }
 
     if let Some(species) = ALL_SPECIES
@@ -238,6 +270,15 @@ fn parse_give_target(rest: &str) -> Option<GiveTarget> {
     None
 }
 
+fn give_qty_for(kind: crate::loot::ConsumableKind) -> u32 {
+    use crate::loot::ConsumableKind as CK;
+    match kind {
+        CK::Coffee => GIVE_COFFEE_QTY,
+        CK::Bait => GIVE_BAIT_QTY,
+        CK::Milk(_) => GIVE_MILK_QTY,
+        CK::Necronomicon => GIVE_NECRONOMICON_QTY,
+    }
+}
 
 fn greedy_find_name(words: &[&str], candidates: &[String]) -> Option<String> {
     for end in (1..=words.len()).rev() {
@@ -252,10 +293,10 @@ fn greedy_find_name(words: &[&str], candidates: &[String]) -> Option<String> {
     None
 }
 
-fn greedy_split_fish_then_rest(words: &[&str], fish_names: &[String]) -> Option<(String, String)> {
+fn greedy_split_fish_then_rest(words: &[&str], candidates: &[String]) -> Option<(String, String)> {
     for end in 1..=words.len() {
         let candidate = words[..end].join(" ");
-        if let Some(display) = fish_names
+        if let Some(display) = candidates
             .iter()
             .find(|n| n.to_ascii_lowercase() == candidate)
         {
@@ -305,6 +346,7 @@ mod tests {
             fish_names: &[],
             tank_names: &[],
             graveyard_names: &[],
+            cow_names: &[],
         }
     }
 
@@ -315,12 +357,18 @@ mod tests {
 
     #[test]
     fn parse_tank_kind_alientank() {
-        assert!(matches!(TankKind::parse("alientank"), Some(TankKind::Alien)));
+        assert!(matches!(
+            TankKind::parse("alientank"),
+            Some(TankKind::Alien)
+        ));
     }
 
     #[test]
     fn parse_tank_kind_alien_spaced() {
-        assert!(matches!(TankKind::parse("alien tank"), Some(TankKind::Alien)));
+        assert!(matches!(
+            TankKind::parse("alien tank"),
+            Some(TankKind::Alien)
+        ));
     }
 
     #[test]

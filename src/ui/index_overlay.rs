@@ -6,11 +6,14 @@ use ratatui::{
     widgets::Widget,
 };
 
-use crate::colors::{FIELD_AIR_COLOR, FIELD_EARTH_COLOR, FIELD_FIRE_COLOR, FIELD_SPIRIT_COLOR, FIELD_WATER_COLOR, GOLD, SELECTED_COLOR, SELECTED_TANK_COLOR};
-use crate::ui::hints::{HINT_CLOSE, HINT_ENTER_SHOW, HINT_NAV};
+use crate::colors::{
+    BLACK, BLUE, CYAN, DARK_GRAY, GOLD, GREEN, LIGHT_BLUE, LIGHT_CYAN, LIGHT_GREEN, LIGHT_MAGENTA,
+    LIGHT_RED, LIGHT_YELLOW, MAGENTA, ORANGE, RED, STEEL, TEAL, WHITE, YELLOW,
+};
 use crate::fishes::fish::{Direction, Fish};
 use crate::fishes::species::FishSpecies;
 use crate::fishes::unfish::{BALL_HEIGHT, SKULL_HEIGHT, UnfishKind};
+use crate::ui::hints::{HINT_CLOSE, HINT_ENTER_SHOW, HINT_NAV};
 use crate::ui::{fields, render_fish_segs, scroll_list, table, tank_view};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -484,6 +487,14 @@ impl Widget for IndexOverlay<'_> {
         let data_start_y = oy + 3;
         let data_end_y = oy + overlay_h - 3;
 
+        let row_layout = RowLayout {
+            state,
+            vis_cols: &vis_cols,
+            inner_x,
+            inner_w,
+            base_bg: bg,
+            area,
+        };
         let mut y_cursor = data_start_y;
         let mut fish_idx = state.scroll;
         while y_cursor <= data_end_y && fish_idx < n {
@@ -492,10 +503,7 @@ impl Widget for IndexOverlay<'_> {
                 break;
             }
             let selected = fish_idx == state.selected;
-            draw_data_row(
-                buf, state, &vis_cols, fish_idx, inner_x, y_cursor, inner_w, row_h, selected, bg,
-                area,
-            );
+            draw_data_row(buf, &row_layout, fish_idx, y_cursor, selected);
             y_cursor += row_h;
             fish_idx += 1;
         }
@@ -516,7 +524,15 @@ impl Widget for IndexOverlay<'_> {
             (false, false) => HINT_NAV.to_string(),
         };
         let right_text = HINT_CLOSE;
-        table::draw_hint_bar(buf, inner_x, footer_y, inner_w as u16, &left_hint, right_text, bg);
+        table::draw_hint_bar(
+            buf,
+            inner_x,
+            footer_y,
+            inner_w as u16,
+            &left_hint,
+            right_text,
+            bg,
+        );
         if n > 0 {
             let ct = HINT_ENTER_SHOW;
             let ct_w = table::visual_width(ct) as u16;
@@ -525,7 +541,12 @@ impl Widget for IndexOverlay<'_> {
             let center_x = inner_x + (inner_w as u16 - ct_w) / 2;
             let right_edge = inner_x + inner_w as u16 - right_w - 2;
             if center_x > inner_x + left_w + 1 && center_x + ct_w < right_edge {
-                buf.set_string(center_x, footer_y, ct, Style::default().fg(Color::DarkGray).bg(bg));
+                buf.set_string(
+                    center_x,
+                    footer_y,
+                    ct,
+                    Style::default().fg(DARK_GRAY).bg(bg),
+                );
             }
         }
     }
@@ -538,9 +559,9 @@ fn draw_border(buf: &mut Buffer, rect: Rect, bg: Color, has_right_scroll: bool) 
     let h = rect.height;
     let right = x + w - 1;
     let bottom = y + h - 1;
-    let border_style = Style::default().fg(Color::White).bg(bg);
+    let border_style = Style::default().fg(WHITE).bg(bg);
     let title_style = Style::default()
-        .fg(Color::White)
+        .fg(WHITE)
         .add_modifier(Modifier::BOLD)
         .bg(bg);
 
@@ -584,8 +605,8 @@ fn draw_separator(
 ) {
     let x = rect.x;
     let right = rect.x + rect.width - 1;
-    let border_style = Style::default().fg(Color::White).bg(bg);
-    let sep_style = Style::default().fg(Color::White).bg(bg);
+    let border_style = Style::default().fg(WHITE).bg(bg);
+    let sep_style = Style::default().fg(WHITE).bg(bg);
 
     buf[(x, sep_y)].set_char('├').set_style(border_style);
     if has_right_scroll {
@@ -631,10 +652,10 @@ fn draw_header_row(
     bg: Color,
 ) {
     let hdr_style = Style::default()
-        .fg(Color::White)
+        .fg(WHITE)
         .add_modifier(Modifier::BOLD)
         .bg(bg);
-    let sep_style = Style::default().fg(Color::White).bg(bg);
+    let sep_style = Style::default().fg(WHITE).bg(bg);
     let widths = state.all_col_widths();
     let fixed_count = state.fixed_widths.len();
 
@@ -662,23 +683,35 @@ fn draw_header_row(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn draw_data_row(
-    buf: &mut Buffer,
-    state: &IndexState,
-    vis_cols: &[usize],
-    fish_idx: usize,
+#[derive(Clone, Copy)]
+struct RowLayout<'a> {
+    state: &'a IndexState,
+    vis_cols: &'a [usize],
     inner_x: u16,
-    row_y: u16,
     inner_w: usize,
-    row_h: u16,
-    selected: bool,
     base_bg: Color,
     area: Rect,
+}
+
+fn draw_data_row(
+    buf: &mut Buffer,
+    layout: &RowLayout,
+    fish_idx: usize,
+    row_y: u16,
+    selected: bool,
 ) {
-    let row_bg = if selected { SELECTED_COLOR } else { base_bg };
-    let fg = if selected { Color::Black } else { SELECTED_TANK_COLOR };
-    let sep_style = Style::default().fg(Color::White).bg(row_bg);
+    let RowLayout {
+        state,
+        vis_cols,
+        inner_x,
+        inner_w,
+        base_bg,
+        area,
+    } = *layout;
+    let row_h = state.snapshots[fish_idx].display_height;
+    let row_bg = if selected { WHITE } else { base_bg };
+    let fg = if selected { BLACK } else { STEEL };
+    let sep_style = Style::default().fg(WHITE).bg(row_bg);
     let widths = state.all_col_widths();
     let snap = &state.snapshots[fish_idx];
     let right_x = inner_x + inner_w as u16;
@@ -744,7 +777,7 @@ fn draw_data_row(
                     let col = &state.fantasy_cols[fc_idx];
                     let cell = &col.cells[fish_idx];
                     if col.kind == FantasyKind::FavoriteColor {
-                        let swatch_bg = cell.swatch.unwrap_or(Color::Black);
+                        let swatch_bg = cell.swatch.unwrap_or(BLACK);
                         for dx in 0..w.min(avail) as u16 {
                             if x + dx < right_x {
                                 buf[(x + dx, text_y)].set_char(' ').set_bg(swatch_bg);
@@ -914,23 +947,20 @@ fn gen_fantasy(
 
         FantasyKind::FavoriteColor => {
             const COLORS: &[Color] = &[
-                Color::Red,
-                Color::Green,
-                Color::Blue,
-                Color::Yellow,
-                Color::Magenta,
-                Color::Cyan,
-                Color::LightRed,
-                Color::LightGreen,
-                Color::LightBlue,
-                Color::LightYellow,
-                Color::LightMagenta,
-                Color::LightCyan,
-                FIELD_FIRE_COLOR,
-                FIELD_EARTH_COLOR,
-                FIELD_WATER_COLOR,
-                FIELD_SPIRIT_COLOR,
-                FIELD_AIR_COLOR,
+                RED,
+                GREEN,
+                BLUE,
+                YELLOW,
+                MAGENTA,
+                CYAN,
+                LIGHT_RED,
+                LIGHT_GREEN,
+                LIGHT_BLUE,
+                LIGHT_YELLOW,
+                LIGHT_MAGENTA,
+                LIGHT_CYAN,
+                ORANGE,
+                TEAL,
             ];
             (0..n)
                 .map(|i| {

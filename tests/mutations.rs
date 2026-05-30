@@ -1,6 +1,6 @@
-use fishtank::entities::fish::Fish;
-use fishtank::entities::species::FishSpecies;
-use fishtank::entities::unfish::UnfishKind;
+use fishtank::fishes::fish::Fish;
+use fishtank::fishes::species::FishSpecies;
+use fishtank::fishes::unfish::UnfishKind;
 use fishtank::tank::{Tank, TankKind};
 
 fn make_tank() -> Tank {
@@ -136,11 +136,11 @@ fn ball_unfish_eyecolor_increments_mutation_count() {
     let fish = Fish::new_unfish(UnfishKind::Ball, "Orb".to_string(), 20.0, 10.0, &mut rng);
     tank.place_fish(fish, "Orb".to_string(), &mut rng);
     tank.apply_named_mutation("Orb", "eyecolor");
-    let us = tank.fish[0]
-        .unfish_state
+    let record = tank.fish[0]
+        .mutations
         .as_ref()
-        .expect("unfish_state must exist");
-    assert_eq!(us.mutation_count, 1);
+        .expect("mutation record must exist");
+    assert_eq!(record.count, 1);
 }
 
 #[test]
@@ -150,12 +150,12 @@ fn ball_unfish_bodycolor_adds_to_mutation_history() {
     let fish = Fish::new_unfish(UnfishKind::Ball, "Orb".to_string(), 20.0, 10.0, &mut rng);
     tank.place_fish(fish, "Orb".to_string(), &mut rng);
     tank.apply_named_mutation("Orb", "bodycolor");
-    let us = tank.fish[0]
-        .unfish_state
+    let record = tank.fish[0]
+        .mutations
         .as_ref()
-        .expect("unfish_state must exist");
-    assert_eq!(us.mutation_history.len(), 1);
-    assert_eq!(us.mutation_history[0], "bodycolor");
+        .expect("mutation record must exist");
+    assert_eq!(record.history.len(), 1);
+    assert_eq!(record.history[0], "bodycolor");
 }
 
 #[test]
@@ -169,20 +169,20 @@ fn worm_mitosis_both_fish_have_partner_name() {
     assert_eq!(tank.fish.len(), 2, "mitosis should produce a second fish");
     let orig = &tank.fish[0];
     let child = &tank.fish[1];
-    let orig_us = orig
-        .unfish_state
+    let orig_record = orig
+        .mutations
         .as_ref()
-        .expect("orig must have unfish_state");
-    let child_us = child
-        .unfish_state
+        .expect("orig must have a mutation record");
+    let child_record = child
+        .mutations
         .as_ref()
-        .expect("child must have unfish_state");
+        .expect("child must have a mutation record");
     assert!(
-        orig_us.mitosis_partners.contains(&child.name),
+        orig_record.partners.contains(&child.name),
         "original fish must list child as mitosis partner"
     );
     assert!(
-        child_us.mitosis_partners.contains(&orig.name),
+        child_record.partners.contains(&orig.name),
         "child fish must list original as mitosis partner"
     );
 }
@@ -248,11 +248,11 @@ fn ball_unfish_colorpatch_increments_mutation_count() {
     let fish = Fish::new_unfish(UnfishKind::Ball, "Orb".to_string(), 20.0, 10.0, &mut rng);
     tank.place_fish(fish, "Orb".to_string(), &mut rng);
     tank.apply_named_mutation("Orb", "colorpatch");
-    let us = tank.fish[0]
-        .unfish_state
+    let record = tank.fish[0]
+        .mutations
         .as_ref()
-        .expect("unfish_state must exist");
-    assert_eq!(us.mutation_count, 1);
+        .expect("mutation record must exist");
+    assert_eq!(record.count, 1);
 }
 
 #[test]
@@ -262,12 +262,12 @@ fn ball_unfish_colorpatch_adds_to_mutation_history() {
     let fish = Fish::new_unfish(UnfishKind::Ball, "Orb".to_string(), 20.0, 10.0, &mut rng);
     tank.place_fish(fish, "Orb".to_string(), &mut rng);
     tank.apply_named_mutation("Orb", "colorpatch");
-    let us = tank.fish[0]
-        .unfish_state
+    let record = tank.fish[0]
+        .mutations
         .as_ref()
-        .expect("unfish_state must exist");
-    assert_eq!(us.mutation_history.len(), 1);
-    assert_eq!(us.mutation_history[0], "colorpatch");
+        .expect("mutation record must exist");
+    assert_eq!(record.history.len(), 1);
+    assert_eq!(record.history[0], "colorpatch");
 }
 
 #[test]
@@ -283,7 +283,7 @@ fn ball_unfish_colorpatch_patches_within_ball_width() {
         .expect("unfish_state must exist");
     for &(pos, _) in &us.slime_color_patches {
         assert!(
-            pos < fishtank::entities::unfish::BALL_WIDTH as usize,
+            pos < fishtank::fishes::unfish::BALL_WIDTH as usize,
             "colorpatch pos {pos} must be within BALL_WIDTH"
         );
     }
@@ -308,7 +308,7 @@ fn skull_unfish_colorpatch_patches_within_skull_width() {
         .expect("unfish_state must exist");
     for &(pos, _) in &us.slime_color_patches {
         assert!(
-            pos < fishtank::entities::unfish::SKULL_WIDTH as usize,
+            pos < fishtank::fishes::unfish::SKULL_WIDTH as usize,
             "colorpatch pos {pos} must be within SKULL_WIDTH"
         );
     }

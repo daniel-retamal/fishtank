@@ -32,11 +32,15 @@ pub enum BubblePhase {
 
 impl BubblePhase {
     pub fn rising(rng: &mut impl RngExt) -> Self {
-        Self::Rising { hover_time: rng.random_range(HOVER_TIME_MIN..HOVER_TIME_MAX) }
+        Self::Rising {
+            hover_time: rng.random_range(HOVER_TIME_MIN..HOVER_TIME_MAX),
+        }
     }
 
     pub fn surface(rng: &mut impl RngExt) -> Self {
-        Self::Surface { remaining: rng.random_range(SURFACE_LIFETIME_MIN..SURFACE_LIFETIME_MAX) }
+        Self::Surface {
+            remaining: rng.random_range(SURFACE_LIFETIME_MIN..SURFACE_LIFETIME_MAX),
+        }
     }
 }
 
@@ -71,7 +75,9 @@ impl Bubble {
         };
         Self {
             position: Position { x, y },
-            sway: SwayState { phase: rng.random::<f32>() * TAU },
+            sway: SwayState {
+                phase: rng.random::<f32>() * TAU,
+            },
             base_x: x,
             rise_speed,
             bubble_char: ch.unwrap_or_else(|| CHARS[rng.random_range(0..CHARS.len())]),
@@ -97,7 +103,9 @@ impl Bubble {
                 self.position.y -= self.rise_speed * dt;
                 if self.position.y <= 0.0 {
                     self.position.y = 0.0;
-                    self.phase = BubblePhase::Hovering { remaining: hover_time };
+                    self.phase = BubblePhase::Hovering {
+                        remaining: hover_time,
+                    };
                     return self.cash_value.unwrap_or(0);
                 }
             }
@@ -150,7 +158,14 @@ impl BubbleSpawner {
         if self.bottom_timer <= 0.0 {
             let x = rng.random_range(0.0..width as f32);
             let y = (height as f32 - 1.0).max(0.0);
-            bubbles.push(Bubble::new(x, y, BubblePhase::rising(rng), color, None, rng));
+            bubbles.push(Bubble::new(
+                x,
+                y,
+                BubblePhase::rising(rng),
+                color,
+                None,
+                rng,
+            ));
             self.bottom_timer = rng.random_range(BOTTOM_SPAWN_RATE_MIN..BOTTOM_SPAWN_RATE_MAX);
         }
 
@@ -159,7 +174,14 @@ impl BubbleSpawner {
             let x = rng.random_range(0.0..width as f32);
             let max_y = (height as f32 * 0.25).max(1.0);
             let y = rng.random_range(0.0..max_y);
-            bubbles.push(Bubble::new(x, y, BubblePhase::surface(rng), color, None, rng));
+            bubbles.push(Bubble::new(
+                x,
+                y,
+                BubblePhase::surface(rng),
+                color,
+                None,
+                rng,
+            ));
             self.surface_timer = rng.random_range(SURFACE_SPAWN_RATE_MIN..SURFACE_SPAWN_RATE_MAX);
         }
 

@@ -17,9 +17,9 @@ use crate::{
         input_action::{InputAction, classify},
         inventory_overlay::InventoryState,
         shop_overlay::{
-            BuyCategoryPopup, BuyTankPopup, FishListState, FishNamePopup,
-            SellConfirm, SellEntry, SellMenuState, ShopPage, ShopState, TankListState,
-            buy_cat_first_available, buy_cat_next, list_visible_rows,
+            BuyCategoryPopup, BuyTankPopup, FishListState, FishNamePopup, SellConfirm, SellEntry,
+            SellMenuState, ShopPage, ShopState, TankListState, buy_cat_first_available,
+            buy_cat_next, list_visible_rows,
         },
         show_overlay::{ShowSource, ShowState},
         text_input::TextInput,
@@ -55,6 +55,8 @@ impl App {
             self.handle_inventory_input(event);
         } else if self.fishtanks_state.is_some() {
             self.handle_fishtanks_input(event);
+        } else if self.consume_picker_state.is_some() {
+            self.handle_consume_picker_input(event);
         } else if self.shop_state.is_some() {
             self.handle_shop_input(event);
         } else {
@@ -66,7 +68,9 @@ impl App {
     }
 
     fn handle_command_input(&mut self, event: Event) {
-        let Some(action) = classify(&event) else { return };
+        let Some(action) = classify(&event) else {
+            return;
+        };
         match action {
             InputAction::Quit => {
                 self.running = false;
@@ -76,6 +80,11 @@ impl App {
                     .tanks
                     .iter()
                     .flat_map(|t| t.fish.iter().map(|f| f.name.as_str()))
+                    .chain(
+                        self.tanks
+                            .iter()
+                            .flat_map(|t| t.cows.iter().map(|c| c.name.as_str())),
+                    )
                     .collect();
                 let tank_names_for_parse: Vec<&str> =
                     self.tanks.iter().map(|t| t.name.as_str()).collect();
@@ -93,22 +102,20 @@ impl App {
                 self.history_pos = None;
                 self.draft.clear();
             }
-            InputAction::Up => {
-                if !self.history.is_empty() {
-                    match self.history_pos {
-                        None => {
-                            self.draft = self.command_input.clone();
-                            self.history_pos = Some(self.history.len() - 1);
-                            self.command_input = self.history[self.history.len() - 1].clone();
-                        }
-                        Some(0) => {}
-                        Some(i) => {
-                            self.history_pos = Some(i - 1);
-                            self.command_input = self.history[i - 1].clone();
-                        }
+            InputAction::Up if !self.history.is_empty() => {
+                match self.history_pos {
+                    None => {
+                        self.draft = self.command_input.clone();
+                        self.history_pos = Some(self.history.len() - 1);
+                        self.command_input = self.history[self.history.len() - 1].clone();
                     }
-                    self.cursor_pos = self.command_input.len();
+                    Some(0) => {}
+                    Some(i) => {
+                        self.history_pos = Some(i - 1);
+                        self.command_input = self.history[i - 1].clone();
+                    }
                 }
+                self.cursor_pos = self.command_input.len();
             }
             InputAction::Down => {
                 match self.history_pos {
@@ -136,22 +143,23 @@ impl App {
             InputAction::End => {
                 self.cursor_pos = self.command_input.len();
             }
-            InputAction::Backspace => {
-                if self.cursor_pos > 0 {
-                    let prev = prev_char_boundary(&self.command_input, self.cursor_pos);
-                    self.command_input.drain(prev..self.cursor_pos);
-                    self.cursor_pos = prev;
-                }
+            InputAction::Backspace if self.cursor_pos > 0 => {
+                let prev = prev_char_boundary(&self.command_input, self.cursor_pos);
+                self.command_input.drain(prev..self.cursor_pos);
+                self.cursor_pos = prev;
             }
-            InputAction::Delete => {
-                if self.cursor_pos < self.command_input.len() {
-                    let next = next_char_boundary(&self.command_input, self.cursor_pos);
-                    self.command_input.drain(self.cursor_pos..next);
-                }
+            InputAction::Delete if self.cursor_pos < self.command_input.len() => {
+                let next = next_char_boundary(&self.command_input, self.cursor_pos);
+                self.command_input.drain(self.cursor_pos..next);
             }
             InputAction::Tab => {
-                let fish_names: Vec<&str> =
-                    self.tank().fish.iter().map(|f| f.name.as_str()).collect();
+                let fish_names: Vec<&str> = self
+                    .tank()
+                    .fish
+                    .iter()
+                    .map(|f| f.name.as_str())
+                    .chain(self.tank().cows.iter().map(|c| c.name.as_str()))
+                    .collect();
                 let consumable_name_strings: Vec<String> = ConsumableKind::all()
                     .iter()
                     .filter(|k| self.inventory.get(k.display_name()).copied().unwrap_or(0) > 0)
@@ -159,8 +167,7 @@ impl App {
                     .collect();
                 let consumable_names: Vec<&str> =
                     consumable_name_strings.iter().map(String::as_str).collect();
-                let tank_names: Vec<&str> =
-                    self.tanks.iter().map(|t| t.name.as_str()).collect();
+                let tank_names: Vec<&str> = self.tanks.iter().map(|t| t.name.as_str()).collect();
                 let fish_in_tanks: Vec<(&str, &str)> = self
                     .tanks
                     .iter()
@@ -168,15 +175,27 @@ impl App {
                         t.fish
                             .iter()
                             .map(move |f| (f.name.as_str(), t.name.as_str()))
+                            .chain(
+                                t.cows
+                                    .iter()
+                                    .map(move |c| (c.name.as_str(), t.name.as_str())),
+                            )
                     })
                     .collect();
+                let entity_flags = self.entity_mut_flags();
+                let entity_flags_slice: Vec<(&str, commands::EntityMutFlags)> =
+                    entity_flags.iter().map(|(n, f)| (n.as_str(), *f)).collect();
                 if let Some(new_input) = commands::tab_complete(
                     &self.command_input,
-                    &fish_names,
-                    &consumable_names,
-                    &tank_names,
-                    self.tank().name.as_str(),
-                    &fish_in_tanks,
+                    &commands::CompletionCtx {
+                        fish_names: &fish_names,
+                        consumable_names: &consumable_names,
+                        tank_names: &tank_names,
+                        current_tank: self.tank().name.as_str(),
+                        fish_in_tanks: &fish_in_tanks,
+                        has_cow_in_current: self.tank().has_cow(),
+                        entity_flags: &entity_flags_slice,
+                    },
                 ) {
                     self.command_input = new_input;
                     self.cursor_pos = self.command_input.len();
@@ -191,7 +210,9 @@ impl App {
     }
 
     fn handle_show_input(&mut self, event: Event) {
-        let Some(action) = classify(&event) else { return };
+        let Some(action) = classify(&event) else {
+            return;
+        };
         match action {
             InputAction::Quit => {
                 self.running = false;
@@ -222,7 +243,9 @@ impl App {
     }
 
     fn handle_index_input(&mut self, event: Event) {
-        let Some(action) = classify(&event) else { return };
+        let Some(action) = classify(&event) else {
+            return;
+        };
         match action {
             InputAction::Quit => {
                 self.running = false;
@@ -342,7 +365,9 @@ impl App {
     }
 
     fn handle_catch_input(&mut self, event: Event) {
-        let Some(action) = classify(&event) else { return };
+        let Some(action) = classify(&event) else {
+            return;
+        };
         if matches!(action, InputAction::Quit) {
             self.running = false;
             return;
@@ -403,14 +428,19 @@ impl App {
                 self.cash += crate::loot::GOLD_BAR_VALUE;
             }
             LootKind::Item(item) => {
-                *self.inventory.entry(item.display_name().to_string()).or_insert(0) += 1;
+                *self
+                    .inventory
+                    .entry(item.display_name().to_string())
+                    .or_insert(0) += 1;
             }
             LootKind::Fish(_) => {}
         }
     }
 
     fn handle_inventory_input(&mut self, event: Event) {
-        let Some(action) = classify(&event) else { return };
+        let Some(action) = classify(&event) else {
+            return;
+        };
         match action {
             InputAction::Quit => {
                 self.running = false;
@@ -435,35 +465,197 @@ impl App {
                     .as_ref()
                     .and_then(|s| s.items.get(s.selected))
                     .map(|item| item.name.clone());
-                if let Some(name) = selected_name {
-                    match name.as_str() {
-                        "Necronomicon" => {
-                            self.inventory_state = None;
-                            self.necronomicon_popup = Some(TextInput::new());
-                        }
-                        consumable_name => {
-                            let kind = match consumable_name {
-                                "Coffee" => Some(ConsumableKind::Coffee),
-                                "Bait" => Some(ConsumableKind::Bait),
-                                _ => None,
-                            };
-                            if let Some(kind) = kind {
-                                self.consume_item(kind);
-                                let entry = self.inventory.entry(name).or_insert(0);
-                                *entry = entry.saturating_sub(1);
-                                self.inventory.retain(|_, v| *v > 0);
-                                if let Some(ref mut state) = self.inventory_state {
-                                    state.update_from(&self.inventory, &mut rand::rng());
-                                    if state.items.is_empty() {
-                                        self.inventory_state = None;
-                                    }
-                                }
-                                let bh = self.bar_height();
-                                self.tanks[self.current_tank].resize(
-                                    self.terminal_width,
-                                    self.terminal_height.saturating_sub(bh),
-                                );
-                            }
+                if let Some(name) = selected_name
+                    && let Some(kind) = ConsumableKind::all()
+                        .into_iter()
+                        .find(|k| k.display_name() == name)
+                {
+                    self.try_consume_kind(
+                        kind,
+                        crate::ui::consume_picker::ConsumePickerSource::FromInventory,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn reopen_inventory_on(&mut self, item_name: &str) {
+        let mut rng = rand::rng();
+        if let Some(mut state) = InventoryState::new(&self.inventory, &mut rng) {
+            if let Some(pos) = state.items.iter().position(|i| i.name == item_name) {
+                state.selected = pos;
+            }
+            self.inventory_state = Some(state);
+        }
+    }
+
+    fn reopen_inventory_on_first(&mut self) {
+        let mut rng = rand::rng();
+        if let Some(state) = InventoryState::new(&self.inventory, &mut rng) {
+            self.inventory_state = Some(state);
+        }
+    }
+
+    fn build_picker_entries(&self) -> Vec<crate::ui::consume_picker::ConsumePickerEntry> {
+        let mut out = Vec::new();
+        for (ti, tank) in self.tanks.iter().enumerate() {
+            for (fi, fish) in tank.fish.iter().enumerate() {
+                if fish.unfish_state.is_some() {
+                    continue;
+                }
+                out.push(crate::ui::consume_picker::ConsumePickerEntry {
+                    fish_name: fish.name.clone(),
+                    species_display: fish.species.display_name().to_string(),
+                    tank_name: tank.name.clone(),
+                    tank_idx: ti,
+                    fish_idx: fi,
+                });
+            }
+        }
+        out
+    }
+
+    pub fn open_consume_picker(
+        &mut self,
+        milk: crate::loot::MilkVariant,
+        item_name: String,
+        source: crate::ui::consume_picker::ConsumePickerSource,
+    ) {
+        if matches!(milk, crate::loot::MilkVariant::Plain) {
+            self.apply_plain_milk(&item_name);
+            return;
+        }
+        let entries = self.build_picker_entries();
+        if entries.is_empty() {
+            return;
+        }
+        let remaining = self.inventory.get(&item_name).copied().unwrap_or(0);
+        self.inventory_state = None;
+        self.consume_picker_state = crate::ui::consume_picker::ConsumePickerState::new(
+            milk, item_name, remaining, entries, source,
+        );
+    }
+
+    pub fn apply_plain_milk(&mut self, item_name: &str) {
+        let entry = self.inventory.entry(item_name.to_string()).or_insert(0);
+        *entry = entry.saturating_sub(1);
+        self.inventory.retain(|_, v| *v > 0);
+        let mut rng = rand::rng();
+        let pick = crate::consumable::MilkStatus::random(&mut rng);
+        if let Some(existing) = self.active_statuses.iter_mut().find(|s| s.kind == pick) {
+            existing.stacks += 1;
+            existing.time_remaining += crate::consumable::MILK_STATUS_STACK_BONUS;
+        } else {
+            self.active_statuses
+                .push(crate::consumable::ActiveMilkStatus {
+                    kind: pick,
+                    stacks: 1,
+                    time_remaining: crate::consumable::MILK_STATUS_DURATION,
+                });
+        }
+        if let Some(ref mut s) = self.inventory_state {
+            s.update_from(&self.inventory, &mut rng);
+            if s.items.is_empty() {
+                self.inventory_state = None;
+            }
+        }
+    }
+
+    fn handle_consume_picker_input(&mut self, event: Event) {
+        let Some(action) = classify(&event) else {
+            return;
+        };
+        match action {
+            InputAction::Quit => {
+                self.running = false;
+            }
+            InputAction::Cancel | InputAction::Char('q') => {
+                let restore = self
+                    .consume_picker_state
+                    .as_ref()
+                    .map(|s| (s.source, s.item_name.clone()));
+                self.consume_picker_state = None;
+                if let Some((source, item_name)) = restore
+                    && source == crate::ui::consume_picker::ConsumePickerSource::FromInventory
+                {
+                    self.reopen_inventory_on(&item_name);
+                }
+            }
+            InputAction::Up => {
+                if let Some(ref mut s) = self.consume_picker_state {
+                    s.scroll_up();
+                }
+            }
+            InputAction::Down => {
+                let area_h = self.tank_height();
+                let visible = crate::ui::consume_picker::ConsumePickerOverlay::visible_rows(
+                    area_h.clamp(8, 25),
+                );
+                if let Some(ref mut s) = self.consume_picker_state {
+                    s.scroll_down(visible);
+                }
+            }
+            InputAction::Confirm => {
+                let (milk, item_name, sel_entry) = {
+                    let Some(s) = self.consume_picker_state.as_ref() else {
+                        return;
+                    };
+                    let Some(e) = s.entries.get(s.selected) else {
+                        return;
+                    };
+                    (
+                        s.milk,
+                        s.item_name.clone(),
+                        (e.tank_idx, e.fish_idx, e.fish_name.clone()),
+                    )
+                };
+                let (ti, _, fn_name) = sel_entry;
+                let mut rng = rand::rng();
+                if let Some(pos) = self.tanks[ti].fish.iter().position(|f| f.name == fn_name) {
+                    crate::consumable::apply_milk_to_fish(
+                        milk,
+                        &mut self.tanks[ti].fish[pos],
+                        &mut rng,
+                    );
+                }
+                let entry = self.inventory.entry(item_name).or_insert(0);
+                *entry = entry.saturating_sub(1);
+                self.inventory.retain(|_, v| *v > 0);
+                let remaining = self
+                    .inventory
+                    .get(
+                        self.consume_picker_state
+                            .as_ref()
+                            .map(|s| s.item_name.as_str())
+                            .unwrap_or(""),
+                    )
+                    .copied()
+                    .unwrap_or(0);
+                if remaining == 0 {
+                    let source = self.consume_picker_state.as_ref().map(|s| s.source);
+                    self.consume_picker_state = None;
+                    if source == Some(crate::ui::consume_picker::ConsumePickerSource::FromInventory)
+                    {
+                        self.reopen_inventory_on_first();
+                    }
+                } else {
+                    let new_entries = self.build_picker_entries();
+                    if let Some(ref mut s) = self.consume_picker_state {
+                        s.refresh_after_consume(remaining, || {
+                            new_entries
+                                .iter()
+                                .map(|e| crate::ui::consume_picker::ConsumePickerEntry {
+                                    fish_name: e.fish_name.clone(),
+                                    species_display: e.species_display.clone(),
+                                    tank_name: e.tank_name.clone(),
+                                    tank_idx: e.tank_idx,
+                                    fish_idx: e.fish_idx,
+                                })
+                                .collect()
+                        });
+                        if s.entries.is_empty() {
+                            self.consume_picker_state = None;
                         }
                     }
                 }
@@ -473,7 +665,9 @@ impl App {
     }
 
     fn handle_necro_popup_input(&mut self, event: Event) {
-        let Some(action) = classify(&event) else { return };
+        let Some(action) = classify(&event) else {
+            return;
+        };
         match action {
             InputAction::Quit => {
                 self.running = false;
@@ -518,7 +712,9 @@ impl App {
     }
 
     fn handle_fishtanks_input(&mut self, event: Event) {
-        let Some(action) = classify(&event) else { return };
+        let Some(action) = classify(&event) else {
+            return;
+        };
         match action {
             InputAction::Quit => {
                 self.running = false;
@@ -550,7 +746,9 @@ impl App {
     }
 
     fn handle_shop_input(&mut self, event: Event) {
-        let Some(action) = classify(&event) else { return };
+        let Some(action) = classify(&event) else {
+            return;
+        };
         if matches!(action, InputAction::Quit) {
             self.running = false;
             return;
@@ -569,19 +767,15 @@ impl App {
                 InputAction::Cancel | InputAction::Char('q') => {
                     return;
                 }
-                InputAction::Up => {
-                    if *selected > 0 {
-                        let new_sel = selected.saturating_sub(1);
-                        if new_sel == 0 && cash == 0 {
-                        } else {
-                            *selected = new_sel;
-                        }
+                InputAction::Up if *selected > 0 => {
+                    let new_sel = selected.saturating_sub(1);
+                    if new_sel == 0 && cash == 0 {
+                    } else {
+                        *selected = new_sel;
                     }
                 }
-                InputAction::Down => {
-                    if *selected < 1 {
-                        *selected += 1;
-                    }
+                InputAction::Down if *selected < 1 => {
+                    *selected += 1;
                 }
                 InputAction::Confirm => match *selected {
                     0 => {
@@ -609,15 +803,11 @@ impl App {
                         InputAction::Cancel | InputAction::Char('q') => {
                             *buy_popup = None;
                         }
-                        InputAction::Left => {
-                            if popup.qty > 1 {
-                                popup.qty -= 1;
-                            }
+                        InputAction::Left if popup.qty > 1 => {
+                            popup.qty -= 1;
                         }
-                        InputAction::Right => {
-                            if popup.qty < popup.max_qty {
-                                popup.qty += 1;
-                            }
+                        InputAction::Right if popup.qty < popup.max_qty => {
+                            popup.qty += 1;
                         }
                         InputAction::Confirm => {
                             let qty = popup.qty;
@@ -687,10 +877,9 @@ impl App {
             }
 
             ShopPage::BuyFishList(ref mut fl) => {
-                let should_commit = fl
-                    .popup
-                    .as_ref()
-                    .is_some_and(|p| matches!(action, InputAction::Confirm) && !p.name_input.is_empty());
+                let should_commit = fl.popup.as_ref().is_some_and(|p| {
+                    matches!(action, InputAction::Confirm) && !p.name_input.is_empty()
+                });
 
                 if should_commit {
                     if let Some(FishNamePopup {
@@ -755,10 +944,9 @@ impl App {
             }
 
             ShopPage::BuyTankList(ref mut tl) => {
-                let should_commit = tl
-                    .popup
-                    .as_ref()
-                    .is_some_and(|p| matches!(action, InputAction::Confirm) && !p.name_input.is_empty());
+                let should_commit = tl.popup.as_ref().is_some_and(|p| {
+                    matches!(action, InputAction::Confirm) && !p.name_input.is_empty()
+                });
 
                 if should_commit {
                     if let Some(BuyTankPopup {
@@ -867,6 +1055,11 @@ impl App {
                                 SellEntry::Bait { .. } => {
                                     let sell_qty = confirm.sell_qty;
                                     let qty = self.inventory.entry("Bait".to_string()).or_insert(0);
+                                    *qty = qty.saturating_sub(sell_qty);
+                                }
+                                SellEntry::Milk { name, .. } => {
+                                    let sell_qty = confirm.sell_qty;
+                                    let qty = self.inventory.entry(name.clone()).or_insert(0);
                                     *qty = qty.saturating_sub(sell_qty);
                                 }
                                 SellEntry::Necronomicon { .. } => {
@@ -987,17 +1180,17 @@ impl App {
                 return;
             }
         }
-        let Some(action) = classify(&event) else { return };
+        let Some(action) = classify(&event) else {
+            return;
+        };
         match action {
             InputAction::Char(c) => {
                 self.command_input.push(c);
                 self.cursor_pos = self.command_input.len();
             }
-            InputAction::Backspace => {
-                if !self.command_input.is_empty() {
-                    self.command_input.pop();
-                    self.cursor_pos = self.command_input.len();
-                }
+            InputAction::Backspace if !self.command_input.is_empty() => {
+                self.command_input.pop();
+                self.cursor_pos = self.command_input.len();
             }
             InputAction::Confirm => self.submit_ritual_input(),
             _ => {}
@@ -1073,10 +1266,16 @@ impl App {
                 let tank_names: Vec<String> = self.tanks.iter().map(|t| t.name.clone()).collect();
                 let graveyard_names: Vec<String> =
                     self.graveyard.iter().map(|f| f.name.clone()).collect();
+                let cow_names: Vec<String> = self
+                    .tanks
+                    .iter()
+                    .flat_map(|t| t.cows.iter().map(|c| c.name.clone()))
+                    .collect();
                 let ctx = void_ritual::WishCtx {
                     fish_names: &fish_names,
                     tank_names: &tank_names,
                     graveyard_names: &graveyard_names,
+                    cow_names: &cow_names,
                 };
                 match void_ritual::parse_wish(input.trim(), &ctx) {
                     None => {
@@ -1105,12 +1304,18 @@ impl App {
                 fish_name,
                 mutation,
             } => {
-                let tank_idx = self
+                let fish_tank_idx = self
                     .tanks
                     .iter()
                     .position(|t| t.fish.iter().any(|f| f.name == fish_name));
-                if let Some(ti) = tank_idx {
+                if let Some(ti) = fish_tank_idx {
                     self.tanks[ti].miracle_mutate_fish(&fish_name, &mutation);
+                } else if let Some(ti) = self
+                    .tanks
+                    .iter()
+                    .position(|t| t.cows.iter().any(|c| c.name == fish_name))
+                {
+                    self.tanks[ti].apply_named_mutation_to_cow(&fish_name, &mutation);
                 }
             }
             WishAction::Revive { fish_name } => {
@@ -1123,20 +1328,32 @@ impl App {
                 }
             }
             WishAction::Clone { fish_name } => {
-                let original = self
+                let original_fish = self
                     .tanks
                     .iter()
                     .flat_map(|t| t.fish.iter())
                     .find(|f| f.name == fish_name)
                     .cloned();
-                if let Some(orig) = original {
+                if let Some(orig) = original_fish {
                     let clone_name = format!("{}'s Clone", orig.name);
                     let ct = self.current_tank;
                     if !self.tanks[ct].is_full() {
                         let mut rng = rand::rng();
-                        let new_fish = orig;
-                        self.tanks[ct].place_fish(new_fish, clone_name, &mut rng);
+                        self.tanks[ct].place_fish(orig, clone_name, &mut rng);
                     }
+                    return;
+                }
+                let original_cow = self
+                    .tanks
+                    .iter()
+                    .flat_map(|t| t.cows.iter())
+                    .find(|c| c.name == fish_name)
+                    .cloned();
+                if let Some(mut orig) = original_cow {
+                    orig.name = format!("{}'s Clone", orig.name);
+                    let ct = self.current_tank;
+                    let mut rng = rand::rng();
+                    self.tanks[ct].place_cow(orig, &mut rng);
                 }
             }
             WishAction::Bless { fish_name } => {
@@ -1172,6 +1389,19 @@ impl App {
             WishAction::Nothing => {
                 self.nothing_stacks += 1;
             }
+            WishAction::Restore { name } => {
+                use crate::restore::Restorable;
+                for tank in &mut self.tanks {
+                    if let Some(fish) = tank.fish.iter_mut().find(|f| f.name == name) {
+                        fish.restore();
+                        return;
+                    }
+                    if let Some(cow) = tank.cows.iter_mut().find(|c| c.name == name) {
+                        cow.restore();
+                        return;
+                    }
+                }
+            }
         }
     }
 
@@ -1195,6 +1425,13 @@ impl App {
                 let actual_name = names::unique_name_in(&self.used_tank_names, un_name);
                 self.used_tank_names.insert(actual_name.clone());
                 self.tanks.push(Tank::new(actual_name, kind));
+            }
+            GiveTarget::Cow(variant_opt) => {
+                let mut rng = rand::rng();
+                let variant =
+                    variant_opt.unwrap_or_else(|| crate::entities::cow::random_cow_color(&mut rng));
+                let ct = self.current_tank;
+                self.tanks[ct].spawn_cow(variant, &mut rng);
             }
         }
     }
@@ -1241,8 +1478,16 @@ impl App {
                     .spawn_fish(species, names::title_case(&name), &mut rng);
             }
             commands::Action::Mutate(fish_name, mutation_name) => {
-                self.tank_mut()
-                    .apply_named_mutation(&fish_name, &mutation_name);
+                let ct = self.current_tank;
+                if self.tanks[ct]
+                    .fish
+                    .iter()
+                    .any(|f| f.name.eq_ignore_ascii_case(&fish_name))
+                {
+                    self.tanks[ct].apply_named_mutation(&fish_name, &mutation_name);
+                } else {
+                    self.tanks[ct].apply_named_mutation_to_cow(&fish_name, &mutation_name);
+                }
             }
             commands::Action::Index { all, tank_filter } => {
                 if let Some(filter) = tank_filter {
@@ -1283,26 +1528,20 @@ impl App {
                 self.shop_state = Some(state);
             }
             commands::Action::Consume { name } => {
-                let kind = match name.to_lowercase().as_str() {
-                    "coffee" => ConsumableKind::Coffee,
-                    "bait" => ConsumableKind::Bait,
-                    _ => return,
-                };
-                let item_name = match kind {
-                    ConsumableKind::Coffee => "Coffee",
-                    ConsumableKind::Bait => "Bait",
-                };
-                let available = self.inventory.get(item_name).copied().unwrap_or(0);
-                if available == 0 {
-                    return;
+                let normalized: String = name.to_ascii_lowercase().split_whitespace().collect();
+                if let Some(kind) = ConsumableKind::all().into_iter().find(|k| {
+                    let dn: String = k
+                        .display_name()
+                        .to_ascii_lowercase()
+                        .split_whitespace()
+                        .collect();
+                    dn == normalized
+                }) {
+                    self.try_consume_kind(
+                        kind,
+                        crate::ui::consume_picker::ConsumePickerSource::FromCommand,
+                    );
                 }
-                self.consume_item(kind);
-                let entry = self.inventory.entry(item_name.to_string()).or_insert(0);
-                *entry = entry.saturating_sub(1);
-                self.inventory.retain(|_, v| *v > 0);
-                let bh = self.bar_height();
-                self.tanks[self.current_tank]
-                    .resize(self.terminal_width, self.terminal_height.saturating_sub(bh));
             }
             commands::Action::Fish { no_death, no_fish } => {
                 let mut state = FishingState::new();
@@ -1331,38 +1570,66 @@ impl App {
                     Some(i) => i,
                     None => return,
                 };
-                if self.tanks[target_idx].is_full() {
-                    return;
-                }
-                if self.tanks[target_idx]
-                    .fish
-                    .iter()
-                    .any(|f| f.name.eq_ignore_ascii_case(&fish))
-                {
-                    return;
-                }
-                let source_idx =
-                    match (0..self.tanks.len())
+                if let Some(source_idx) =
+                    (0..self.tanks.len())
                         .filter(|&i| i != target_idx)
                         .find(|&i| {
                             self.tanks[i]
                                 .fish
                                 .iter()
                                 .any(|f| f.name.eq_ignore_ascii_case(&fish))
-                        }) {
-                        Some(i) => i,
-                        None => return,
-                    };
-                let fish_pos = self.tanks[source_idx]
-                    .fish
-                    .iter()
-                    .position(|f| f.name.eq_ignore_ascii_case(&fish))
-                    .unwrap();
-                let fish_obj = self.tanks[source_idx].fish.remove(fish_pos);
-                let fish_name = fish_obj.name.clone();
-                self.tanks[source_idx].used_names.remove(&fish_name);
-                let mut rng = rand::rng();
-                self.tanks[target_idx].place_fish(fish_obj, fish_name, &mut rng);
+                        })
+                {
+                    if self.tanks[target_idx].is_full() {
+                        return;
+                    }
+                    if self.tanks[target_idx]
+                        .fish
+                        .iter()
+                        .any(|f| f.name.eq_ignore_ascii_case(&fish))
+                    {
+                        return;
+                    }
+                    let fish_pos = self.tanks[source_idx]
+                        .fish
+                        .iter()
+                        .position(|f| f.name.eq_ignore_ascii_case(&fish))
+                        .unwrap();
+                    let fish_obj = self.tanks[source_idx].fish.remove(fish_pos);
+                    let fish_name = fish_obj.name.clone();
+                    self.tanks[source_idx].used_names.remove(&fish_name);
+                    let mut rng = rand::rng();
+                    self.tanks[target_idx].place_fish(fish_obj, fish_name, &mut rng);
+                    return;
+                }
+                if let Some(source_idx) =
+                    (0..self.tanks.len())
+                        .filter(|&i| i != target_idx)
+                        .find(|&i| {
+                            self.tanks[i]
+                                .cows
+                                .iter()
+                                .any(|c| c.name.eq_ignore_ascii_case(&fish))
+                        })
+                {
+                    if self.tanks[target_idx]
+                        .cows
+                        .iter()
+                        .any(|c| c.name.eq_ignore_ascii_case(&fish))
+                    {
+                        return;
+                    }
+                    let cow_pos = self.tanks[source_idx]
+                        .cows
+                        .iter()
+                        .position(|c| c.name.eq_ignore_ascii_case(&fish))
+                        .unwrap();
+                    let cow_obj = self.tanks[source_idx].cows.remove(cow_pos);
+                    let cow_name = cow_obj.name.clone();
+                    self.tanks[source_idx].used_cow_names.remove(&cow_name);
+                    let mut rng = rand::rng();
+                    self.tanks[target_idx].place_cow(cow_obj, &mut rng);
+                }
             }
             commands::Action::Fishtanks => {
                 let visible = self.fishtanks_visible_rows();
@@ -1407,6 +1674,14 @@ impl App {
                 }
             }
             commands::Action::Exit => self.running = false,
+            commands::Action::Cowsay(text) => {
+                let mut rng = rand::rng();
+                let tank = &mut self.tanks[self.current_tank];
+                if !tank.cows.is_empty() {
+                    let idx = rng.random_range(0..tank.cows.len());
+                    tank.cows[idx].say(text);
+                }
+            }
             commands::Action::VoidSpawn => {
                 if self.tanks[self.current_tank].kind == TankKind::Void {
                     let mut rng = rand::rng();
@@ -1425,6 +1700,16 @@ impl App {
                         self.start_void_ritual();
                     }
                 }
+            }
+            commands::Action::StartFishAbduction => {
+                let mut rng = rand::rng();
+                let ct = self.current_tank;
+                self.plan_abduction(ct, &mut rng);
+            }
+            commands::Action::StartCowAbduction => {
+                let mut rng = rand::rng();
+                let ct = self.current_tank;
+                self.plan_cow_delivery(ct, &mut rng);
             }
             commands::Action::Unknown => {}
         }

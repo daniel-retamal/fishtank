@@ -2,12 +2,13 @@ use rand::RngExt;
 use ratatui::style::Color;
 use std::f32::consts::TAU;
 
+use crate::colors::{DARK_GRAY, GRAY, WHITE};
+
 use crate::entities::components::BlinkTimer;
 use crate::entities::glistening::GlisteningMode;
 use crate::util::sample_exponential;
 
 pub const VOID_SPAWN_MEAN_SECS: f32 = 3600.0;
-
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum UnfishKind {
@@ -203,12 +204,12 @@ pub fn worm_display_width(segments: usize, extra_eyes: usize, is_double: bool) -
 pub const BLINKER_GLISTEN_SPEED: f32 = 24.0;
 pub const BLINKER_GLISTEN_PEAK: f32 = 0.6;
 pub const BLINKER_GLISTEN_MID: f32 = 0.1;
-pub const BLINKER_BASE_COLOR: Color = Color::DarkGray;
-pub const BLINKER_MID_COLOR: Color = Color::Gray;
-pub const BLINKER_PEAK_COLOR: Color = Color::White;
+pub const BLINKER_BASE_COLOR: Color = DARK_GRAY;
+pub const BLINKER_MID_COLOR: Color = GRAY;
+pub const BLINKER_PEAK_COLOR: Color = WHITE;
 
-pub const UNFISH_BODY_COLOR: Color = Color::White;
-pub const UNFISH_EYE_COLOR: Color = Color::DarkGray;
+pub const UNFISH_BODY_COLOR: Color = WHITE;
+pub const UNFISH_EYE_COLOR: Color = DARK_GRAY;
 pub const BALL_HEIGHT: u16 = 9;
 pub const SKULL_HEIGHT: u16 = 6;
 

@@ -1,12 +1,13 @@
 pub mod app;
 pub mod colors;
 pub mod commands;
-pub mod economy;
 pub mod consumable;
+pub mod economy;
 pub mod entities;
 pub mod fishes;
 pub mod loot;
 pub mod names;
+pub mod restore;
 pub mod settings;
 pub mod tank;
 pub mod tanks;

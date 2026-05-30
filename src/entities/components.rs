@@ -107,24 +107,22 @@ pub fn sway_x_offset(
     (phase.sin() * sway_amount * ratio).round() as i32
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn extend_spaced<T, R: RngExt>(
     items: &mut Vec<T>,
     to_width: i32,
     extra_width: i32,
-    spacing_min: i32,
-    spacing_max: i32,
+    spacing: std::ops::RangeInclusive<i32>,
     rng: &mut R,
     x_of: impl Fn(&T) -> i32,
     mut make: impl FnMut(i32, &mut R) -> T,
 ) {
     let mut next_x = if items.is_empty() {
-        rng.random_range(spacing_min..=spacing_max)
+        rng.random_range(spacing.clone())
     } else {
-        x_of(items.last().unwrap()) + extra_width + rng.random_range(spacing_min..=spacing_max)
+        x_of(items.last().unwrap()) + extra_width + rng.random_range(spacing.clone())
     };
     while next_x < to_width {
         items.push(make(next_x, rng));
-        next_x += extra_width + rng.random_range(spacing_min..=spacing_max);
+        next_x += extra_width + rng.random_range(spacing.clone());
     }
 }

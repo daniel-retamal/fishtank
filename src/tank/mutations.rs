@@ -6,7 +6,7 @@ use crate::fishes::mutant::{
     random_rgb,
 };
 use crate::fishes::mutations::{
-    Mutation, MUTATION_PATCH_COUNT_MAX, MUTATION_PATCH_COUNT_MIN, MUTATION_PATCH_MAX,
+    MUTATION_PATCH_COUNT_MAX, MUTATION_PATCH_COUNT_MIN, MUTATION_PATCH_MAX, Mutation,
     apply_mutation_to_fish, pick_random_miracle_mutation, pick_random_mutation,
     tail_kind_to_mutant_tail,
 };
@@ -16,10 +16,10 @@ use crate::fishes::unfish::{
 };
 use crate::util::{hyperbolic_scale, sample_exponential};
 
-use super::{Tank, TankKind};
 use super::{
-    MUTATION_INTERVAL_BASE, MUTATION_ALPHA, MUTATION_MEAN_FLOOR_SECS, MIN_SPLIT_BODY_SIZE,
+    MIN_SPLIT_BODY_SIZE, MUTATION_ALPHA, MUTATION_INTERVAL_BASE, MUTATION_MEAN_FLOOR_SECS,
 };
+use super::{Tank, TankKind};
 
 impl Tank {
     pub(super) fn tick_mutations(&mut self, dt: f32) {
@@ -76,7 +76,10 @@ impl Tank {
             self.apply_fixed_body_mitosis(idx);
             return;
         }
-        let is_double = self.fish[idx].mutant.as_ref().is_some_and(|mutant| mutant.is_double);
+        let is_double = self.fish[idx]
+            .mutant
+            .as_ref()
+            .is_some_and(|mutant| mutant.is_double);
         if !is_double {
             return;
         }
@@ -147,7 +150,9 @@ impl Tank {
             mutant.is_double = false;
             mutant.double_head_eyes.clear();
             let split_pos_orig = 1 + parent_max_eyes + half;
-            mutant.color_patches.retain(|&(pos, _)| pos < split_pos_orig);
+            mutant
+                .color_patches
+                .retain(|&(pos, _)| pos < split_pos_orig);
             fish.display_width = mutant.display_width(half);
         }
 
@@ -180,8 +185,10 @@ impl Tank {
             }
         }
         if parent_mutation_count > 0 {
-            new_fish.mutations.get_or_insert_with(|| Box::new(MutationRecord::default())).count =
-                parent_mutation_count;
+            new_fish
+                .mutations
+                .get_or_insert_with(|| Box::new(MutationRecord::default()))
+                .count = parent_mutation_count;
         }
         new_fish.display_width = new_fish.mutant.as_ref().unwrap().display_width(other_half);
         if self.kind == TankKind::Hell {
@@ -207,7 +214,10 @@ impl Tank {
     }
 
     fn apply_fixed_body_mitosis(&mut self, idx: usize) {
-        let is_double = self.fish[idx].mutant.as_ref().is_some_and(|mutant| mutant.is_double);
+        let is_double = self.fish[idx]
+            .mutant
+            .as_ref()
+            .is_some_and(|mutant| mutant.is_double);
         if !is_double {
             return;
         }
@@ -219,7 +229,11 @@ impl Tank {
         let parent_sway_speed = self.fish[idx].sway_speed;
         let (glistening_mode, glistening_color, eye_color) = {
             let mutant = self.fish[idx].mutant.as_ref().unwrap();
-            (mutant.glistening_mode, mutant.glistening_color, mutant.eye_color)
+            (
+                mutant.glistening_mode,
+                mutant.glistening_color,
+                mutant.eye_color,
+            )
         };
         let mut_count = self.fish[idx].mutations.as_ref().map_or(0, |mr| mr.count);
         {
@@ -230,13 +244,8 @@ impl Tank {
         self.fish[idx].display_width = compute_display_width(species, self.fish[idx].body_size);
         let mut rng = rand::rng();
         let new_name = self.unique_name(&parent_name);
-        let mut new_fish = crate::fishes::fish::Fish::new(
-            species,
-            new_name.clone(),
-            spawn_x,
-            spawn_y,
-            &mut rng,
-        );
+        let mut new_fish =
+            crate::fishes::fish::Fish::new(species, new_name.clone(), spawn_x, spawn_y, &mut rng);
         new_fish.color = parent_color;
         new_fish.sway_speed = parent_sway_speed;
         new_fish.display_width = compute_display_width(species, new_fish.body_size);
@@ -246,8 +255,10 @@ impl Tank {
         new_mutant.eye_color = eye_color;
         new_fish.mutant = Some(Box::new(new_mutant));
         if mut_count > 0 {
-            new_fish.mutations.get_or_insert_with(|| Box::new(MutationRecord::default())).count =
-                mut_count;
+            new_fish
+                .mutations
+                .get_or_insert_with(|| Box::new(MutationRecord::default()))
+                .count = mut_count;
         }
         if self.kind == TankKind::Hell {
             new_fish.devil_marked = true;
@@ -298,7 +309,9 @@ impl Tank {
             return;
         }
         let tail_variant = match self.fish[fish_idx].species.config().body {
-            BodyTemplate::Standard(bc) | BodyTemplate::Alternating(bc, _) => tail_kind_to_mutant_tail(bc.tail),
+            BodyTemplate::Standard(bc) | BodyTemplate::Alternating(bc, _) => {
+                tail_kind_to_mutant_tail(bc.tail)
+            }
             BodyTemplate::Fixed { left, .. } => {
                 let n_chars = left.first().map(|s| s.chars().count()).unwrap_or(1);
                 if n_chars <= 1 {
@@ -333,7 +346,8 @@ impl Tank {
                 self.fish[fish_idx].display_width =
                     compute_display_width(self.fish[fish_idx].species, 0);
             } else {
-                self.fish[fish_idx].display_width = mutant.display_width(self.fish[fish_idx].body_size);
+                self.fish[fish_idx].display_width =
+                    mutant.display_width(self.fish[fish_idx].body_size);
             }
             self.fish[fish_idx].mutant = Some(Box::new(mutant));
         }
@@ -384,6 +398,7 @@ impl Tank {
                 }
                 Mutation::GlisteningDisable
             }
+            "alienation" => Mutation::Alienation,
             _ => return,
         };
         apply_mutation_to_fish(&mut self.fish[fish_idx], mutation, &mut rng);
@@ -436,7 +451,8 @@ impl Tank {
                     true
                 }
                 "glistenmode" => {
-                    unfish_state.slime_glisten_mode = unfish_state.slime_glisten_mode.random_other(rng);
+                    unfish_state.slime_glisten_mode =
+                        unfish_state.slime_glisten_mode.random_other(rng);
                     true
                 }
                 "glistencolor" => {
@@ -448,7 +464,9 @@ impl Tank {
                         rng.random_range(MUTATION_PATCH_COUNT_MIN..=MUTATION_PATCH_COUNT_MAX);
                     for _ in 0..count {
                         let pos = rng.random_range(0..sprite_width);
-                        unfish_state.slime_color_patches.push((pos, random_rgb(rng)));
+                        unfish_state
+                            .slime_color_patches
+                            .push((pos, random_rgb(rng)));
                     }
                     if unfish_state.slime_color_patches.len() > MUTATION_PATCH_MAX {
                         let excess = unfish_state.slime_color_patches.len() - MUTATION_PATCH_MAX;
@@ -482,7 +500,8 @@ impl Tank {
                     true
                 }
                 "size-" => {
-                    unfish_state.worm_segments = unfish_state.worm_segments.saturating_sub(1).max(1);
+                    unfish_state.worm_segments =
+                        unfish_state.worm_segments.saturating_sub(1).max(1);
                     true
                 }
                 "eye+" => {
@@ -526,7 +545,8 @@ impl Tank {
                     true
                 }
                 "glistenmode" => {
-                    unfish_state.slime_glisten_mode = unfish_state.slime_glisten_mode.random_other(rng);
+                    unfish_state.slime_glisten_mode =
+                        unfish_state.slime_glisten_mode.random_other(rng);
                     true
                 }
                 "glistencolor" => {
@@ -538,7 +558,9 @@ impl Tank {
                         rng.random_range(MUTATION_PATCH_COUNT_MIN..=MUTATION_PATCH_COUNT_MAX);
                     for _ in 0..count {
                         let pos = rng.random_range(0..sprite_width);
-                        unfish_state.slime_color_patches.push((pos, random_rgb(rng)));
+                        unfish_state
+                            .slime_color_patches
+                            .push((pos, random_rgb(rng)));
                     }
                     if unfish_state.slime_color_patches.len() > MUTATION_PATCH_MAX {
                         let excess = unfish_state.slime_color_patches.len() - MUTATION_PATCH_MAX;
@@ -559,7 +581,13 @@ impl Tank {
         let (seg, extra, double) = self.fish[fish_idx]
             .unfish_state
             .as_ref()
-            .map(|unfish_state| (unfish_state.worm_segments, unfish_state.worm_extra_eyes, unfish_state.worm_is_double))
+            .map(|unfish_state| {
+                (
+                    unfish_state.worm_segments,
+                    unfish_state.worm_extra_eyes,
+                    unfish_state.worm_is_double,
+                )
+            })
             .unwrap();
         self.fish[fish_idx].display_width = worm_display_width(seg, extra, double);
     }
@@ -646,6 +674,147 @@ impl Tank {
             .push(child_name);
     }
 
+    pub fn apply_named_mutation_to_cow(&mut self, cow_name: &str, mutation_name: &str) -> bool {
+        use crate::fishes::mutations::apply_mutation;
+        let idx = match self
+            .cows
+            .iter()
+            .position(|c| c.name.eq_ignore_ascii_case(cow_name))
+        {
+            Some(i) => i,
+            None => return false,
+        };
+        let cow = &mut self.cows[idx];
+        let is_double = cow.mutant.is_double;
+        let has_glisten = cow.mutant.glistening_color.is_some();
+        let mutation = match mutation_name.to_ascii_lowercase().as_str() {
+            "size+" => Mutation::SizeChange(1),
+            "size-" => Mutation::SizeChange(-1),
+            "colorpatch" => Mutation::ColorPatch,
+            "eye+" => Mutation::EyeChange { delta: 1 },
+            "eye-" => Mutation::EyeChange { delta: -1 },
+            "eyecolor" => Mutation::EyeColor,
+            "glistenfast" => Mutation::GlisteningSpeed { fast: true },
+            "glistenslow" => Mutation::GlisteningSpeed { fast: false },
+            "glistenmode" => Mutation::GlisteningMode,
+            "glistencolor" => Mutation::GlisteningColor,
+            "bodycolor" => Mutation::BodyColor,
+            "mouthvariant" => Mutation::MouthVariant,
+            "doublefish" => {
+                if is_double {
+                    return false;
+                }
+                Mutation::Doublefish
+            }
+            "glistenenable" => {
+                if has_glisten {
+                    return false;
+                }
+                Mutation::GlisteningEnable
+            }
+            "glistendisable" => {
+                if !has_glisten {
+                    return false;
+                }
+                Mutation::GlisteningDisable
+            }
+            "alienation" => Mutation::Alienation,
+            "strawberry" => Mutation::Strawberry,
+            "mitosis" => {
+                if !is_double {
+                    return false;
+                }
+                return self.apply_cow_mitosis(idx);
+            }
+            _ => return false,
+        };
+        let mut rng = rand::rng();
+        apply_mutation(cow, mutation, &mut rng);
+        true
+    }
+
+    fn apply_cow_mitosis(&mut self, idx: usize) -> bool {
+        use crate::entities::cow::Cow;
+        use crate::fishes::mutations::Mutatable;
+        if !self.cows[idx].mutant.is_double {
+            return false;
+        }
+        let parent_name = self.cows[idx].name.clone();
+        let parent_x = self.cows[idx].position.x;
+        let parent_y = self.cows[idx].position.y;
+        let parent_w = self.cows[idx].display_width;
+        let variant = self.cows[idx].variant;
+        let parent_color = self.cows[idx].color;
+        let parent_sway_speed = self.cows[idx].sway_speed;
+        let (right_eyes_count, body_variant, glistening_mode, glistening_color, eye_color) = {
+            let m = &self.cows[idx].mutant;
+            (
+                m.double_head_eyes.len().max(2),
+                m.body_variant,
+                m.glistening_mode,
+                m.glistening_color,
+                m.eye_color,
+            )
+        };
+        let parent_mut_count = self.cows[idx].mutations.as_ref().map_or(0, |mr| mr.count);
+
+        {
+            let p = &mut self.cows[idx];
+            p.mutant.is_double = false;
+            p.mutant.double_head_eyes.clear();
+            p.recompute_display_width();
+        }
+
+        let mut rng = rand::rng();
+        let new_name = self.unique_cow_name(&parent_name);
+        let mut new_cow = Cow::new(
+            new_name.clone(),
+            variant,
+            parent_x + parent_w as f32 + 1.0,
+            parent_y,
+            &mut rng,
+        );
+        new_cow.color = parent_color;
+        new_cow.sway_speed = parent_sway_speed;
+        new_cow.mutant.left_eyes.clear();
+        for _ in 0..right_eyes_count {
+            new_cow.mutant.left_eyes.push(EyeState::new(&mut rng));
+        }
+        new_cow.mutant.eye_color = eye_color;
+        new_cow.mutant.glistening_mode = glistening_mode;
+        new_cow.mutant.glistening_color = glistening_color;
+        new_cow.mutant.body_variant = body_variant;
+        new_cow.mutant.is_double = false;
+        new_cow.mutant.double_head_eyes.clear();
+        new_cow.recompute_display_width();
+
+        let max_x = (self.width as i32 - new_cow.display_width as i32).max(0) as f32;
+        if new_cow.position.x > max_x {
+            new_cow.position.x = max_x;
+        }
+
+        {
+            let record = self.cows[idx]
+                .mutations
+                .get_or_insert_with(|| Box::new(MutationRecord::default()));
+            record.count += 1;
+            record.history.push("mitosis".to_string());
+            record.partners.push(new_name.clone());
+        }
+        let parent_name_clone = self.cows[idx].name.clone();
+        {
+            let record = new_cow
+                .mutations
+                .get_or_insert_with(|| Box::new(MutationRecord::default()));
+            record.count = parent_mut_count + 1;
+            record.partners.push(parent_name_clone);
+        }
+
+        self.used_cow_names.insert(new_name);
+        self.cows.push(new_cow);
+        true
+    }
+
     pub fn miracle_mutate_fish(&mut self, fish_name: &str, mutation_name: &str) -> bool {
         let fish_idx = match self
             .fish
@@ -689,7 +858,9 @@ impl Tank {
                 self.fish[fish_idx].mutant = Some(Box::new(mutant));
             } else {
                 let tail_variant = match self.fish[fish_idx].species.config().body {
-                    BodyTemplate::Standard(bc) | BodyTemplate::Alternating(bc, _) => tail_kind_to_mutant_tail(bc.tail),
+                    BodyTemplate::Standard(bc) | BodyTemplate::Alternating(bc, _) => {
+                        tail_kind_to_mutant_tail(bc.tail)
+                    }
                     BodyTemplate::Fixed { .. } => MutantTail::Wide,
                 };
                 let mut mutant = MutantState::new_for_standard(tail_variant, &mut rng);
@@ -744,6 +915,7 @@ impl Tank {
                 }
                 "glistenenable" if !has_glisten => Mutation::GlisteningEnable,
                 "glistendisable" if has_glisten => Mutation::GlisteningDisable,
+                "alienation" => Mutation::Alienation,
                 _ => pick_random_miracle_mutation(
                     &self.fish[fish_idx],
                     is_double,

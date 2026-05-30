@@ -6,12 +6,16 @@ use ratatui::{
 };
 use std::collections::HashMap;
 
+use crate::colors::{DARK_GRAY, RED, WHITE};
 use crate::{
     fishes::{fish::Fish, species::FishSpecies},
     loot::ConsumableKind,
     tank::TankKind,
     ui::{
-        hints::{HINT_BACK, HINT_CANCEL, HINT_CLOSE, HINT_ENTER_BUY, HINT_ENTER_SELL, HINT_ENTER_SUMMON, HINT_NAV, HINT_SCROLL},
+        hints::{
+            HINT_BACK, HINT_CANCEL, HINT_CLOSE, HINT_ENTER_BUY, HINT_ENTER_SELL, HINT_ENTER_SUMMON,
+            HINT_NAV, HINT_SCROLL,
+        },
         render_fish_segs, scroll_list, table,
         text_input::{TextInput, draw_text_cursor},
     },
@@ -33,7 +37,6 @@ pub const FOOD_BUY_PRICE: u32 = 1;
 pub const JUNK_SELL_PRICE: u32 = 1;
 const NECRONOMICON_SELL_PRICE: u32 = 7_000;
 
-
 pub struct BuyCategoryPopup {
     pub option_idx: usize,
     pub qty: u32,
@@ -47,7 +50,9 @@ pub struct BuyTankPopup {
 
 pub fn buy_cat_available(idx: usize, cash: u32) -> bool {
     match idx {
-        0 => FishSpecies::all_buyable().iter().any(|s| s.buy_price() <= cash),
+        0 => FishSpecies::all_buyable()
+            .iter()
+            .any(|s| s.buy_price() <= cash),
         1 => cash >= ConsumableKind::Coffee.buy_price(),
         2 => cash >= ConsumableKind::Bait.buy_price(),
         3 => cash >= FOOD_BUY_PRICE,
@@ -93,6 +98,10 @@ pub enum SellEntry {
     Bait {
         qty: u32,
     },
+    Milk {
+        name: String,
+        qty: u32,
+    },
     Tank {
         name: String,
         sell_price: u32,
@@ -111,6 +120,7 @@ impl SellEntry {
             SellEntry::Junk { qty } => format!("Junk ({})", qty),
             SellEntry::Coffee { qty } => format!("Coffee ({})", qty),
             SellEntry::Bait { qty } => format!("Bait ({})", qty),
+            SellEntry::Milk { name, qty } => format!("{} ({})", name, qty),
             SellEntry::Tank { name, .. } => format!("{} (Fishtank)", name),
             SellEntry::Necronomicon { qty } => format!("Necronomicon ({})", qty),
         }
@@ -122,6 +132,10 @@ impl SellEntry {
             SellEntry::Junk { .. } => format!("${}", JUNK_SELL_PRICE),
             SellEntry::Coffee { .. } => format!("${}", ConsumableKind::Coffee.sell_price()),
             SellEntry::Bait { .. } => format!("${}", ConsumableKind::Bait.sell_price()),
+            SellEntry::Milk { .. } => format!(
+                "${}",
+                ConsumableKind::Milk(crate::loot::MilkVariant::Plain).sell_price()
+            ),
             SellEntry::Tank { sell_price, .. } => format!("${}", sell_price),
             SellEntry::Necronomicon { .. } => format!("${}", NECRONOMICON_SELL_PRICE),
         }
@@ -133,6 +147,9 @@ impl SellEntry {
             SellEntry::Junk { .. } => JUNK_SELL_PRICE,
             SellEntry::Coffee { .. } => ConsumableKind::Coffee.sell_price(),
             SellEntry::Bait { .. } => ConsumableKind::Bait.sell_price(),
+            SellEntry::Milk { .. } => {
+                ConsumableKind::Milk(crate::loot::MilkVariant::Plain).sell_price()
+            }
             SellEntry::Tank { sell_price, .. } => *sell_price,
             SellEntry::Necronomicon { .. } => NECRONOMICON_SELL_PRICE,
         }
@@ -144,6 +161,7 @@ impl SellEntry {
             SellEntry::Junk { qty }
             | SellEntry::Coffee { qty }
             | SellEntry::Bait { qty }
+            | SellEntry::Milk { qty, .. }
             | SellEntry::Necronomicon { qty } => *qty,
         }
     }
@@ -198,6 +216,16 @@ impl SellMenuState {
         if necro_qty > 0 {
             items.push(SellEntry::Necronomicon { qty: necro_qty });
         }
+        for &milk in crate::loot::MilkVariant::ALL {
+            let n = ConsumableKind::Milk(milk).display_name();
+            let q = inventory.get(n).copied().unwrap_or(0);
+            if q > 0 {
+                items.push(SellEntry::Milk {
+                    name: n.to_string(),
+                    qty: q,
+                });
+            }
+        }
         for (tank_name, sell_price) in sellable_tanks {
             items.push(SellEntry::Tank {
                 name: tank_name.clone(),
@@ -250,7 +278,12 @@ impl SellMenuState {
     }
 
     pub fn scroll_down(&mut self, visible: usize) {
-        scroll_list::scroll_down(&mut self.selected, &mut self.scroll, self.items.len(), visible);
+        scroll_list::scroll_down(
+            &mut self.selected,
+            &mut self.scroll,
+            self.items.len(),
+            visible,
+        );
     }
 }
 
@@ -379,6 +412,12 @@ pub struct ShopState {
     blink_timer: f32,
 }
 
+impl Default for ShopState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ShopState {
     pub fn new() -> Self {
         Self {
@@ -465,13 +504,12 @@ impl Widget for ShopOverlay<'_> {
             _ => false,
         };
 
-        let fg = if has_popup {
-            Color::DarkGray
-        } else {
-            Color::White
-        };
+        let fg = if has_popup { DARK_GRAY } else { WHITE };
         let s = Style::default().fg(fg).bg(BACKGROUND);
-        let s_title = Style::default().fg(fg).add_modifier(Modifier::BOLD).bg(BACKGROUND);
+        let s_title = Style::default()
+            .fg(fg)
+            .add_modifier(Modifier::BOLD)
+            .bg(BACKGROUND);
         let sep_x = ox + 1 + PENGUIN_WIDTH;
         let right_x = ox + OVERLAY_WIDTH - 1;
 
@@ -544,13 +582,17 @@ impl Widget for ShopOverlay<'_> {
                     buf,
                     *selected,
                     state.cursor_visible,
-                    rx,
-                    content_y,
-                    RIGHT_INNER_WIDTH,
-                    content_h,
+                    Rect {
+                        x: rx,
+                        y: content_y,
+                        width: RIGHT_INNER_WIDTH,
+                        height: content_h,
+                    },
                     has_popup,
                 );
-                table::draw_hint_bar(buf, rx, footer_y, footer_w, HINT_NAV, HINT_CLOSE, BACKGROUND);
+                table::draw_hint_bar(
+                    buf, rx, footer_y, footer_w, HINT_NAV, HINT_CLOSE, BACKGROUND,
+                );
             }
             ShopPage::BuyCategory {
                 selected,
@@ -570,10 +612,12 @@ impl Widget for ShopOverlay<'_> {
                     *selected,
                     state.cursor_visible,
                     &available,
-                    rx,
-                    content_y + 1,
-                    RIGHT_INNER_WIDTH,
-                    draw_h,
+                    Rect {
+                        x: rx,
+                        y: content_y + 1,
+                        width: RIGHT_INNER_WIDTH,
+                        height: draw_h,
+                    },
                     has_popup,
                 );
                 let visible = draw_h as usize;
@@ -582,7 +626,15 @@ impl Widget for ShopOverlay<'_> {
                 } else {
                     format!(" {}", HINT_NAV)
                 };
-                table::draw_hint_bar(buf, rx, footer_y, footer_w, &footer_left, HINT_BACK, BACKGROUND);
+                table::draw_hint_bar(
+                    buf,
+                    rx,
+                    footer_y,
+                    footer_w,
+                    &footer_left,
+                    HINT_BACK,
+                    BACKGROUND,
+                );
                 if let Some(popup) = buy_popup {
                     draw_category_buy_popup(buf, popup, area);
                 }
@@ -595,20 +647,34 @@ impl Widget for ShopOverlay<'_> {
                     tl,
                     self.cash,
                     state.cursor_visible,
-                    sep_x,
-                    content_y,
-                    right_border_x,
-                    RIGHT_INNER_WIDTH,
-                    visible,
-                    has_popup,
+                    &RightPanel {
+                        sep_x,
+                        content_y,
+                        right_border_x,
+                        right_w: RIGHT_INNER_WIDTH,
+                        visible,
+                        dim: has_popup,
+                    },
                 );
-                let affordable_count = TankKind::all().iter().filter(|k| k.buy_price() <= self.cash).count();
+                let affordable_count = TankKind::all()
+                    .iter()
+                    .filter(|k| k.buy_price() <= self.cash)
+                    .count();
                 let affordable_pos = TankKind::all()[..=tl.selected]
                     .iter()
                     .filter(|k| k.buy_price() <= self.cash)
                     .count();
-                let footer_left = format!(" {} ({}/{})", HINT_SCROLL, affordable_pos, affordable_count);
-                table::draw_hint_bar(buf, rx, footer_y, footer_w, &footer_left, HINT_BACK, BACKGROUND);
+                let footer_left =
+                    format!(" {} ({}/{})", HINT_SCROLL, affordable_pos, affordable_count);
+                table::draw_hint_bar(
+                    buf,
+                    rx,
+                    footer_y,
+                    footer_w,
+                    &footer_left,
+                    HINT_BACK,
+                    BACKGROUND,
+                );
                 if let Some(ref popup) = tl.popup {
                     draw_buy_tank_name_popup(buf, popup, state.cursor_visible, area);
                 }
@@ -621,18 +687,35 @@ impl Widget for ShopOverlay<'_> {
                     fl,
                     self.cash,
                     state.cursor_visible,
-                    sep_x,
-                    content_y,
-                    right_border_x,
-                    RIGHT_INNER_WIDTH,
-                    visible,
-                    has_popup,
+                    &RightPanel {
+                        sep_x,
+                        content_y,
+                        right_border_x,
+                        right_w: RIGHT_INNER_WIDTH,
+                        visible,
+                        dim: has_popup,
+                    },
                 );
                 let catalog = FishSpecies::all_buyable();
-                let affordable_count = catalog.iter().filter(|s| s.buy_price() <= self.cash).count();
-                let affordable_pos = catalog[..=fl.selected].iter().filter(|s| s.buy_price() <= self.cash).count();
-                let footer_left = format!(" {} ({}/{})", HINT_SCROLL, affordable_pos, affordable_count);
-                table::draw_hint_bar(buf, rx, footer_y, footer_w, &footer_left, HINT_BACK, BACKGROUND);
+                let affordable_count = catalog
+                    .iter()
+                    .filter(|s| s.buy_price() <= self.cash)
+                    .count();
+                let affordable_pos = catalog[..=fl.selected]
+                    .iter()
+                    .filter(|s| s.buy_price() <= self.cash)
+                    .count();
+                let footer_left =
+                    format!(" {} ({}/{})", HINT_SCROLL, affordable_pos, affordable_count);
+                table::draw_hint_bar(
+                    buf,
+                    rx,
+                    footer_y,
+                    footer_w,
+                    &footer_left,
+                    HINT_BACK,
+                    BACKGROUND,
+                );
                 if let Some(ref popup) = fl.popup {
                     draw_fish_name_popup(buf, popup, state.cursor_visible, area);
                 }
@@ -644,16 +727,26 @@ impl Widget for ShopOverlay<'_> {
                     buf,
                     sm,
                     state.cursor_visible,
-                    sep_x,
-                    content_y,
-                    right_border_x,
-                    RIGHT_INNER_WIDTH,
-                    visible,
-                    has_popup,
+                    &RightPanel {
+                        sep_x,
+                        content_y,
+                        right_border_x,
+                        right_w: RIGHT_INNER_WIDTH,
+                        visible,
+                        dim: has_popup,
+                    },
                 );
                 let n = sm.items.len();
                 let footer_left = format!(" {} ({}/{})", HINT_SCROLL, sm.selected + 1, n);
-                table::draw_hint_bar(buf, rx, footer_y, footer_w, &footer_left, HINT_BACK, BACKGROUND);
+                table::draw_hint_bar(
+                    buf,
+                    rx,
+                    footer_y,
+                    footer_w,
+                    &footer_left,
+                    HINT_BACK,
+                    BACKGROUND,
+                );
                 if let Some(ref confirm) = sm.confirm {
                     draw_sell_confirm_popup(buf, confirm, &sm.items[confirm.item_idx], area);
                 }
@@ -663,7 +756,7 @@ impl Widget for ShopOverlay<'_> {
 }
 
 fn draw_penguin(buf: &mut Buffer, x: u16, y: u16, dim: bool) {
-    let fg = if dim { Color::DarkGray } else { Color::White };
+    let fg = if dim { DARK_GRAY } else { WHITE };
     let s = Style::default().fg(fg).bg(BACKGROUND);
     for (i, line) in PENGUIN_LINES.iter().enumerate() {
         if i < PENGUIN_HEIGHT as usize {
@@ -672,17 +765,24 @@ fn draw_penguin(buf: &mut Buffer, x: u16, y: u16, dim: bool) {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn draw_main_right(
-    buf: &mut Buffer,
-    selected: usize,
-    cursor_vis: bool,
-    x: u16,
-    y: u16,
-    w: u16,
-    content_h: u16,
+#[derive(Clone, Copy)]
+struct RightPanel {
+    sep_x: u16,
+    content_y: u16,
+    right_border_x: u16,
+    right_w: u16,
+    visible: usize,
     dim: bool,
-) {
+}
+
+struct QtyStyles {
+    left: Style,
+    right: Style,
+    mid: Style,
+}
+
+fn draw_main_right(buf: &mut Buffer, selected: usize, cursor_vis: bool, area: Rect, dim: bool) {
+    let (x, y, w, content_h) = (area.x, area.y, area.width, area.height);
     const ITEMS: &[&str] = &["Buy", "Sell"];
     let start_y = y + (content_h.saturating_sub(ITEMS.len() as u16)) / 2;
     let eff_cursor_vis = dim || cursor_vis;
@@ -691,28 +791,21 @@ fn draw_main_right(
         let is_sel = i == selected;
         let cursor = if is_sel && eff_cursor_vis { ">" } else { " " };
         let line = format!("{} {}", cursor, label);
-        let fg = if dim || !is_sel {
-            Color::DarkGray
-        } else {
-            Color::White
-        };
+        let fg = if dim || !is_sel { DARK_GRAY } else { WHITE };
         let s = Style::default().fg(fg).bg(BACKGROUND);
         buf.set_string(x, row_y, table::truncate_str(&line, w as usize), s);
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn draw_buy_category_right(
     buf: &mut Buffer,
     selected: usize,
     cursor_vis: bool,
     available: &[bool],
-    x: u16,
-    y: u16,
-    w: u16,
-    content_h: u16,
+    area: Rect,
     dim: bool,
 ) {
+    let (x, y, w, content_h) = (area.x, area.y, area.width, area.height);
     const ITEMS: &[&str] = &["Fishes", "Coffee", "Bait", "Food", "Fishtank"];
     let visible = content_h as usize;
     let scroll = if selected >= visible {
@@ -731,30 +824,32 @@ fn draw_buy_category_right(
         let cursor = if is_sel && eff_cursor_vis { ">" } else { " " };
         let line = format!("{} {}", cursor, ITEMS[i]);
         let fg = if dim || !is_avail || !is_sel {
-            Color::DarkGray
+            DARK_GRAY
         } else {
-            Color::White
+            WHITE
         };
         let s = Style::default().fg(fg).bg(BACKGROUND);
         buf.set_string(x, y + row as u16, table::truncate_str(&line, w as usize), s);
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn draw_fish_list(
     buf: &mut Buffer,
     state: &FishListState,
     cash: u32,
     cursor_vis: bool,
-    sep_x: u16,
-    content_y: u16,
-    right_border_x: u16,
-    right_w: u16,
-    visible: usize,
-    dim: bool,
+    panel: &RightPanel,
 ) {
+    let RightPanel {
+        sep_x,
+        content_y,
+        right_border_x,
+        right_w,
+        visible,
+        dim,
+    } = *panel;
     let rx = sep_x + 1;
-    let hdr_fg = if dim { Color::DarkGray } else { Color::White };
+    let hdr_fg = if dim { DARK_GRAY } else { WHITE };
     let s_bold = Style::default()
         .fg(hdr_fg)
         .add_modifier(Modifier::BOLD)
@@ -802,41 +897,38 @@ fn draw_fish_list(
         let price_x = right_border_x.saturating_sub(1 + price_str.len() as u16);
         let name_max = price_x.saturating_sub(rx + 2) as usize;
 
-        let item_fg = if dim || !affordable {
-            Color::DarkGray
-        } else {
-            Color::White
-        };
+        let item_fg = if dim || !affordable { DARK_GRAY } else { WHITE };
         let s = Style::default().fg(item_fg).bg(BACKGROUND);
 
         let prefix = if is_sel && eff_cursor_vis { "> " } else { "  " };
-        let label = format!("{}{}", prefix, table::truncate_str(species.display_name(), name_max));
+        let label = format!(
+            "{}{}",
+            prefix,
+            table::truncate_str(species.display_name(), name_max)
+        );
         buf.set_string(rx, row_y, label, s);
         buf.set_string(price_x, row_y, &price_str, s);
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn draw_sell_list(
-    buf: &mut Buffer,
-    state: &SellMenuState,
-    cursor_vis: bool,
-    sep_x: u16,
-    content_y: u16,
-    right_border_x: u16,
-    right_w: u16,
-    visible: usize,
-    dim: bool,
-) {
+fn draw_sell_list(buf: &mut Buffer, state: &SellMenuState, cursor_vis: bool, panel: &RightPanel) {
+    let RightPanel {
+        sep_x,
+        content_y,
+        right_border_x,
+        right_w,
+        visible,
+        dim,
+    } = *panel;
     let rx = sep_x + 1;
-    let hdr_fg = if dim { Color::DarkGray } else { Color::White };
+    let hdr_fg = if dim { DARK_GRAY } else { WHITE };
     let s_bold = Style::default()
         .fg(hdr_fg)
         .add_modifier(Modifier::BOLD)
         .bg(BACKGROUND);
     let s_sep = Style::default().fg(hdr_fg).bg(BACKGROUND);
     let s_white = Style::default()
-        .fg(if dim { Color::DarkGray } else { Color::White })
+        .fg(if dim { DARK_GRAY } else { WHITE })
         .bg(BACKGROUND);
 
     buf.set_string(
@@ -888,8 +980,6 @@ fn draw_sell_list(
     }
 }
 
-
-#[allow(clippy::too_many_arguments)]
 fn draw_qty_row(
     buf: &mut Buffer,
     x: u16,
@@ -897,10 +987,13 @@ fn draw_qty_row(
     max_w: usize,
     qty_str: &str,
     total_str: &str,
-    l_s: Style,
-    r_s: Style,
-    mid_s: Style,
+    styles: QtyStyles,
 ) {
+    let QtyStyles {
+        left: l_s,
+        right: r_s,
+        mid: mid_s,
+    } = styles;
     let mut col = x;
     let qty_len = qty_str.len();
     for (i, c) in qty_str.chars().enumerate() {
@@ -933,11 +1026,11 @@ fn draw_qty_popup(
         return;
     };
     layout.clear_bg(buf, BACKGROUND);
-    layout.draw_border(buf, title, Color::White, BACKGROUND);
+    layout.draw_border(buf, title, WHITE, BACKGROUND);
 
     let (ox, oy) = (layout.ox, layout.oy);
-    let s_white = Style::default().fg(Color::White).bg(BACKGROUND);
-    let s_dim = Style::default().fg(Color::DarkGray).bg(BACKGROUND);
+    let s_white = Style::default().fg(WHITE).bg(BACKGROUND);
+    let s_dim = Style::default().fg(DARK_GRAY).bg(BACKGROUND);
     let inner_x = ox + 2;
     let inner_w = (POP_WIDTH - 4) as usize;
 
@@ -953,12 +1046,22 @@ fn draw_qty_popup(
         inner_w,
         &qty_str,
         &total_str,
-        l_s,
-        r_s,
-        s_white,
+        QtyStyles {
+            left: l_s,
+            right: r_s,
+            mid: s_white,
+        },
     );
 
-    table::draw_hint_bar(buf, inner_x, oy + POP_HEIGHT - 2, inner_w as u16, HINT_CANCEL, confirm_hint, BACKGROUND);
+    table::draw_hint_bar(
+        buf,
+        inner_x,
+        oy + POP_HEIGHT - 2,
+        inner_w as u16,
+        HINT_CANCEL,
+        confirm_hint,
+        BACKGROUND,
+    );
 }
 
 fn draw_category_buy_popup(buf: &mut Buffer, popup: &BuyCategoryPopup, area: Rect) {
@@ -997,19 +1100,19 @@ fn draw_fish_name_popup(buf: &mut Buffer, popup: &FishNamePopup, cursor_vis: boo
     let species_name = species.display_name();
     let price = species.buy_price();
     let title = format!(" Buy {} ", species_name);
-    layout.draw_border(buf, &title, Color::White, BACKGROUND);
+    layout.draw_border(buf, &title, WHITE, BACKGROUND);
 
     let (ox, oy) = (layout.ox, layout.oy);
 
     let sep_x = ox + 1 + left_w;
     buf[(sep_x, oy + POP_HEIGHT - 1)]
         .set_char('┴')
-        .set_fg(Color::White)
+        .set_fg(WHITE)
         .set_bg(BACKGROUND);
     for row in 1..=CONTENT_HEIGHT {
         buf[(sep_x, oy + row)]
             .set_char('│')
-            .set_fg(Color::White)
+            .set_fg(WHITE)
             .set_bg(BACKGROUND);
     }
 
@@ -1020,10 +1123,10 @@ fn draw_fish_name_popup(buf: &mut Buffer, popup: &FishNamePopup, cursor_vis: boo
 
     let rx = sep_x + 1;
     let s_bold = Style::default()
-        .fg(Color::White)
+        .fg(WHITE)
         .add_modifier(Modifier::BOLD)
         .bg(BACKGROUND);
-    let s_white = Style::default().fg(Color::White).bg(BACKGROUND);
+    let s_white = Style::default().fg(WHITE).bg(BACKGROUND);
 
     buf.set_string(
         rx,
@@ -1035,9 +1138,25 @@ fn draw_fish_name_popup(buf: &mut Buffer, popup: &FishNamePopup, cursor_vis: boo
         s_bold,
     );
     buf.set_string(rx, oy + 3, "Name it", s_white);
-    draw_text_cursor(buf, &popup.name_input, cursor_vis, rx, oy + 4, RIGHT_WIDTH, BACKGROUND);
+    draw_text_cursor(
+        buf,
+        &popup.name_input,
+        cursor_vis,
+        rx,
+        oy + 4,
+        RIGHT_WIDTH,
+        BACKGROUND,
+    );
 
-    table::draw_hint_bar(buf, rx, oy + 5, RIGHT_WIDTH, "ESC cancel", HINT_ENTER_BUY, BACKGROUND);
+    table::draw_hint_bar(
+        buf,
+        rx,
+        oy + 5,
+        RIGHT_WIDTH,
+        "ESC cancel",
+        HINT_ENTER_BUY,
+        BACKGROUND,
+    );
 }
 
 fn draw_sell_confirm_popup(buf: &mut Buffer, confirm: &SellConfirm, entry: &SellEntry, area: Rect) {
@@ -1122,13 +1241,14 @@ fn draw_sell_confirm_popup(buf: &mut Buffer, confirm: &SellConfirm, entry: &Sell
         SellEntry::Junk { .. }
         | SellEntry::Coffee { .. }
         | SellEntry::Bait { .. }
+        | SellEntry::Milk { .. }
         | SellEntry::Necronomicon { .. } => unreachable!(),
     };
-    layout.draw_border(buf, &title, Color::White, BACKGROUND);
+    layout.draw_border(buf, &title, WHITE, BACKGROUND);
 
     let (ox, oy) = (layout.ox, layout.oy);
-    let s_white = Style::default().fg(Color::White).bg(BACKGROUND);
-    let s_dim = Style::default().fg(Color::DarkGray).bg(BACKGROUND);
+    let s_white = Style::default().fg(WHITE).bg(BACKGROUND);
+    let s_dim = Style::default().fg(DARK_GRAY).bg(BACKGROUND);
     let inner_x = ox + 2;
     let inner_w = (pop_w - 4) as usize;
 
@@ -1149,21 +1269,23 @@ fn draw_sell_confirm_popup(buf: &mut Buffer, confirm: &SellConfirm, entry: &Sell
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn draw_tank_list(
     buf: &mut Buffer,
     state: &TankListState,
     cash: u32,
     cursor_vis: bool,
-    sep_x: u16,
-    content_y: u16,
-    right_border_x: u16,
-    right_w: u16,
-    visible: usize,
-    dim: bool,
+    panel: &RightPanel,
 ) {
+    let RightPanel {
+        sep_x,
+        content_y,
+        right_border_x,
+        right_w,
+        visible,
+        dim,
+    } = *panel;
     let rx = sep_x + 1;
-    let hdr_fg = if dim { Color::DarkGray } else { Color::White };
+    let hdr_fg = if dim { DARK_GRAY } else { WHITE };
     let s_bold = Style::default()
         .fg(hdr_fg)
         .add_modifier(Modifier::BOLD)
@@ -1210,15 +1332,15 @@ fn draw_tank_list(
         let price_x = right_border_x.saturating_sub(1 + price_str.len() as u16);
         let name_max = price_x.saturating_sub(rx + 2) as usize;
 
-        let item_fg = if dim || !affordable {
-            Color::DarkGray
-        } else {
-            Color::White
-        };
+        let item_fg = if dim || !affordable { DARK_GRAY } else { WHITE };
         let s = Style::default().fg(item_fg).bg(BACKGROUND);
 
         let prefix = if is_sel && eff_cursor_vis { "> " } else { "  " };
-        let label = format!("{}{}", prefix, table::truncate_str(kind.shop_name(), name_max));
+        let label = format!(
+            "{}{}",
+            prefix,
+            table::truncate_str(kind.shop_name(), name_max)
+        );
         buf.set_string(rx, row_y, label, s);
         buf.set_string(price_x, row_y, &price_str, s);
     }
@@ -1240,15 +1362,15 @@ fn draw_buy_tank_name_popup(buf: &mut Buffer, popup: &BuyTankPopup, cursor_vis: 
     };
     layout.clear_bg(buf, BACKGROUND);
     let title = format!(" Buy {} ", kind.shop_name());
-    layout.draw_border(buf, &title, Color::White, BACKGROUND);
+    layout.draw_border(buf, &title, WHITE, BACKGROUND);
 
     let (ox, oy) = (layout.ox, layout.oy);
     let s_bold = Style::default()
-        .fg(Color::White)
+        .fg(WHITE)
         .add_modifier(Modifier::BOLD)
         .bg(BACKGROUND);
-    let s_white = Style::default().fg(Color::White).bg(BACKGROUND);
-    let s_dim = Style::default().fg(Color::DarkGray).bg(BACKGROUND);
+    let s_white = Style::default().fg(WHITE).bg(BACKGROUND);
+    let s_dim = Style::default().fg(DARK_GRAY).bg(BACKGROUND);
     let inner_x = ox + 2;
     let inner_w_usize = inner_w as usize;
 
@@ -1272,7 +1394,12 @@ fn draw_buy_tank_name_popup(buf: &mut Buffer, popup: &BuyTankPopup, cursor_vis: 
     );
     let rw = RIGHT_HINT.len() as u16;
     if (LEFT_HINT.len() as u16 + rw + 2) <= inner_w {
-        buf.set_string(inner_x + inner_w - rw, oy + POP_HEIGHT - 2, RIGHT_HINT, s_dim);
+        buf.set_string(
+            inner_x + inner_w - rw,
+            oy + POP_HEIGHT - 2,
+            RIGHT_HINT,
+            s_dim,
+        );
     }
 }
 
@@ -1306,14 +1433,14 @@ pub fn draw_necro_tank_name_popup(
         return;
     };
     layout.clear_bg(buf, BACKGROUND);
-    layout.draw_border(buf, " Necronomicon ", Color::Red, BACKGROUND);
+    layout.draw_border(buf, " Necronomicon ", RED, BACKGROUND);
 
     let (ox, oy) = (layout.ox, layout.oy);
     let s_bold = Style::default()
-        .fg(Color::White)
+        .fg(WHITE)
         .add_modifier(Modifier::BOLD)
         .bg(BACKGROUND);
-    let s_dim = Style::default().fg(Color::DarkGray).bg(BACKGROUND);
+    let s_dim = Style::default().fg(DARK_GRAY).bg(BACKGROUND);
     let inner_x = ox + 2;
     let inner_w_usize = inner_w as usize;
 
@@ -1328,6 +1455,11 @@ pub fn draw_necro_tank_name_popup(
     );
     let rw = RIGHT_HINT.len() as u16;
     if (LEFT_HINT.len() as u16 + rw + 2) <= inner_w {
-        buf.set_string(inner_x + inner_w - rw, oy + POP_HEIGHT - 2, RIGHT_HINT, s_dim);
+        buf.set_string(
+            inner_x + inner_w - rw,
+            oy + POP_HEIGHT - 2,
+            RIGHT_HINT,
+            s_dim,
+        );
     }
 }

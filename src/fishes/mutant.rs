@@ -30,7 +30,11 @@ impl MutantTail {
         match self {
             MutantTail::Wide => vec!['>', '<'],
             MutantTail::Swaying => {
-                let base = if facing_left { TAIL_WAVE_LEFT } else { TAIL_WAVE_RIGHT };
+                let base = if facing_left {
+                    TAIL_WAVE_LEFT
+                } else {
+                    TAIL_WAVE_RIGHT
+                };
                 if phase.sin() > WAVE_THRESHOLD {
                     let bw = UnicodeWidthChar::width(base).unwrap_or(1);
                     let ww = UnicodeWidthChar::width(TAIL_EQUAL).unwrap_or(1);
@@ -59,7 +63,9 @@ pub struct EyeState {
 
 impl EyeState {
     pub fn new(rng: &mut impl RngExt) -> Self {
-        Self { blink: BlinkTimer::fish_eye(rng) }
+        Self {
+            blink: BlinkTimer::fish_eye(rng),
+        }
     }
 
     pub fn tick(&mut self, dt: f32) {
@@ -72,6 +78,10 @@ impl EyeState {
 
     pub fn big_char(&self) -> char {
         if self.blink.is_open { EYE_CIRCLE } else { '-' }
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.blink.is_open
     }
 }
 

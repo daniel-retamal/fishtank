@@ -4,10 +4,11 @@ use rand::RngExt;
 use ratatui::style::Color;
 
 use crate::colors::{
-    ALIEN_BLUE, ALIEN_BLUE_BRIGHT, ALIEN_BLUE_DARK, ALIEN_PURPLE, ALIEN_PURPLE_BRIGHT,
-    ALIEN_PURPLE_DARK, PYRAMID_BLUE, PYRAMID_PURPLE,
+    COBALT, COBALT_DARK, COBALT_LIGHT, LIGHT_GREEN, PURPLE, PURPLE_DARK, PURPLE_LIGHT,
 };
-use crate::entities::components::{BlinkTimer, EyeRow, SwayState, extend_spaced, sway_x_offset, tick_sway};
+use crate::entities::components::{
+    BlinkTimer, EyeRow, SwayState, extend_spaced, sway_x_offset, tick_sway,
+};
 use crate::entities::glistening::GlisteningMode;
 use crate::entities::plant::Seaweed;
 
@@ -35,7 +36,6 @@ const ALIEN_EYE_CLOSED_CHAR: char = '-';
 const ALIEN_GLISTEN_SPEED: f32 = 1.8;
 const ALIEN_GLISTEN_THRESHOLD: f32 = 0.45;
 
-
 const ALIEN_PYRAMID_GAP_MIN: i32 = 26;
 const ALIEN_PYRAMID_GAP_MAX: i32 = 30;
 const ALIEN_PYRAMID_LEFT_MIN: i32 = 1;
@@ -45,87 +45,87 @@ const PYRAMID_VARIANT_COUNT: u8 = 4;
 const PYRAMID_D_VARIANT: u8 = 3;
 const PYRAMID_D_EYE_ROW: usize = 4;
 
-const TENTACLE_COLORS_BLUE: &[Color] = &[ALIEN_BLUE, ALIEN_BLUE_DARK, ALIEN_BLUE_BRIGHT];
-const TENTACLE_COLORS_PURPLE: &[Color] = &[ALIEN_PURPLE, ALIEN_PURPLE_DARK, ALIEN_PURPLE_BRIGHT];
-const PYRAMID_COLOR_BLUE: Color = PYRAMID_BLUE;
-const PYRAMID_COLOR_PURPLE: Color = PYRAMID_PURPLE;
+const TENTACLE_COLORS_BLUE: &[Color] = &[COBALT, COBALT_DARK, COBALT_LIGHT];
+const TENTACLE_COLORS_PURPLE: &[Color] = &[PURPLE, PURPLE_DARK, PURPLE_LIGHT];
+const PYRAMID_COLOR_BLUE: Color = COBALT_LIGHT;
+const PYRAMID_COLOR_PURPLE: Color = PURPLE_LIGHT;
 
 pub const PYRAMID_A_LINES: &[&str] = &[
-    "                  _/L          _L/L",
-    "                _T/_lL_      _LT/l_l_",
-    "              _lT/_l__LL_  _TLl/Ll__lL_",
-    "        _T/L _Ll/_LT__L_ _l_lL/_T__L___L_",
-    "      _lT/L_T_ /_T__LL _TLl_T/_L_|__T__|_l_",
-    "    _l_T/T___T__ __L _TL_lTl/_|__l___L__L_TL_",
-    "  _TlT_/L_T____TL_ _TL_Tl_l/_l_|_|__l__L__T|_L_",
-    "_TLT_l/l_L_TL_l_ _l__LlTL_/__T__L__l__l___l__T_T_",
-    "_TLT_lL/_T_l_L_TL_l_ _l__LlTL_T/___T___l___L__T__L_L_l_T_",
-    "_TLT_lL_/_L__T_l_L_TL_l_ _l__LlTL_T_/_l__T__T_T_L___L___T__l_l_l_",
-    "_TLT_lL_T/_lT_L__T_l_L_TL_l_ _l__LlTL_T_L/_T__L_T___T_____T__L__T__L__TL_",
-    "_TLT_lL_TT/__l_lT_L__T_l_L_TL_l_ _l__LlTL_T_LT/_Tl_T__L_T___T_____T__L__T__L__TL_",
-    "_TLT_lL_TT_/_T___l_lT_L__T_l_L_TL_l_ _l__LlTL_T_LT_/_LT_Tl_T__L_T___T_____T__L__T__L__TL_",
-    "_TLT_lL_TT_l/_Ll_T___l_lT_L__T_l_L_TL_l_ _l__LlTL_T_LT_l/_l__LT_Tl_T__L_T___T_____T__L__T__L__TL_",
-    "_TLT_lL_TT_lT/_T__Ll_T___l_lT_L__T_l_L_TL_l_ _l__LlTL_T_LT_lT/__L_l__LT_Tl_T__L_T___T_____T__L__T__L__TL_",
+    "                                _/L          _L/L",
+    "                              _T/_lL_      _LT/l_l_",
+    "                            _lT/_l__LL_  _TLl/Ll__lL_",
+    "                      _T/L _Ll/_LT__L_ _l_lL/_T__L___L_",
+    "                    _lT/L_T_ /_T__LL _TLl_T/_L_|__T__|_l_",
+    "                  _l_T/T___T__ __L _TL_lTl/_|__l___L__L_TL_",
+    "                _TlT_/L_T____TL_ _TL_Tl_l/_l_|_|__l__L___|_L_",
+    "              _TLl_l/l_L_T__L_ _l__LlTL_/__T__L__l__l_l_l__T_T_",
+    "            _l_T_lL/_T___L_l _L_l__l__L/T__T____T___l___L__l_l_T_",
+    "          _T_T_lL_/_L__T_l _L_TL_l_T_l/_l__l_l__T__T_L___L___T___l_",
+    "        _L_l_lL_T/_l__L_ _Tl_L_TL_l_L/l__l__T__L_T___T___l___T__L__L_",
+    "      _Tll_lL_TT/__l_l T_L__T_l_L_TL/l__l__L_T____T___T___T__L__T__L_T_",
+    "    _Ll__lL_TT_/_T_l _l_lT_L__T_l_L/TL_l___l__l__T__l_T___T__L__T__L__TL_",
+    "  _TL__lL_TT_l/_L_ _T_TLl_lT_LT_T_/_L__l__T___l__l__L___T___T__L__T__L__TL_",
+    "_TLT_lL_TT_lT/_T __Ll_TT_Ll_lT_L_/T_l__T__L_l___l__l_T___T__l__T__L__T__L__L_",
 ];
 
 pub const PYRAMID_B_LINES: &[&str] = &[
-    "                               _L/L",
-    "                             _LT/l_l_",
-    "                           _TLl/Ll__lL_",
-    "        _T/L             _l_lL/_T__L___L_",
-    "      _lT/L_T_         _TLl_T/_L_|__T__|_l_",
-    "    _l_T/T___T__     _TL_lTl/_|__l___L__L_TL_",
-    "  _TlT_/L_T____TL_ _TL_Tl_l/_l_|_|__l__L__T|_L_",
-    "_TLT_l/l_L_TL_l_ _l__LlTL_/__T__L__l__l___l__T_T_",
-    "_TLT_lL/_T_l_L_TL_l_ _l__LlTL_T/___T___l___L__T__L_L_l_T_",
-    "_TLT_lL_/_L__T_l_L_TL_l_ _l__LlTL_T_/_l__T__T_T_L___L___T__l_l_l_",
-    "_TLT_lL_T/_lT_L__T_l_L_TL_l_ _l__LlTL_T_L/_T__L_T___T_____T__L__T__L__TL_",
-    "_TLT_lL_TT/__l_lT_L__T_l_L_TL_l_ _l__LlTL_T_LT/_Tl_T__L_T___T_____T__L__T__L__TL_",
-    "_TLT_lL_TT_/_T___l_lT_L__T_l_L_TL_l_ _l__LlTL_T_LT_/_LT_Tl_T__L_T___T_____T__L__T__L__TL_",
-    "_TLT_lL_TT_l/_Ll_T___l_lT_L__T_l_L_TL_l_ _l__LlTL_T_LT_l/_l__LT_Tl_T__L_T___T_____T__L__T__L__TL_",
-    "_TLT_lL_TT_lT/_T__Ll_T___l_lT_L__T_l_L_TL_l_ _l__LlTL_T_LT_lT/__L_l__LT_Tl_T__L_T___T_____T__L__T__L__TL_",
+    "                                             _L/L",
+    "                                           _LT/l_l_",
+    "                                         _TLl/Ll__lL_",
+    "                      _T/L             _l_lL/_T__L___L_",
+    "                    _lT/L_T_         _TLl_T/_L_|__T__|_l_",
+    "                  _l_T/T___T__     _TL_lTl/_|__l___L__L_TL_",
+    "                _TlT_/L_T____TL_ _TL_Tl_l/_l_|_|__l__L___|_L_",
+    "              _TLl_l/l_L_T__L_ _l__LlTL_/__T__L__l__l___l__T_T_",
+    "            _l_T_lL/_T___L_l _L_l__l__L/T__T____T___l___L__l_l_T_",
+    "          _T_T_lL_/_L__T_l _L_TL_l_T_l/_l__l_l__T__T_L___L___T___l_",
+    "        _L_l_lL_T/_l__L_ _Tl_L_TL_l_L/l__l__T__L_T___T__l___T__L__TL_",
+    "      _Tll_lL_TT/__l_l T_Ll_T_l_L_TL/l__l__L_T___T___T__T__L__T__L__TL_",
+    "    _Ll__lL_TT_/_T_l _l_lT_L__T_l_L/TL_l___l__l__T__l_T___T__L__T__L__TL_",
+    "  _TL__lL_TT_l/_L_ _T_TLl_lT_LT_T_/_L___l__T___l__l__L_T___T__T__L__T___TL_",
+    "_TLT_lL_TT_lT/_T __Ll_TT_Ll_lT_L_/T_l__T__L_l___l__l_T__L_T___T__L__T__L__TL_",
 ];
 
 pub const PYRAMID_C_LINES: &[&str] = &[
-    "                    _L/L",
-    "                  _LT/l_l_",
-    "                _TLl/Ll__lL_",
-    "              _l_lL/_T__L___L_",
-    "            _TLl_T/_L_|__T__|_l_",
-    "          _TL_lTl/_|__l___L__L_TL_",
-    "        _TL_Tl_l/_l_|_|__l__L__T|_L_",
-    "      _LT_LlTL_/__T__L__l__l___l__T_T_",
-    "    _TLT_L_TL_/___T___l___L__T__L_L_l_T_",
-    "  _TT_LT_LTT_/_l__T__T_T_L___L___T__l_l_l_",
-    "_T_TT_T_T__T/_T__L_T___T_____T__L__T__L__TL_",
-    "_T_TT_T_T__TL/_Tl_T__L_T___T_____T__L__T__L__TL_",
-    "_T_TT_T_T__TL_/_LT_Tl_T__L_T___T_____T__L__T__L__TL_",
-    "_T_TT_T_T__TL_T/_l__LT_Tl_T__L_T___T_____T__L__T__L__TL_",
-    "_T_TT_T_T__TL_Tl/__L_l__LT_Tl_T__L_T___T_____T__L__T__L__TL_",
-    "_T_TT_T_T__TL_Tl_/_Tl__L_l__LT_Tl_T__L_T___T_____T__L__T__L__TL_",
-    "_T_TT_T_T__TL_Tl_L/_L__Tl__L_l__LT_Tl_T__L_T___T_____T__L__T__L__TL_",
-    "_T_TT_T_T__TL_Tl_LT/_lT_L__Tl__L_l__LT_Tl_T__L_T___T_____T__L__T__L__TL_",
+    "                                  _L/L",
+    "                                _LT/l_l_",
+    "                              _TLl/Ll__lL_",
+    "                            _l_lL/_T__L___L_",
+    "                          _TLl_T/_L_|__T__|_l_",
+    "                        _TL_lTl/_|__l___L__L_TL_",
+    "                      _TL_Tl_l/_l_|_|__l__L___|_L_",
+    "                    _lT_Ll_L_/__T__L__l__l___l__T_T_",
+    "                  _L_l__ll_L/T__T____T___l___L__l_l_T_",
+    "                _L_TL_l_T_l/_l__l____T__T_L___L___T___l_",
+    "              _Tl_L_T_ll_L/l__l__T__L_T___T__l___T__L__TL_",
+    "            _TLl_T_l_L_TL/l__l__L_T____T___T_T__L__T__L__TL_",
+    "          _l_lT_Ll_T_l_L/TL_l___l_T__T___T__l__T__L__T__L__TL_",
+    "        _T_T_l_lT_LT_T_/_L___l__T___l__l____T_____T__L__T__L__T_",
+    "      _TLl_Tl_Ll_lT_L_/T_l__T__L_l___l__l_T__L___l__T__L__T__L_TL_",
+    "    _TLL_LTl_LT_LLT__/_l__T__l___L____T__l__T_____L____T____L__T__L_",
+    "  _L_lT_TL_LTL__lTl_/_T___T__L____T__T____L___T___L____T__l__L___T__T_",
+    "_TTT__T_LTLT_T_LT_T/_L_T_TL____L__l__T____L__l__T___L___T__l__T_____T_T_",
 ];
 
 pub const PYRAMID_D_LINES: &[&str] = &[
-    "                    _L/L",
-    "                  _LT/l_l_",
-    "                _TLl/Ll__lL_",
-    "              _l_lL/_T__   _L_",
-    "            _TLl_T/_L_ <(0)> |l_",
-    "          _TL_lTl/_|__l_    _L_TL_",
-    "        _TL_Tl_l/_l_|_|__l__L__T|_L_",
-    "      _LT_LlTL_/__T__L__l__l___l__T_T_",
-    "    _TLT_L_TL_/___T___l___L__T__L_L_l_T_",
-    "  _TT_LT_LTT_/_l__T__T_T_L___L___T__l_l_l_",
-    "_T_TT_T_T__T/_T__L_T___T_____T__L__T__L__TL_",
-    "_T_TT_T_T__TL/_Tl_T__L_T___T_____T__L__T__L__TL_",
-    "_T_TT_T_T__TL_/_LT_Tl_T__L_T___T_____T__L__T__L__TL_",
-    "_T_TT_T_T__TL_T/_l__LT_Tl_T__L_T___T_____T__L__T__L__TL_",
-    "_T_TT_T_T__TL_Tl/__L_l__LT_Tl_T__L_T___T_____T__L__T__L__TL_",
-    "_T_TT_T_T__TL_Tl_/_Tl__L_l__LT_Tl_T__L_T___T_____T__L__T__L__TL_",
-    "_T_TT_T_T__TL_Tl_L/_L__Tl__L_l__LT_Tl_T__L_T___T_____T__L__T__L__TL_",
-    "_T_TT_T_T__TL_Tl_LT/_lT_L__Tl__L_l__LT_Tl_T__L_T___T_____T__L__T__L__TL_",
+    "                                  _L/L",
+    "                                _LT/l_l_",
+    "                              _TLl/Ll__lL_",
+    "                            _l_lL/_T__   _L_",
+    "                          _TLl_T/_L_ <(0)> |l_",
+    "                        _TL_lTl/_|__l_    _L_TL_",
+    "                      _TL_Tl_l/_l_|_|__l__L___|_L_",
+    "                    _lT_Ll_L_/__T__L__l__l___l__T_T_",
+    "                  _L_l__ll_L/T__T____T___l___L__l_l_T_",
+    "                _L_TL_l_T_l/_l__l____T__T_L___L___T___l_",
+    "              _Tl_L_T_ll_L/l__l__T__L_T___T__l___T__L__TL_",
+    "            _TLl_T_l_L_TL/l__l__L_T____T___T_T__L__T__L__TL_",
+    "          _l_lT_Ll_T_l_L/TL_l___l_T__T___T__l__T__L__T__L__TL_",
+    "        _T_T_l_lT_LT_T_/_L___l__T___l__l____T_____T__L__T__L__T_",
+    "      _TLl_Tl_Ll_lT_L_/T_l__T__L_l___l__l_T__L___l__T__L__T__L_TL_",
+    "    _TLL_LTl_LT_LLT__/_l__T__l___L____T__l__T_____L____T____L__T__L_",
+    "  _L_lT_TL_LTL__lTl_/_T___T__L____T__T____L___T___L____T__l__L___T__T_",
+    "_TTT__T_LTLT_T_LT_T/_L_T_TL____L__l__T____L__l__T___L___T__l__T_____T_T_",
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -136,7 +136,7 @@ pub enum AlienColor {
 
 impl AlienColor {
     pub fn bubble_color(self) -> Color {
-        Color::LightGreen
+        LIGHT_GREEN
     }
 
     pub fn pyramid_color(self) -> Color {
@@ -219,7 +219,11 @@ impl Seaweed for AlienTentacle {
     fn segment_at(&self, row: usize) -> (i32, char) {
         let x_offset = sway_x_offset(self.sway.phase, row, self.height, WAVE_SPREAD, SWAY_AMOUNT);
         if let Some(eye) = self.eyes.iter().find(|e| e.height == row) {
-            let ch = if eye.blink.is_open { ALIEN_EYE_OPEN_CHAR } else { ALIEN_EYE_CLOSED_CHAR };
+            let ch = if eye.blink.is_open {
+                ALIEN_EYE_OPEN_CHAR
+            } else {
+                ALIEN_EYE_CLOSED_CHAR
+            };
             return (x_offset, ch);
         }
         let ch = if x_offset > 0 {
@@ -236,7 +240,7 @@ impl Seaweed for AlienTentacle {
         if self.is_eye_at(row) {
             let wave = GlisteningMode::Wave.glistening_value(self.glisten_phase, row, self.height);
             if wave > ALIEN_GLISTEN_THRESHOLD {
-                Color::LightGreen
+                LIGHT_GREEN
             } else {
                 self.color
             }
@@ -247,7 +251,8 @@ impl Seaweed for AlienTentacle {
 
     fn tick(&mut self, delta_time: f32) {
         tick_sway(&mut self.sway, SWAY_SPEED);
-        self.glisten_phase = (self.glisten_phase + ALIEN_GLISTEN_SPEED * delta_time).rem_euclid(TAU);
+        self.glisten_phase =
+            (self.glisten_phase + ALIEN_GLISTEN_SPEED * delta_time).rem_euclid(TAU);
         for eye in &mut self.eyes {
             eye.blink.tick(delta_time);
         }
@@ -303,7 +308,12 @@ impl AlienPyramid {
         } else {
             None
         };
-        Self { base_x, mirrored, variant, eye }
+        Self {
+            base_x,
+            mirrored,
+            variant,
+            eye,
+        }
     }
 
     pub fn tick(&mut self, dt: f32) {
@@ -386,10 +396,20 @@ pub fn extend_alien_tentacles(
     rng: &mut impl RngExt,
 ) {
     extend_spaced(
-        tentacles, to_width, ALIEN_TENTACLE_WIDTH,
-        ALIEN_TENTACLE_GAP_MIN, ALIEN_TENTACLE_GAP_MAX,
-        rng, |t| t.x,
-        |x, rng| AlienTentacle::new(x, rng.random_range(ALIEN_TENTACLE_HEIGHT_MIN..=ALIEN_TENTACLE_HEIGHT_MAX), color, rng),
+        tentacles,
+        to_width,
+        ALIEN_TENTACLE_WIDTH,
+        ALIEN_TENTACLE_GAP_MIN..=ALIEN_TENTACLE_GAP_MAX,
+        rng,
+        |t| t.x,
+        |x, rng| {
+            AlienTentacle::new(
+                x,
+                rng.random_range(ALIEN_TENTACLE_HEIGHT_MIN..=ALIEN_TENTACLE_HEIGHT_MAX),
+                color,
+                rng,
+            )
+        },
     );
 }
 
