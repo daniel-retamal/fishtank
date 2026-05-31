@@ -21,6 +21,7 @@ pub struct Food {
     base_x: f32,
     pub settled: bool,
     pub eaten: bool,
+    pub is_candy: bool,
 }
 
 impl Food {
@@ -36,6 +37,7 @@ impl Food {
             base_x: x,
             settled: false,
             eaten: false,
+            is_candy: false,
         }
     }
 

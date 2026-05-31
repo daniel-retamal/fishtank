@@ -1,6 +1,6 @@
 use rand::RngExt;
 
-use crate::colors::LIGHT_YELLOW;
+use crate::colors::{LIGHT_YELLOW, PINK};
 use crate::entities::bubble::{Bubble, BubblePhase};
 use crate::fishes::fish::{Direction, EATING_DURATION, FishState};
 use crate::fishes::species::FishSpecies;
@@ -21,6 +21,8 @@ use super::{Tank, TankEvent, TankKind};
 fn sq(x: f32) -> f32 {
     x * x
 }
+
+const CANDYFISH_SCAN_INTERVAL_TICKS: u32 = 100;
 
 impl Tank {
     pub(super) fn spawn_bubbles(&mut self, dt: f32) {
@@ -68,6 +70,14 @@ impl Tank {
                         BubblePhase::rising(&mut rng),
                         fish.color,
                         Some('X'),
+                        &mut rng,
+                    ),
+                    FishSpecies::Candyfish => Bubble::new(
+                        tail_x,
+                        fish.position.y,
+                        BubblePhase::rising(&mut rng),
+                        PINK,
+                        None,
                         &mut rng,
                     ),
                     _ => Bubble::new(
@@ -152,6 +162,13 @@ impl Tank {
             let fx = self.food[idx].position.x as i32;
             let fy = self.food[idx].position.y as i32;
             if (head_x - fx).abs() <= 1 && head_y == fy {
+                if self.fish[i].species == FishSpecies::Candyfish {
+                    self.food[idx].is_candy = true;
+                    self.fish[i].state = FishState::Eating {
+                        time_remaining: EATING_DURATION,
+                    };
+                    continue;
+                }
                 self.food[idx].eaten = true;
                 self.fish[i].state = FishState::Eating {
                     time_remaining: EATING_DURATION,
@@ -162,7 +179,12 @@ impl Tank {
                 } else {
                     self.fish[i].species.config().weight_cap[cat as usize]
                 };
-                let new_w = self.fish[i].weight_g + FOOD_WEIGHT_GAIN_G;
+                let gain = if self.food[idx].is_candy {
+                    FOOD_WEIGHT_GAIN_G * 10
+                } else {
+                    FOOD_WEIGHT_GAIN_G
+                };
+                let new_w = self.fish[i].weight_g + gain;
                 self.fish[i].weight_g = if cap == 0 { new_w } else { new_w.min(cap) };
             }
         }
@@ -199,6 +221,57 @@ impl Tank {
                     Direction::Left
                 };
                 self.fish[i].state = FishState::SeekingFood(idx, approach_right);
+            }
+        }
+    }
+
+    pub(super) fn tick_candyfish_effects(&mut self) {
+        let candyfish_bounds: Vec<(f32, f32, f32)> = self
+            .fish
+            .iter()
+            .filter(|f| f.species == FishSpecies::Candyfish)
+            .map(|cf| {
+                (
+                    cf.position.x,
+                    cf.position.x + cf.display_width as f32,
+                    cf.position.y,
+                )
+            })
+            .collect();
+        if candyfish_bounds.is_empty() {
+            return;
+        }
+        for food in &mut self.food {
+            if food.is_candy {
+                continue;
+            }
+            let fx = food.position.x;
+            let fy = food.position.y;
+            for &(cx1, cx2, cy) in &candyfish_bounds {
+                if fx >= cx1 - 1.0 && fx <= cx2 + 1.0 && (fy - cy).abs() <= 1.0 {
+                    food.is_candy = true;
+                    break;
+                }
+            }
+        }
+        if !self
+            .candy_tick
+            .is_multiple_of(CANDYFISH_SCAN_INTERVAL_TICKS)
+        {
+            return;
+        }
+        for i in 0..self.fish.len() {
+            if self.fish[i].species == FishSpecies::Candyfish {
+                continue;
+            }
+            let fx1 = self.fish[i].position.x;
+            let fx2 = fx1 + self.fish[i].display_width as f32;
+            let fy = self.fish[i].position.y;
+            for &(cx1, cx2, cy) in &candyfish_bounds {
+                if fx1 < cx2 && fx2 > cx1 && (fy - cy).abs() <= 1.0 {
+                    self.fish[i].weight_g += 1;
+                    break;
+                }
             }
         }
     }

@@ -7,7 +7,7 @@ use crate::colors::{
 };
 use crate::economy::{Purchasable, Rarity, Sellable};
 use crate::entities::cow::CowVariant;
-use crate::fishes::species::{ALL_SPECIES, FishSpecies};
+use crate::fishes::species::FishSpecies;
 
 pub const GOLD_BAR_VALUE: u32 = 5_000;
 pub const FOOD_AMOUNT_MIN: u32 = 20;
@@ -515,7 +515,7 @@ pub struct LootPool {
 
 impl LootPool {
     pub fn default_pool() -> Self {
-        let mut slots: Vec<(u32, PoolSlot)> = ALL_SPECIES
+        let mut slots: Vec<(u32, PoolSlot)> = FishSpecies::all_buyable()
             .iter()
             .map(|&s| (s.config().rarity.catch_weight(), PoolSlot::Species(s)))
             .collect();
@@ -533,6 +533,14 @@ impl LootPool {
             slots,
             devils_luck: 0,
         }
+    }
+
+    pub fn with_candyfish(mut self) -> Self {
+        self.slots.push((
+            FishSpecies::Candyfish.config().rarity.catch_weight(),
+            PoolSlot::Species(FishSpecies::Candyfish),
+        ));
+        self
     }
 
     pub fn fish_excluded() -> Self {

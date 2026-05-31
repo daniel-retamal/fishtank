@@ -1459,8 +1459,11 @@ impl App {
                 self.settings.show_stats = !self.settings.show_stats;
                 let bh = self.bar_height();
                 let dead_names = self.graveyard_names();
-                self.tanks[self.current_tank]
-                    .resize(self.terminal_width, self.terminal_height.saturating_sub(bh), &dead_names);
+                self.tanks[self.current_tank].resize(
+                    self.terminal_width,
+                    self.terminal_height.saturating_sub(bh),
+                    &dead_names,
+                );
             }
             commands::Action::ModResource { name, delta } => match name.to_lowercase().as_str() {
                 "cash" => {

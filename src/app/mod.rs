@@ -11,7 +11,7 @@ use crate::{
     consumable::{ActiveMilkStatus, CONSUMABLE_STACK_BONUS},
     fishes::fish::Fish,
     fishes::species::FishSpecies,
-    loot::{ConsumableKind, CowCounts, ItemKind, LootKind, roll_loot, roll_loot_no_fish},
+    loot::{ConsumableKind, CowCounts, ItemKind, LootKind, LootPool, roll_loot, roll_loot_no_fish},
     names,
     settings::Settings,
     tank::{ActiveConsumable, Tank, TankEvent, TankKind},
@@ -373,8 +373,16 @@ impl App {
                 let all_tanks_full = self.tanks.iter().all(|t| t.is_full());
                 let devils_luck = self.devils_luck();
                 let cow_counts = self.tank_cow_counts();
+                let in_candy_tank = self.tank().kind == TankKind::Candy;
                 let loot = if all_tanks_full {
                     roll_loot_no_fish(&mut rng, devils_luck, &cow_counts)
+                } else if in_candy_tank {
+                    LootPool::default_pool()
+                        .with_candyfish()
+                        .with_bait(bait)
+                        .with_devils_luck(devils_luck)
+                        .with_cows(&cow_counts)
+                        .roll(&mut rng)
                 } else {
                     roll_loot(&mut rng, bait, devils_luck, &cow_counts)
                 };

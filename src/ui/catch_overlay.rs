@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::colors::{
-    BROWN_DARK, CREAM, DARK_GRAY, GOLD, KHAKI, LIGHT_RED, LIGHT_YELLOW, RED, WHITE,
+    BROWN_DARK, CREAM, DARK_GRAY, GOLD, KHAKI, LIGHT_RED, LIGHT_YELLOW, PINK, RED, WHITE,
 };
 use crate::fishes::{
     fish::{Direction, Fish},
@@ -252,6 +252,7 @@ fn loot_border_color(state: &CatchState) -> Color {
         LootKind::Fish(species) => match species {
             FishSpecies::Goldenfish => LIGHT_YELLOW,
             FishSpecies::Mutantfish => state.fish.as_ref().map_or(WHITE, |f| f.color),
+            FishSpecies::Candyfish => PINK,
             _ => WHITE,
         },
         l if is_necronomicon(l) => LIGHT_RED,

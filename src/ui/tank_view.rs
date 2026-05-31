@@ -6,7 +6,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthChar;
 
-use crate::colors::{GRAY, WHITE, YELLOW};
+use crate::colors::{GRAY, PINK, WHITE, YELLOW};
 
 use crate::{
     entities::bubble::Bubble,
@@ -143,6 +143,30 @@ impl Widget for TankView<'_> {
                             continue;
                         }
                         render_opaque_grid(&pumpkin.rows(), pumpkin.base_x, bottom_y, area, buf);
+                    }
+                }
+            }
+            TankKind::Candy => {
+                if let Some(bg) = &self.tank.candy_bg {
+                    let bottom_y = area.y as i32 + area.height as i32 - 1;
+                    for plant in &self.tank.plants {
+                        if plant.x >= area.width as i32 {
+                            break;
+                        }
+                        render_seaweed(plant, area, buf);
+                    }
+                    for plant in &bg.plants {
+                        if plant.x >= area.width as i32 {
+                            break;
+                        }
+                        render_opaque_grid(&plant.rows(), plant.x, bottom_y, area, buf);
+                    }
+                    let sway = self.tank.candy_man_sway();
+                    for deco in &bg.decos {
+                        if deco.x >= area.width as i32 {
+                            break;
+                        }
+                        render_opaque_grid(&deco.rows(sway), deco.x, bottom_y, area, buf);
                     }
                 }
             }
@@ -485,9 +509,10 @@ fn render_food(food: &Food, area: Rect, buf: &mut Buffer) {
     let x = area.x + food.position.x as u16;
     let y = area.y + food.position.y as u16;
     if x < area.right() && y < area.bottom() {
+        let color = if food.is_candy { PINK } else { YELLOW };
         buf[(x, y)]
             .set_char(food.food_char)
-            .set_style(Style::new().fg(YELLOW).remove_modifier(Modifier::all()));
+            .set_style(Style::new().fg(color).remove_modifier(Modifier::all()));
     }
 }
 
@@ -1092,7 +1117,9 @@ fn draw_gate_bar_tile(
             if sx < area.x as i32 || sx >= area.right() as i32 {
                 continue;
             }
-            buf[(sx as u16, screen_y as u16)].set_char(ch).set_style(style);
+            buf[(sx as u16, screen_y as u16)]
+                .set_char(ch)
+                .set_style(style);
         }
     }
 }

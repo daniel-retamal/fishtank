@@ -10,9 +10,9 @@ pub const TAIL_WAVE_RIGHT: char = 'ミ';
 pub const TAIL_EQUAL: char = '≡';
 use crate::colors::{
     AMBER, AMBER_DARK, AMBER_LIGHT, BLUE, CYAN, DARK_GRAY, FOREST, GOLD, GOLD_BRIGHT, GOLD_PALE,
-    GRAY, GREEN_BRIGHT, GREEN_LIGHT, LIGHT_BLUE, LIGHT_CYAN, LIGHT_RED, LIGHT_YELLOW, NAVY,
-    NAVY_DARK, NAVY_LIGHT, ORANGE, ORANGE_DARK, ORANGE_LIGHT, PURPLE, PURPLE_LIGHT, RED, RED_DARK,
-    SILVER, VIOLET, WHITE, YELLOW,
+    GRAY, GREEN_BRIGHT, GREEN_LIGHT, LIGHT_BLUE, LIGHT_CYAN, LIGHT_MAGENTA, LIGHT_RED,
+    LIGHT_YELLOW, MAGENTA, NAVY, NAVY_DARK, NAVY_LIGHT, ORANGE, ORANGE_DARK, ORANGE_LIGHT, PINK,
+    PURPLE, PURPLE_LIGHT, RED, RED_DARK, SILVER, VIOLET, WHITE, YELLOW,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -43,6 +43,7 @@ pub enum FishSpecies {
     Nishiki,
     Aka,
     Kuro,
+    Candyfish,
     Unfish,
 }
 
@@ -52,7 +53,7 @@ impl FishSpecies {
     }
 
     pub fn all_buyable() -> &'static [FishSpecies] {
-        ALL_SPECIES
+        BUYABLE_SPECIES
     }
 
     pub fn buy_price(self) -> u32 {
@@ -99,6 +100,28 @@ const LEGENDARY_SELL_BASE: [u32; 4] = [200, 800, 2_000, 3_500];
 const LEGENDARY_SELL_CAP: [u32; 4] = [900, 2_500, 5_000, 7_000];
 
 pub const ALL_SPECIES: &[FishSpecies] = &[
+    FishSpecies::Merluza,
+    FishSpecies::Betta,
+    FishSpecies::Salmon,
+    FishSpecies::Chromis,
+    FishSpecies::Tang,
+    FishSpecies::Koi,
+    FishSpecies::Carpin,
+    FishSpecies::Turbofish,
+    FishSpecies::Deadfish,
+    FishSpecies::Anchoveta,
+    FishSpecies::Jellyfish,
+    FishSpecies::Goldenfish,
+    FishSpecies::Goldfish,
+    FishSpecies::Snapper,
+    FishSpecies::Mutantfish,
+    FishSpecies::Nishiki,
+    FishSpecies::Aka,
+    FishSpecies::Kuro,
+    FishSpecies::Candyfish,
+];
+
+const BUYABLE_SPECIES: &[FishSpecies] = &[
     FishSpecies::Merluza,
     FishSpecies::Betta,
     FishSpecies::Salmon,
@@ -226,6 +249,7 @@ static CARPIN_PALETTE: [Color; 3] = [YELLOW, LIGHT_YELLOW, AMBER_DARK];
 
 static DEADFISH_PALETTE: [Color; 2] = [WHITE, DARK_GRAY];
 static UNFISH_PALETTE: [Color; 1] = [WHITE];
+static CANDYFISH_PALETTE: [Color; 3] = [PINK, MAGENTA, LIGHT_MAGENTA];
 
 pub const DEADFISH_BC_SEMI: BodyChars = BodyChars {
     mouth_left: '<',
@@ -561,6 +585,15 @@ impl FishSpecies {
                 sell_base: [0; 4],
                 sell_cap: [0; 4],
             },
+            Candyfish => standard_config(
+                "Candyfish",
+                standard(EYE_ROUND, TailKind::Wide),
+                &CANDYFISH_PALETTE,
+                Solid,
+                0.10,
+                (1.5, 3.0),
+                Legendary,
+            ),
             Unfish => SpeciesConfig {
                 name: "Unfish",
                 body: BodyTemplate::Standard(standard(EYE_ROUND, TailKind::Wide)),

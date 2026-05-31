@@ -4,7 +4,10 @@ use rand::RngExt;
 
 use ratatui::style::Color;
 
-use crate::colors::{CYAN, RED, WHITE};
+use crate::colors::{
+    CYAN, INDIGO, LIGHT_MAGENTA, MAGENTA, PINK, PURPLE, PURPLE_DARK, PURPLE_LIGHT, RED, VIOLET,
+    WHITE,
+};
 
 use crate::economy::{Purchasable, Rarity, Sellable};
 use crate::entities::bubble::{Bubble, BubbleSpawner};
@@ -20,6 +23,9 @@ use crate::loot::ConsumableKind;
 use crate::names;
 use crate::settings::Settings;
 use crate::tanks::alien::{AlienBackground, extend_alien_pyramids, extend_alien_tentacles};
+use crate::tanks::candy::{
+    CandyBackground, extend_candy_decos, extend_candy_plants, man_sway_offset,
+};
 use crate::tanks::coral::{CoralStructure, FloorAlgae, extend_coral_reef};
 use crate::tanks::haunted::{HauntedBackground, extend_haunted};
 use crate::tanks::hell::{HellBackground, HellPlant, extend_hell_plants};
@@ -47,6 +53,7 @@ pub enum TankKind {
     Void,
     Alien,
     Haunted,
+    Candy,
 }
 
 pub struct TankConfig {
@@ -130,6 +137,17 @@ impl TankKind {
                 bubble_color: WHITE,
                 rarity: Rarity::Rare,
             },
+            TankKind::Candy => TankConfig {
+                display_name: "Candytank",
+                parse_name: "candytank",
+                un_name: "Uncandy",
+                shop_name: "Candytank",
+                buy_price: 5000,
+                sell_price: 2500,
+                capacity: 50,
+                bubble_color: PINK,
+                rarity: Rarity::Rare,
+            },
         }
     }
 
@@ -185,6 +203,7 @@ impl TankKind {
             TankKind::Void,
             TankKind::Alien,
             TankKind::Haunted,
+            TankKind::Candy,
         ]
     }
 }
@@ -199,6 +218,16 @@ const PLANT_SPACING_MIN: i32 = 3;
 const PLANT_SPACING_MAX: i32 = 6;
 const PLANT_HEIGHT_MIN: usize = 8;
 const PLANT_HEIGHT_MAX: usize = 27;
+const CANDY_PINK_PLANT_COLORS: &[Color] = &[
+    PINK,
+    MAGENTA,
+    LIGHT_MAGENTA,
+    PURPLE_DARK,
+    PURPLE,
+    PURPLE_LIGHT,
+    VIOLET,
+    INDIGO,
+];
 const SEEK_BOOST_GROWTH: f32 = 0.8;
 const FOOD_SPAWN_SPREAD: f32 = 15.0;
 const INITIAL_WIDTH: u16 = 80;
@@ -238,6 +267,7 @@ pub struct Tank {
     pub void_bg: Option<VoidBackground>,
     pub alien_bg: Option<AlienBackground>,
     pub haunted_bg: Option<HauntedBackground>,
+    pub candy_bg: Option<CandyBackground>,
     pub width: u16,
     pub height: u16,
     pub used_names: HashSet<String>,
@@ -250,6 +280,7 @@ pub struct Tank {
     void_spawn_timer: f32,
     pub ufo_timer: f32,
     pub ufo: Option<Ufo>,
+    pub(super) candy_tick: u32,
 }
 
 impl Tank {
@@ -263,6 +294,7 @@ impl Tank {
         let mut void_bg = None;
         let mut alien_bg = None;
         let mut haunted_bg = None;
+        let mut candy_bg = None;
         match kind {
             TankKind::Base => extend_plants(
                 &mut plants,
@@ -314,6 +346,14 @@ impl Tank {
                 );
                 haunted_bg = Some(bg);
             }
+            TankKind::Candy => {
+                let mut bg = CandyBackground::new();
+                let target = INITIAL_WIDTH as i32 + CORAL_SPAWN_LOOKAHEAD;
+                extend_candy_plants(&mut bg.plants, target, &mut rng);
+                extend_candy_decos(&mut bg.decos, target, &mut rng);
+                extend_candy_pink_plants(&mut plants, target, &mut rng);
+                candy_bg = Some(bg);
+            }
         }
         Self {
             name,
@@ -330,6 +370,7 @@ impl Tank {
             void_bg,
             alien_bg,
             haunted_bg,
+            candy_bg,
             width: INITIAL_WIDTH,
             height: INITIAL_HEIGHT,
             used_names: HashSet::new(),
@@ -342,6 +383,7 @@ impl Tank {
             void_spawn_timer: sample_exponential(&mut rng, VOID_SPAWN_MEAN_SECS),
             ufo_timer: sample_exponential(&mut rng, UFO_MEAN_SECS),
             ufo: None,
+            candy_tick: 0,
         }
     }
 
@@ -444,7 +486,19 @@ impl Tank {
                     );
                 }
             }
+            TankKind::Candy => {
+                if let Some(bg) = &mut self.candy_bg {
+                    let target = self.width as i32 + CORAL_SPAWN_LOOKAHEAD;
+                    extend_candy_plants(&mut bg.plants, target, rng);
+                    extend_candy_decos(&mut bg.decos, target, rng);
+                    extend_candy_pink_plants(&mut self.plants, target, rng);
+                }
+            }
         }
+    }
+
+    pub fn candy_man_sway(&self) -> i32 {
+        man_sway_offset(self.candy_tick)
     }
 
     pub fn spawn_fish(
@@ -544,9 +598,11 @@ impl Tank {
         self.pending_star_cash += star;
         self.bubbles.retain(|b| !b.dead);
 
+        self.candy_tick = self.candy_tick.wrapping_add(1);
         self.steer_seeking_fish();
         self.tick_fish(settings, coffee);
         self.spawn_bubbles(dt);
+        self.tick_candyfish_effects();
         self.check_eating_collisions();
 
         let prev_len = self.food.len();
@@ -711,5 +767,21 @@ fn extend_plants(plants: &mut Vec<Plant>, to_width: i32, rng: &mut impl RngExt) 
         rng,
         |p| p.x,
         |x, rng| Plant::new(x, rng.random_range(PLANT_HEIGHT_MIN..=PLANT_HEIGHT_MAX)),
+    );
+}
+
+fn extend_candy_pink_plants(plants: &mut Vec<Plant>, to_width: i32, rng: &mut impl RngExt) {
+    extend_spaced(
+        plants,
+        to_width,
+        0,
+        PLANT_SPACING_MIN..=PLANT_SPACING_MAX,
+        rng,
+        |p| p.x,
+        |x, rng| {
+            let mut p = Plant::new(x, rng.random_range(PLANT_HEIGHT_MIN..=PLANT_HEIGHT_MAX));
+            p.color = CANDY_PINK_PLANT_COLORS[rng.random_range(0..CANDY_PINK_PLANT_COLORS.len())];
+            p
+        },
     );
 }

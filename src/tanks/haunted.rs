@@ -5,8 +5,8 @@ use rand::RngExt;
 use ratatui::style::Color;
 
 use crate::colors::{
-    AMBER, LIGHT_CYAN, DARK_GRAY, GRAY, GREEN_BRIGHT, GREEN_DARK, LIGHT_YELLOW, ORANGE, ORANGE_DARK,
-    ORANGE_LIGHT, WHITE,
+    AMBER, DARK_GRAY, GRAY, GREEN_BRIGHT, GREEN_DARK, LIGHT_CYAN, LIGHT_YELLOW, ORANGE,
+    ORANGE_DARK, ORANGE_LIGHT, WHITE,
 };
 use crate::entities::components::{BlinkTimer, SwayState, tick_sway};
 use crate::util::sample_exponential;
@@ -522,7 +522,8 @@ pub fn extend_haunted(
 
     while next_x < to_width {
         let left = (rng.random::<f32>() < PUMPKIN_SIDE_CHANCE).then(|| PumpkinVariant::random(rng));
-        let right = (rng.random::<f32>() < PUMPKIN_SIDE_CHANCE).then(|| PumpkinVariant::random(rng));
+        let right =
+            (rng.random::<f32>() < PUMPKIN_SIDE_CHANCE).then(|| PumpkinVariant::random(rng));
         let name = dead_names.iter().find(|n| !used.contains(*n)).cloned();
         if let Some(ref n) = name {
             used.insert(n.clone());
