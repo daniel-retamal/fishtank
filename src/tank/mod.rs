@@ -4,7 +4,7 @@ use rand::RngExt;
 
 use ratatui::style::Color;
 
-use crate::colors::{CYAN, RED};
+use crate::colors::{CYAN, RED, WHITE};
 
 use crate::economy::{Purchasable, Rarity, Sellable};
 use crate::entities::bubble::{Bubble, BubbleSpawner};
@@ -21,6 +21,7 @@ use crate::names;
 use crate::settings::Settings;
 use crate::tanks::alien::{AlienBackground, extend_alien_pyramids, extend_alien_tentacles};
 use crate::tanks::coral::{CoralStructure, FloorAlgae, extend_coral_reef};
+use crate::tanks::haunted::{HauntedBackground, extend_haunted};
 use crate::tanks::hell::{HellBackground, HellPlant, extend_hell_plants};
 use crate::tanks::void::VoidBackground;
 use crate::util::sample_exponential;
@@ -45,6 +46,7 @@ pub enum TankKind {
     Hell,
     Void,
     Alien,
+    Haunted,
 }
 
 pub struct TankConfig {
@@ -65,8 +67,8 @@ impl TankKind {
             TankKind::Base => TankConfig {
                 display_name: "Fishtank",
                 parse_name: "fishtank",
-                un_name: "UnFishtank",
-                shop_name: "Base Fishtank",
+                un_name: "Unaquarium",
+                shop_name: "Fishtank",
                 buy_price: 3000,
                 sell_price: 2500,
                 capacity: 50,
@@ -76,8 +78,8 @@ impl TankKind {
             TankKind::CoralReef => TankConfig {
                 display_name: "Coralreeftank",
                 parse_name: "coralreeftank",
-                un_name: "UnCoral Reef",
-                shop_name: "Coral Reef Fishtank",
+                un_name: "Unsea",
+                shop_name: "Reef Fishtank",
                 buy_price: 5000,
                 sell_price: 2500,
                 capacity: 50,
@@ -87,7 +89,7 @@ impl TankKind {
             TankKind::Hell => TankConfig {
                 display_name: "Helltank",
                 parse_name: "helltank",
-                un_name: "UnHelltank",
+                un_name: "Unnether",
                 shop_name: "Helltank",
                 buy_price: 8000,
                 sell_price: 7000,
@@ -98,7 +100,7 @@ impl TankKind {
             TankKind::Void => TankConfig {
                 display_name: "Voidtank",
                 parse_name: "voidtank",
-                un_name: "UnVoidtank",
+                un_name: "Un",
                 shop_name: "Voidtank",
                 buy_price: 8000,
                 sell_price: 7000,
@@ -109,12 +111,23 @@ impl TankKind {
             TankKind::Alien => TankConfig {
                 display_name: "Alientank",
                 parse_name: "alientank",
-                un_name: "UnAlientank",
+                un_name: "Unother",
                 shop_name: "Alientank",
                 buy_price: 5000,
                 sell_price: 2500,
-                capacity: 75,
+                capacity: 100,
                 bubble_color: CYAN,
+                rarity: Rarity::Rare,
+            },
+            TankKind::Haunted => TankConfig {
+                display_name: "Hauntedtank",
+                parse_name: "hauntedtank",
+                un_name: "Ungraves",
+                shop_name: "Hauntedtank",
+                buy_price: 5000,
+                sell_price: 2500,
+                capacity: 50,
+                bubble_color: WHITE,
                 rarity: Rarity::Rare,
             },
         }
@@ -171,6 +184,7 @@ impl TankKind {
             TankKind::Hell,
             TankKind::Void,
             TankKind::Alien,
+            TankKind::Haunted,
         ]
     }
 }
@@ -223,6 +237,7 @@ pub struct Tank {
     pub hell_plants: Vec<HellPlant>,
     pub void_bg: Option<VoidBackground>,
     pub alien_bg: Option<AlienBackground>,
+    pub haunted_bg: Option<HauntedBackground>,
     pub width: u16,
     pub height: u16,
     pub used_names: HashSet<String>,
@@ -238,7 +253,7 @@ pub struct Tank {
 }
 
 impl Tank {
-    pub fn new(name: String, kind: TankKind) -> Self {
+    pub fn new(name: String, kind: TankKind, dead_names: &[String]) -> Self {
         let mut rng = rand::rng();
         let mut plants = Vec::new();
         let mut corals = Vec::new();
@@ -247,6 +262,7 @@ impl Tank {
         let mut hell_plants = Vec::new();
         let mut void_bg = None;
         let mut alien_bg = None;
+        let mut haunted_bg = None;
         match kind {
             TankKind::Base => extend_plants(
                 &mut plants,
@@ -287,6 +303,17 @@ impl Tank {
                 bg.init_stars(&mut rng, INITIAL_WIDTH, INITIAL_HEIGHT);
                 alien_bg = Some(bg);
             }
+            TankKind::Haunted => {
+                let mut bg = HauntedBackground::new(&mut rng);
+                extend_haunted(
+                    &mut bg.graves,
+                    &mut bg.pumpkins,
+                    INITIAL_WIDTH as i32 + CORAL_SPAWN_LOOKAHEAD,
+                    dead_names,
+                    &mut rng,
+                );
+                haunted_bg = Some(bg);
+            }
         }
         Self {
             name,
@@ -302,6 +329,7 @@ impl Tank {
             hell_plants,
             void_bg,
             alien_bg,
+            haunted_bg,
             width: INITIAL_WIDTH,
             height: INITIAL_HEIGHT,
             used_names: HashSet::new(),
@@ -329,7 +357,7 @@ impl Tank {
         self.fish.len() >= self.capacity()
     }
 
-    pub fn resize(&mut self, width: u16, height: u16) {
+    pub fn resize(&mut self, width: u16, height: u16, dead_names: &[String]) {
         let old_width = self.width;
         self.width = width;
         self.height = height;
@@ -357,14 +385,20 @@ impl Tank {
         }
         let mut rng = rand::rng();
         if width > old_width {
-            self.extend_environment(&mut rng);
+            self.extend_environment(&mut rng, dead_names);
         }
         if let Some(bg) = &mut self.alien_bg {
             bg.init_stars(&mut rng, width, height);
         }
     }
 
-    fn extend_environment(&mut self, rng: &mut impl RngExt) {
+    pub fn clear_grave_name(&mut self, name: &str) {
+        if let Some(bg) = &mut self.haunted_bg {
+            bg.clear_grave_name(name);
+        }
+    }
+
+    fn extend_environment(&mut self, rng: &mut impl RngExt, dead_names: &[String]) {
         match self.kind {
             TankKind::Base => extend_plants(
                 &mut self.plants,
@@ -395,6 +429,17 @@ impl Tank {
                     extend_alien_pyramids(
                         &mut bg.pyramids,
                         self.width as i32 + CORAL_SPAWN_LOOKAHEAD,
+                        rng,
+                    );
+                }
+            }
+            TankKind::Haunted => {
+                if let Some(bg) = &mut self.haunted_bg {
+                    extend_haunted(
+                        &mut bg.graves,
+                        &mut bg.pumpkins,
+                        self.width as i32 + CORAL_SPAWN_LOOKAHEAD,
+                        dead_names,
                         rng,
                     );
                 }
@@ -474,6 +519,9 @@ impl Tank {
             bg.tick();
         }
         if let Some(bg) = &mut self.alien_bg {
+            bg.tick(dt, &mut rng, self.width, self.height);
+        }
+        if let Some(bg) = &mut self.haunted_bg {
             bg.tick(dt, &mut rng, self.width, self.height);
         }
         for plant in &mut self.hell_plants {

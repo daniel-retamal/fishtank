@@ -29,6 +29,11 @@ use crate::{
         FLOOR_ALGAE_A, FLOOR_ALGAE_COLOR, FloorAlgae, algae_art, algae_row_shift, mirror_char,
         query_anim_char, vert_wave_char,
     },
+    tanks::haunted::{
+        BARS_PER_BLOCK, BAT_COLOR, BAT_SPRITE, Bat, GATE_BAR_PIPE_ROWS, GATE_BAR_TILE, GATE_BAR_W,
+        GATE_BLOCK_ROWS, GATE_BLOCK_TILE, GATE_BLOCK_W, GATE_COLOR, GATE_FLOOR_CHAR,
+        GATE_FLOOR_COLOR, GRAVE_TRANSPARENT, Ghost, HauntedBackground,
+    },
     tanks::hell::{
         FACE_COLOR, H_WAVE_AMPLITUDE, H_WAVE_ROW_SPREAD, HellBackground, RANDOM_FACE_COLOR,
     },
@@ -123,9 +128,35 @@ impl Widget for TankView<'_> {
                     }
                 }
             }
+            TankKind::Haunted => {
+                render_haunted_gate(area, buf, self.tank.haunted_bg.as_ref());
+                if let Some(bg) = &self.tank.haunted_bg {
+                    let bottom_y = area.y as i32 + area.height as i32 - 1;
+                    for grave in &bg.graves {
+                        if grave.base_x >= area.width as i32 {
+                            break;
+                        }
+                        render_opaque_grid(&grave.rows(), grave.base_x, bottom_y, area, buf);
+                    }
+                    for pumpkin in &bg.pumpkins {
+                        if pumpkin.base_x >= area.width as i32 {
+                            continue;
+                        }
+                        render_opaque_grid(&pumpkin.rows(), pumpkin.base_x, bottom_y, area, buf);
+                    }
+                }
+            }
         }
         for bubble in &self.tank.bubbles {
             render_bubble(bubble, area, buf);
+        }
+        if let Some(bg) = &self.tank.haunted_bg {
+            for bat in &bg.bats {
+                render_bat(bat, area, buf);
+            }
+            for ghost in &bg.ghosts {
+                render_ghost(ghost, area, buf);
+            }
         }
         for cow in &self.tank.cows {
             render_cow(cow, area, buf);
@@ -989,6 +1020,182 @@ fn render_alien_star(star: &AlienStar, area: Rect, buf: &mut Buffer) {
         buf[(x, y)]
             .set_char(star.ch)
             .set_style(Style::new().fg(color).remove_modifier(Modifier::all()));
+    }
+}
+
+fn render_haunted_gate(area: Rect, buf: &mut Buffer, bg: Option<&HauntedBackground>) {
+    let floor_y = area.y as i32 + area.height as i32 - 1;
+    let floor_style = Style::new()
+        .fg(GATE_FLOOR_COLOR)
+        .remove_modifier(Modifier::all());
+    for x in area.x..area.right() {
+        buf[(x, floor_y as u16)]
+            .set_char(GATE_FLOOR_CHAR)
+            .set_style(floor_style);
+    }
+
+    let mut col = 0i32;
+    let mut bars_drawn = 0usize;
+    let mut global_bar = 0usize;
+    let mut global_block = 0usize;
+    while col < area.width as i32 {
+        if bars_drawn < BARS_PER_BLOCK {
+            let holes = bg.map(|b| &b.bar_hole_mask[global_bar % b.bar_hole_mask.len()]);
+            draw_gate_bar_tile(col, floor_y, area, buf, holes);
+            col += GATE_BAR_W;
+            bars_drawn += 1;
+            global_bar += 1;
+        } else {
+            let col2 = bg.map(|b| &b.block_col2_mask[global_block % b.block_col2_mask.len()]);
+            draw_gate_block_tile(col, floor_y, area, buf, col2);
+            col += GATE_BLOCK_W;
+            bars_drawn = 0;
+            global_block += 1;
+        }
+    }
+}
+
+fn draw_gate_bar_tile(
+    col: i32,
+    floor_y: i32,
+    area: Rect,
+    buf: &mut Buffer,
+    holes: Option<&[bool; GATE_BAR_PIPE_ROWS]>,
+) {
+    let n = GATE_BAR_TILE.len() as i32;
+    let style = Style::new().fg(GATE_COLOR).remove_modifier(Modifier::all());
+    let mut pipe_idx = 0usize;
+    for (i, &line) in GATE_BAR_TILE.iter().enumerate() {
+        let is_pipe = line == " | ";
+        let local_pipe_idx = if is_pipe {
+            let idx = pipe_idx;
+            pipe_idx += 1;
+            Some(idx)
+        } else {
+            None
+        };
+        let hidden = local_pipe_idx
+            .and_then(|idx| holes.map(|h| h[idx]))
+            .unwrap_or(false);
+        if hidden {
+            continue;
+        }
+        let screen_y = floor_y - 1 - (n - 1 - i as i32);
+        if screen_y < area.y as i32 || screen_y >= area.bottom() as i32 {
+            continue;
+        }
+        for (c, ch) in line.chars().enumerate() {
+            if ch == ' ' {
+                continue;
+            }
+            let sx = area.x as i32 + col + c as i32;
+            if sx < area.x as i32 || sx >= area.right() as i32 {
+                continue;
+            }
+            buf[(sx as u16, screen_y as u16)].set_char(ch).set_style(style);
+        }
+    }
+}
+
+fn draw_gate_block_tile(
+    col: i32,
+    floor_y: i32,
+    area: Rect,
+    buf: &mut Buffer,
+    col2_mask: Option<&[char; GATE_BLOCK_ROWS]>,
+) {
+    let n = GATE_BLOCK_TILE.len() as i32;
+    let style = Style::new().fg(GATE_COLOR).remove_modifier(Modifier::all());
+    for (i, &line) in GATE_BLOCK_TILE.iter().enumerate() {
+        let screen_y = floor_y - 1 - (n - 1 - i as i32);
+        if screen_y < area.y as i32 || screen_y >= area.bottom() as i32 {
+            continue;
+        }
+        for (c, ch) in line.chars().enumerate() {
+            let draw_ch = if c == 2 {
+                col2_mask.map_or(ch, |m| m[i])
+            } else {
+                ch
+            };
+            if draw_ch == ' ' {
+                continue;
+            }
+            let sx = area.x as i32 + col + c as i32;
+            if sx < area.x as i32 || sx >= area.right() as i32 {
+                continue;
+            }
+            buf[(sx as u16, screen_y as u16)]
+                .set_char(draw_ch)
+                .set_style(style);
+        }
+    }
+}
+
+fn render_opaque_grid(
+    grid: &[Vec<(char, Color)>],
+    base_x: i32,
+    bottom_y: i32,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    let n = grid.len() as i32;
+    for (i, row) in grid.iter().enumerate() {
+        let screen_y = bottom_y - (n - 1 - i as i32);
+        if screen_y < area.y as i32 || screen_y >= area.bottom() as i32 {
+            continue;
+        }
+        for (col, &(ch, color)) in row.iter().enumerate() {
+            if ch == GRAVE_TRANSPARENT {
+                continue;
+            }
+            let sx = area.x as i32 + base_x + col as i32;
+            if sx < area.x as i32 || sx >= area.right() as i32 {
+                continue;
+            }
+            if ch == ' ' {
+                buf[(sx as u16, screen_y as u16)]
+                    .set_char(' ')
+                    .set_style(Style::reset());
+                continue;
+            }
+            buf[(sx as u16, screen_y as u16)]
+                .set_char(ch)
+                .set_style(Style::new().fg(color).remove_modifier(Modifier::all()));
+        }
+    }
+}
+
+fn render_ghost(ghost: &Ghost, area: Rect, buf: &mut Buffer) {
+    let base_x = area.x as i32 + ghost.x as i32;
+    let base_y = area.y as i32 + ghost.y as i32;
+    let style = SpriteStyle {
+        eye_overrides: &[],
+        body_color: ghost.color,
+        interior_fg: Some(ghost.color),
+        glisten_colors: &[],
+        color_patches: &[],
+    };
+    for (i, line) in ghost.sprite_rows().iter().enumerate() {
+        let screen_y = base_y + i as i32;
+        if screen_y < area.y as i32 || screen_y >= area.bottom() as i32 {
+            continue;
+        }
+        render_sprite_row(line, base_x, screen_y, area, buf, &style);
+    }
+}
+
+fn render_bat(bat: &Bat, area: Rect, buf: &mut Buffer) {
+    let y = area.y as i32 + bat.y as i32;
+    if y < area.y as i32 || y >= area.bottom() as i32 {
+        return;
+    }
+    let style = Style::new().fg(BAT_COLOR).remove_modifier(Modifier::all());
+    for (i, &ch) in BAT_SPRITE.iter().enumerate() {
+        let sx = area.x as i32 + bat.x as i32 + i as i32;
+        if sx < area.x as i32 || sx >= area.right() as i32 {
+            continue;
+        }
+        buf[(sx as u16, y as u16)].set_char(ch).set_style(style);
     }
 }
 

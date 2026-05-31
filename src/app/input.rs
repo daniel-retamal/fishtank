@@ -35,7 +35,8 @@ impl App {
             self.terminal_height = h;
             self.terminal_width = w;
             let bh = self.bar_height();
-            self.tanks[self.current_tank].resize(w, h.saturating_sub(bh));
+            let dead_names = self.graveyard_names();
+            self.tanks[self.current_tank].resize(w, h.saturating_sub(bh), &dead_names);
             return;
         }
         let is_key_press = matches!(&event, Event::Key(k) if k.kind == KeyEventKind::Press);
@@ -698,7 +699,7 @@ impl App {
                     *entry = entry.saturating_sub(1);
                     self.inventory.retain(|_, v| *v > 0);
                     self.used_tank_names.insert(actual_name.clone());
-                    self.tanks.push(Tank::new(actual_name, TankKind::Hell));
+                    self.tanks.push(Tank::new(actual_name, TankKind::Hell, &[]));
                     self.current_tank = self.tanks.len() - 1;
                     self.necronomicon_popup = None;
                 }
@@ -960,7 +961,8 @@ impl App {
                             let actual_name = names::unique_name_in(&self.used_tank_names, &name);
                             self.cash = self.cash.saturating_sub(kind.buy_price());
                             self.used_tank_names.insert(actual_name.clone());
-                            self.tanks.push(Tank::new(actual_name, kind));
+                            let dead_names = self.graveyard_names();
+                            self.tanks.push(Tank::new(actual_name, kind, &dead_names));
                             self.current_tank = self.tanks.len() - 1;
                         }
                     }
@@ -1324,7 +1326,10 @@ impl App {
                     let name = fish.name.clone();
                     let ct = self.current_tank;
                     let mut rng = rand::rng();
-                    self.tanks[ct].place_fish(fish, name, &mut rng);
+                    self.tanks[ct].place_fish(fish, name.clone(), &mut rng);
+                    for tank in &mut self.tanks {
+                        tank.clear_grave_name(&name);
+                    }
                 }
             }
             WishAction::Clone { fish_name } => {
@@ -1424,7 +1429,8 @@ impl App {
                 let un_name = kind.un_name();
                 let actual_name = names::unique_name_in(&self.used_tank_names, un_name);
                 self.used_tank_names.insert(actual_name.clone());
-                self.tanks.push(Tank::new(actual_name, kind));
+                let dead_names = self.graveyard_names();
+                self.tanks.push(Tank::new(actual_name, kind, &dead_names));
             }
             GiveTarget::Cow(variant_opt) => {
                 let mut rng = rand::rng();
@@ -1452,8 +1458,9 @@ impl App {
             commands::Action::ToggleStats => {
                 self.settings.show_stats = !self.settings.show_stats;
                 let bh = self.bar_height();
+                let dead_names = self.graveyard_names();
                 self.tanks[self.current_tank]
-                    .resize(self.terminal_width, self.terminal_height.saturating_sub(bh));
+                    .resize(self.terminal_width, self.terminal_height.saturating_sub(bh), &dead_names);
             }
             commands::Action::ModResource { name, delta } => match name.to_lowercase().as_str() {
                 "cash" => {

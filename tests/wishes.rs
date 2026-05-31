@@ -872,7 +872,7 @@ fn wish_fishtanks_same_tank_enter_does_not_abort_ritual() {
 fn wish_fishtanks_switch_tank_aborts_ritual() {
     let mut app = App::new();
     app.tanks
-        .push(Tank::new("Other".to_string(), TankKind::Base));
+        .push(Tank::new("Other".to_string(), TankKind::Base, &[]));
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
@@ -892,7 +892,7 @@ fn wish_fishtanks_switch_tank_aborts_ritual() {
 fn wish_fishtanks_esc_closes_overlay_without_aborting_ritual() {
     let mut app = App::new();
     app.tanks
-        .push(Tank::new("Other".to_string(), TankKind::Base));
+        .push(Tank::new("Other".to_string(), TankKind::Base, &[]));
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };

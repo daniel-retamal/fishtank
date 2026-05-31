@@ -2,7 +2,7 @@ use fishtank::fishes::species::FishSpecies;
 use fishtank::tank::{Tank, TankKind};
 
 fn make_tank() -> Tank {
-    Tank::new("Test".to_string(), TankKind::Base)
+    Tank::new("Test".to_string(), TankKind::Base, &[])
 }
 
 fn rng() -> impl rand::RngExt {

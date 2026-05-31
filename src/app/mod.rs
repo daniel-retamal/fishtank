@@ -89,7 +89,7 @@ impl App {
         let initial_name = names::unique_name_in(&HashSet::new(), "Fishtank");
         let mut used_tank_names = HashSet::new();
         used_tank_names.insert(initial_name.clone());
-        let mut first_tank = Tank::new(initial_name, TankKind::Base);
+        let mut first_tank = Tank::new(initial_name, TankKind::Base, &[]);
 
         for (species, name) in [
             (FishSpecies::Merluza, "merluza"),
@@ -157,6 +157,10 @@ impl App {
 
     fn tank_mut(&mut self) -> &mut Tank {
         &mut self.tanks[self.current_tank]
+    }
+
+    fn graveyard_names(&self) -> Vec<String> {
+        self.graveyard.iter().map(|f| f.name.clone()).collect()
     }
 
     fn coffee_stacks(&self) -> u32 {
@@ -336,7 +340,8 @@ impl App {
                 let bh = self.bar_height();
                 let tw = self.terminal_width;
                 let th = self.terminal_height.saturating_sub(bh);
-                self.tanks[self.current_tank].resize(tw, th);
+                let dead_names = self.graveyard_names();
+                self.tanks[self.current_tank].resize(tw, th, &dead_names);
             }
         }
     }
@@ -515,7 +520,8 @@ impl App {
             Layout::vertical([Constraint::Min(0), Constraint::Length(self.bar_height())])
                 .areas(full_area);
 
-        self.tanks[self.current_tank].resize(tank_area.width, tank_area.height);
+        let dead_names = self.graveyard_names();
+        self.tanks[self.current_tank].resize(tank_area.width, tank_area.height, &dead_names);
 
         {
             let ritual_blocking = self.void_ritual.is_blocking()
@@ -872,8 +878,8 @@ impl App {
         let base_name = format!("Alien Base #{}", n);
         let name = names::unique_name_in(&self.used_tank_names, &base_name);
         self.used_tank_names.insert(name.clone());
-        let mut tank = Tank::new(name, TankKind::Alien);
-        tank.resize(self.terminal_width, self.tank_height());
+        let mut tank = Tank::new(name, TankKind::Alien, &[]);
+        tank.resize(self.terminal_width, self.tank_height(), &[]);
         self.tanks.push(tank);
         self.tanks.len() - 1
     }
