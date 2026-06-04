@@ -6,7 +6,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthChar;
 
-use crate::colors::{GRAY, PINK, WHITE, YELLOW};
+use crate::colors::{PINK, WHITE, YELLOW};
 
 use crate::{
     entities::bubble::Bubble,
@@ -28,6 +28,9 @@ use crate::{
         CORAL_A_LINES, CORAL_A_ROWS, CORAL_COLOR, CoralAlgaeInstance, CoralStructure,
         FLOOR_ALGAE_A, FLOOR_ALGAE_COLOR, FloorAlgae, algae_art, algae_row_shift, mirror_char,
         query_anim_char, vert_wave_char,
+    },
+    tanks::desert::{
+        DesertSky, SUN_H_WAVE_AMPLITUDE, SUN_H_WAVE_SPREAD, SUN_LINES, SUN_ORBIT_RY, sun_cell_color,
     },
     tanks::haunted::{
         BARS_PER_BLOCK, BAT_COLOR, BAT_SPRITE, Bat, GATE_BAR_PIPE_ROWS, GATE_BAR_TILE, GATE_BAR_W,
@@ -167,6 +170,31 @@ impl Widget for TankView<'_> {
                             break;
                         }
                         render_opaque_grid(&deco.rows(sway), deco.x, bottom_y, area, buf);
+                    }
+                }
+            }
+            TankKind::Desert => {
+                if let Some(bg) = &self.tank.desert_bg {
+                    if bg.is_night() {
+                        render_desert_stars(bg, area, buf);
+                    } else {
+                        render_desert_sun(bg, area, buf);
+                    }
+                    let bottom_y = area.y as i32 + area.height as i32 - 1;
+                    for cactus in &bg.cacti {
+                        if cactus.x >= area.width as i32 {
+                            break;
+                        }
+                        render_opaque_grid(&cactus.grid, cactus.x, bottom_y, area, buf);
+                    }
+                    if let Some(tw) = &bg.tumbleweed {
+                        render_opaque_grid(
+                            &tw.grid(),
+                            tw.x as i32,
+                            bottom_y - tw.hop_height(),
+                            area,
+                            buf,
+                        );
                     }
                 }
             }
@@ -1041,10 +1069,85 @@ fn render_alien_star(star: &AlienStar, area: Rect, buf: &mut Buffer) {
     let x = area.x + star.x;
     let y = area.y + star.y;
     if x < area.right() && y < area.bottom() {
-        let color = if star.twinkle_lit { WHITE } else { GRAY };
-        buf[(x, y)]
-            .set_char(star.ch)
-            .set_style(Style::new().fg(color).remove_modifier(Modifier::all()));
+        buf[(x, y)].set_char(star.twinkle.ch).set_style(
+            Style::new()
+                .fg(star.twinkle.color())
+                .remove_modifier(Modifier::all()),
+        );
+    }
+}
+
+fn render_desert_sun(bg: &DesertSky, area: Rect, buf: &mut Buffer) {
+    let w = area.width as f32;
+    let h = area.height as f32;
+    let sprite_h = SUN_LINES.len() as f32;
+    let sprite_w = SUN_LINES
+        .iter()
+        .map(|l| l.chars().count())
+        .max()
+        .unwrap_or(0) as f32;
+    let rx = w / 2.0 + sprite_w / 2.0;
+    let s = bg.sky_angle;
+    let center_x = w / 2.0 - rx * s.cos();
+    let center_y = h - SUN_ORBIT_RY * s.sin();
+    let base_x = (area.x as f32 + center_x - sprite_w / 2.0).round() as i32;
+    let base_y = (area.y as f32 + center_y - sprite_h / 2.0).round() as i32;
+    for (row_idx, line) in SUN_LINES.iter().enumerate() {
+        let screen_y = base_y + row_idx as i32;
+        if screen_y < area.y as i32 || screen_y >= area.bottom() as i32 {
+            continue;
+        }
+        let h_shift = (SUN_H_WAVE_AMPLITUDE
+            * (bg.h_phase - row_idx as f32 * SUN_H_WAVE_SPREAD).sin())
+        .round() as i32;
+        let rings = &bg.sun_rings[row_idx];
+        for (col_idx, ch) in line.chars().enumerate() {
+            if ch == ' ' {
+                continue;
+            }
+            let sx = base_x + col_idx as i32 + h_shift;
+            if sx < area.x as i32 || sx >= area.right() as i32 {
+                continue;
+            }
+            let ring = rings.get(col_idx).copied().unwrap_or(0);
+            let color = sun_cell_color(ring, &bg.ring_colors);
+            buf[(sx as u16, screen_y as u16)]
+                .set_char(ch)
+                .set_style(Style::new().fg(color).remove_modifier(Modifier::all()));
+        }
+    }
+}
+
+fn render_desert_stars(bg: &DesertSky, area: Rect, buf: &mut Buffer) {
+    let w = area.width as f32;
+    let h = area.height as f32;
+    let rx = w / 2.0;
+    let ry = h;
+    let n = bg.night_progress();
+    for star in &bg.stars {
+        let e = star.angle + n;
+        let elev = e.sin();
+        if elev <= 0.0 {
+            continue;
+        }
+        let sx = (w / 2.0 - rx * star.radius_frac * e.cos()).round() as i32;
+        let sy = (h - ry * star.radius_frac * elev).round() as i32;
+        let ax = area.x as i32 + sx;
+        let ay = area.y as i32 + sy;
+        if ax < area.x as i32
+            || ax >= area.right() as i32
+            || ay < area.y as i32
+            || ay >= area.bottom() as i32
+        {
+            continue;
+        }
+        buf[(ax as u16, ay as u16)]
+            .set_char(star.twinkle.ch)
+            .set_style(
+                Style::new()
+                    .fg(star.twinkle.color())
+                    .remove_modifier(Modifier::all()),
+            );
     }
 }
 
@@ -1394,6 +1497,33 @@ fn render_ritual_text(lines: &[Option<String>; 2], area: Rect, buf: &mut Buffer)
                 }
                 buf[(x as u16, y as u16)].set_char(ch).set_style(s);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::f32::consts::PI;
+
+    fn render_at_angle(angle: f32, w: u16, h: u16) {
+        let mut tank = Tank::new("Smoke".into(), TankKind::Desert, &[]);
+        tank.resize(w, h, &[]);
+        if let Some(bg) = &mut tank.desert_bg {
+            bg.sky_angle = angle;
+        }
+        let area = Rect::new(0, 0, w, h);
+        let mut buf = Buffer::empty(area);
+        TankView::new(&tank, true).render(area, &mut buf);
+    }
+
+    #[test]
+    fn desert_renders_day_and_night_without_panic() {
+        for &(w, h) in &[(80u16, 24u16), (40, 12), (200, 50), (8, 6)] {
+            render_at_angle(PI * 0.5, w, h);
+            render_at_angle(PI * 1.5, w, h);
+            render_at_angle(0.0, w, h);
+            render_at_angle(PI, w, h);
         }
     }
 }

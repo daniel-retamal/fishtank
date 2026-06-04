@@ -736,10 +736,18 @@ impl App {
         }
         let mut rng = rand::rng();
         let source_kind = self.tanks[source_idx].kind;
-        if source_kind == TankKind::Alien {
-            self.plan_cow_delivery(source_idx, &mut rng);
-        } else {
-            self.plan_abduction(source_idx, &mut rng);
+        match source_kind {
+            TankKind::Alien => self.plan_cow_delivery(source_idx, &mut rng),
+            TankKind::Desert => {
+                let night = self.tanks[source_idx]
+                    .desert_bg
+                    .as_ref()
+                    .is_some_and(|s| s.is_night());
+                if night {
+                    self.plan_abduction(source_idx, &mut rng);
+                }
+            }
+            _ => {}
         }
     }
 

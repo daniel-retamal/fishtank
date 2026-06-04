@@ -53,7 +53,6 @@ pub const VIOLET: Color = Color::Rgb(165, 65, 230);
 pub const INDIGO: Color = Color::Rgb(100, 60, 180);
 
 pub const TEAL: Color = Color::Rgb(0, 180, 150);
-pub const CALYPSO: Color = Color::Rgb(73, 151, 162);
 
 pub const CREAM: Color = Color::Rgb(245, 230, 180);
 pub const SILVER: Color = Color::Rgb(220, 220, 220);

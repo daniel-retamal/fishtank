@@ -1,6 +1,6 @@
 use ratatui::style::Color;
 
-use crate::colors::{CALYPSO, DARK_GRAY, GREEN, LIGHT_GREEN, MAGENTA, WHITE};
+use crate::colors::{CYAN, DARK_GRAY, LIGHT_CYAN, WHITE};
 use crate::entities::cow::Cow;
 use crate::entities::glistening::{GlisteningMode, color_for_glisten};
 use crate::fishes::fish::Fish;
@@ -276,6 +276,7 @@ pub fn ufo_sprite(ufo: &Ufo) -> Vec<Vec<(char, Color)>> {
     let mut rows: Vec<Vec<(char, Color)>> = Vec::with_capacity(UFO_SPRITE_HEIGHT);
     let cone_rows_shown = ufo.cone_rows();
     let cow_bay_colors = ufo.cow_bay_colors();
+    let interior_mask = cow_bay_colors.map(|_| cow_bay_interior_mask());
 
     for (idx, line) in UFO_SHIP_LINES.iter().enumerate() {
         let chosen = if idx == 3 && ufo.o_toggled {
@@ -286,7 +287,7 @@ pub fn ufo_sprite(ufo: &Ufo) -> Vec<Vec<(char, Color)>> {
         rows.push(color_ship_row(chosen));
     }
 
-    let (palette_base, palette_mid, palette_peak) = (GREEN, GREEN, LIGHT_GREEN);
+    let (palette_base, palette_mid, palette_peak) = (CYAN, CYAN, LIGHT_CYAN);
     for (cone_idx, &cone_line) in UFO_CONE_LINES.iter().enumerate().take(cone_rows_shown) {
         let wave_color = color_for_glisten(
             GlisteningMode::Wave,
@@ -313,7 +314,9 @@ pub fn ufo_sprite(ufo: &Ufo) -> Vec<Vec<(char, Color)>> {
         } else {
             None
         };
-        rows.push(color_cone_row(line, wave_color, row_cow_colors));
+        let interior = cow_overlay_row
+            .and_then(|row| interior_mask.as_ref().map(|m| m[row].as_slice()));
+        rows.push(color_cone_row(line, wave_color, row_cow_colors, interior));
     }
 
     rows
@@ -327,16 +330,16 @@ fn color_ship_row(line: &str) -> Vec<(char, Color)> {
         .iter()
         .enumerate()
         .map(|(i, &ch)| match ch {
-            'O' => (ch, MAGENTA),
+            'O' => (ch, CYAN),
             ' ' => {
                 let interior = matches!((first, last), (Some(f), Some(l)) if i > f && i < l);
                 if interior {
-                    (' ', CALYPSO)
+                    (' ', DARK_GRAY)
                 } else {
-                    ('\0', CALYPSO)
+                    ('\0', DARK_GRAY)
                 }
             }
-            _ => (ch, CALYPSO),
+            _ => (ch, DARK_GRAY),
         })
         .collect()
 }
@@ -345,6 +348,7 @@ fn color_cone_row(
     line: &str,
     wall_color: Color,
     cow_bay: Option<(Color, Color)>,
+    interior: Option<&[bool]>,
 ) -> Vec<(char, Color)> {
     let (body_c, eye_c) = cow_bay.unwrap_or((WHITE, DARK_GRAY));
     let bay = cow_bay.is_some();
@@ -358,10 +362,73 @@ fn color_cone_row(
             '/' if Some(idx) == first_slash => (ch, wall_color),
             '\\' if Some(idx) == last_backslash => (ch, wall_color),
             '/' | '\\' => (ch, if bay { body_c } else { wall_color }),
-            'X' | ' ' => ('\0', wall_color),
+            'X' | ' ' => {
+                if bay && interior.and_then(|m| m.get(idx)).copied().unwrap_or(false) {
+                    (' ', body_c)
+                } else {
+                    ('\0', wall_color)
+                }
+            }
             'o' if bay => (ch, eye_c),
             _ if bay => (ch, body_c),
             _ => (ch, wall_color),
+        })
+        .collect()
+}
+
+fn cow_bay_interior_mask() -> Vec<Vec<bool>> {
+    let width = UFO_COW_BAY_LINES
+        .iter()
+        .map(|l| l.chars().count())
+        .max()
+        .unwrap_or(0);
+    let height = UFO_COW_BAY_LINES.len();
+    let passable: Vec<Vec<bool>> = UFO_COW_BAY_LINES
+        .iter()
+        .map(|line| {
+            let chars: Vec<char> = line.chars().collect();
+            let mut row: Vec<bool> = chars.iter().map(|&c| c == ' ').collect();
+            while row.len() < width {
+                row.push(true);
+            }
+            row
+        })
+        .collect();
+    let mut exterior = vec![vec![false; width]; height];
+    let mut queue: std::collections::VecDeque<(usize, usize)> =
+        std::collections::VecDeque::new();
+    for r in 0..height {
+        for c in 0..width {
+            if (r == 0 || r + 1 == height || c == 0 || c + 1 == width)
+                && passable[r][c]
+                && !exterior[r][c]
+            {
+                exterior[r][c] = true;
+                queue.push_back((r, c));
+            }
+        }
+    }
+    while let Some((r, c)) = queue.pop_front() {
+        for (nr, nc) in [
+            r.checked_sub(1).map(|x| (x, c)),
+            (r + 1 < height).then_some((r + 1, c)),
+            c.checked_sub(1).map(|x| (r, x)),
+            (c + 1 < width).then_some((r, c + 1)),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !exterior[nr][nc] && passable[nr][nc] {
+                exterior[nr][nc] = true;
+                queue.push_back((nr, nc));
+            }
+        }
+    }
+    (0..height)
+        .map(|r| {
+            (0..width)
+                .map(|c| passable[r][c] && !exterior[r][c])
+                .collect()
         })
         .collect()
 }

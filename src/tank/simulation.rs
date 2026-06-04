@@ -35,7 +35,10 @@ impl Tank {
         let mut rng = rand::rng();
 
         let alien_bubble_color = self.alien_bg.as_ref().map(|bg| bg.color.bubble_color());
-        let bubble_color = alien_bubble_color.unwrap_or(self.kind.config().bubble_color);
+        let desert_bubble_color = self.desert_bg.as_ref().map(|bg| bg.bubble_color());
+        let bubble_color = alien_bubble_color
+            .or(desert_bubble_color)
+            .unwrap_or(self.kind.config().bubble_color);
 
         let new_bubbles =
             self.bubble_spawner

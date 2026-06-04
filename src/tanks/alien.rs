@@ -11,15 +11,7 @@ use crate::entities::components::{
 };
 use crate::entities::glistening::GlisteningMode;
 use crate::entities::plant::Seaweed;
-
-pub const ALIEN_STAR_RATIO: f32 = 0.06;
-
-const STAR_ZERO_FRACTION: f32 = 0.6;
-const STAR_TWINKLE_LIT_MIN: f32 = 0.05;
-const STAR_TWINKLE_LIT_MAX: f32 = 0.25;
-const STAR_TWINKLE_DARK_MIN: f32 = 3.0;
-const STAR_TWINKLE_DARK_MAX: f32 = 10.0;
-const ALIEN_STAR_CHARS: &[char] = &['.', '*', '\'', ':', '⋆', '⟡', '✶', '˚'];
+use crate::entities::star::{STAR_ZERO_FRACTION, StarTwinkle, star_field_target};
 
 const SWAY_SPEED: f32 = 0.02;
 const WAVE_SPREAD: f32 = 0.5;
@@ -262,9 +254,7 @@ impl Seaweed for AlienTentacle {
 pub struct AlienStar {
     pub x: u16,
     pub y: u16,
-    pub ch: char,
-    pub twinkle_lit: bool,
-    pub twinkle_timer: f32,
+    pub twinkle: StarTwinkle,
 }
 
 impl AlienStar {
@@ -276,22 +266,9 @@ impl AlienStar {
         Self {
             x: rng.random_range(0..w),
             y,
-            ch: ALIEN_STAR_CHARS[rng.random_range(0..ALIEN_STAR_CHARS.len())],
-            twinkle_lit: false,
-            twinkle_timer: rng.random_range(STAR_TWINKLE_DARK_MIN..STAR_TWINKLE_DARK_MAX),
+            twinkle: StarTwinkle::new(rng),
         }
     }
-}
-
-fn star_target(w: u16, h: u16) -> usize {
-    if w == 0 || h == 0 {
-        return 0;
-    }
-    let zero_row = (h as f32 * STAR_ZERO_FRACTION) as usize;
-    if zero_row == 0 {
-        return 0;
-    }
-    ((w as f32 * zero_row as f32 * ALIEN_STAR_RATIO / 2.0) as usize).max(1)
 }
 
 pub struct AlienPyramid {
@@ -355,7 +332,7 @@ impl AlienBackground {
     }
 
     pub fn init_stars(&mut self, rng: &mut impl RngExt, w: u16, h: u16) {
-        let target = star_target(w, h);
+        let target = star_field_target(w, h);
         while self.stars.len() < target {
             self.stars.push(AlienStar::new(rng, w, h));
         }
@@ -369,17 +346,9 @@ impl AlienBackground {
             t.tick(dt);
         }
         for star in &mut self.stars {
-            star.twinkle_timer -= dt;
-            if star.twinkle_timer <= 0.0 {
-                star.twinkle_lit = !star.twinkle_lit;
-                star.twinkle_timer = if star.twinkle_lit {
-                    rng.random_range(STAR_TWINKLE_LIT_MIN..STAR_TWINKLE_LIT_MAX)
-                } else {
-                    rng.random_range(STAR_TWINKLE_DARK_MIN..STAR_TWINKLE_DARK_MAX)
-                };
-            }
+            star.twinkle.tick(dt, rng);
         }
-        let target = star_target(w, h);
+        let target = star_field_target(w, h);
         while self.stars.len() < target {
             self.stars.push(AlienStar::new(rng, w, h));
         }

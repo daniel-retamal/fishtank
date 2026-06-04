@@ -27,6 +27,7 @@ use crate::tanks::candy::{
     CandyBackground, extend_candy_decos, extend_candy_plants, man_sway_offset,
 };
 use crate::tanks::coral::{CoralStructure, FloorAlgae, extend_coral_reef};
+use crate::tanks::desert::{DesertSky, extend_desert_cacti};
 use crate::tanks::haunted::{HauntedBackground, extend_haunted};
 use crate::tanks::hell::{HellBackground, HellPlant, extend_hell_plants};
 use crate::tanks::void::VoidBackground;
@@ -54,6 +55,7 @@ pub enum TankKind {
     Alien,
     Haunted,
     Candy,
+    Desert,
 }
 
 pub struct TankConfig {
@@ -148,6 +150,17 @@ impl TankKind {
                 bubble_color: PINK,
                 rarity: Rarity::Rare,
             },
+            TankKind::Desert => TankConfig {
+                display_name: "Desertank",
+                parse_name: "desertank",
+                un_name: "Undune",
+                shop_name: "Desertank",
+                buy_price: 5000,
+                sell_price: 2500,
+                capacity: 50,
+                bubble_color: CYAN,
+                rarity: Rarity::Rare,
+            },
         }
     }
 
@@ -204,6 +217,7 @@ impl TankKind {
             TankKind::Alien,
             TankKind::Haunted,
             TankKind::Candy,
+            TankKind::Desert,
         ]
     }
 }
@@ -243,7 +257,16 @@ const MUTATION_INTERVAL_BASE: f32 = 30.0 * 60.0;
 const MUTATION_ALPHA: f32 = 1.0 / 3.0;
 const MUTATION_MEAN_FLOOR_SECS: f32 = 3.0;
 const MIN_SPLIT_BODY_SIZE: usize = 2;
-pub const UFO_MEAN_SECS: f32 = 3.0 * 60.0 * 60.0;
+pub const UFO_MEAN_SECS: f32 = 60.0 * 60.0;
+const UFO_DESERT_FREQUENCY_MULT: f32 = 2.0;
+
+fn ufo_mean_secs(kind: TankKind) -> f32 {
+    if kind == TankKind::Desert {
+        UFO_MEAN_SECS / UFO_DESERT_FREQUENCY_MULT
+    } else {
+        UFO_MEAN_SECS
+    }
+}
 const FISH_SPAWN_X_MIN: f32 = 5.0;
 const FISH_SPAWN_X_MAX_OFFSET: f32 = 15.0;
 const FISH_SPAWN_X_SAFE_MIN: f32 = 6.0;
@@ -268,6 +291,7 @@ pub struct Tank {
     pub alien_bg: Option<AlienBackground>,
     pub haunted_bg: Option<HauntedBackground>,
     pub candy_bg: Option<CandyBackground>,
+    pub desert_bg: Option<DesertSky>,
     pub width: u16,
     pub height: u16,
     pub used_names: HashSet<String>,
@@ -295,6 +319,7 @@ impl Tank {
         let mut alien_bg = None;
         let mut haunted_bg = None;
         let mut candy_bg = None;
+        let mut desert_bg = None;
         match kind {
             TankKind::Base => extend_plants(
                 &mut plants,
@@ -354,6 +379,16 @@ impl Tank {
                 extend_candy_pink_plants(&mut plants, target, &mut rng);
                 candy_bg = Some(bg);
             }
+            TankKind::Desert => {
+                let mut bg = DesertSky::new(&mut rng);
+                extend_desert_cacti(
+                    &mut bg.cacti,
+                    INITIAL_WIDTH as i32 + CORAL_SPAWN_LOOKAHEAD,
+                    &mut rng,
+                );
+                bg.init_stars(&mut rng, INITIAL_WIDTH, INITIAL_HEIGHT);
+                desert_bg = Some(bg);
+            }
         }
         Self {
             name,
@@ -371,6 +406,7 @@ impl Tank {
             alien_bg,
             haunted_bg,
             candy_bg,
+            desert_bg,
             width: INITIAL_WIDTH,
             height: INITIAL_HEIGHT,
             used_names: HashSet::new(),
@@ -381,7 +417,7 @@ impl Tank {
             bubble_spawner: BubbleSpawner::new(&mut rng),
             mutation_timer: MUTATION_INTERVAL_BASE,
             void_spawn_timer: sample_exponential(&mut rng, VOID_SPAWN_MEAN_SECS),
-            ufo_timer: sample_exponential(&mut rng, UFO_MEAN_SECS),
+            ufo_timer: sample_exponential(&mut rng, ufo_mean_secs(kind)),
             ufo: None,
             candy_tick: 0,
         }
@@ -430,6 +466,9 @@ impl Tank {
             self.extend_environment(&mut rng, dead_names);
         }
         if let Some(bg) = &mut self.alien_bg {
+            bg.init_stars(&mut rng, width, height);
+        }
+        if let Some(bg) = &mut self.desert_bg {
             bg.init_stars(&mut rng, width, height);
         }
     }
@@ -492,6 +531,15 @@ impl Tank {
                     extend_candy_plants(&mut bg.plants, target, rng);
                     extend_candy_decos(&mut bg.decos, target, rng);
                     extend_candy_pink_plants(&mut self.plants, target, rng);
+                }
+            }
+            TankKind::Desert => {
+                if let Some(bg) = &mut self.desert_bg {
+                    extend_desert_cacti(
+                        &mut bg.cacti,
+                        self.width as i32 + CORAL_SPAWN_LOOKAHEAD,
+                        rng,
+                    );
                 }
             }
         }
@@ -578,6 +626,9 @@ impl Tank {
         if let Some(bg) = &mut self.haunted_bg {
             bg.tick(dt, &mut rng, self.width, self.height);
         }
+        if let Some(bg) = &mut self.desert_bg {
+            bg.tick(dt, &mut rng, self.width, self.height);
+        }
         for plant in &mut self.hell_plants {
             plant.tick(dt);
         }
@@ -631,7 +682,7 @@ impl Tank {
     fn tick_ufo_timer(&mut self, dt: f32, rng: &mut impl RngExt, events: &mut Vec<TankEvent>) {
         self.ufo_timer -= dt;
         if self.ufo_timer <= 0.0 {
-            self.ufo_timer = sample_exponential(rng, UFO_MEAN_SECS);
+            self.ufo_timer = sample_exponential(rng, ufo_mean_secs(self.kind));
             events.push(TankEvent::UfoTimerFired);
         }
     }
