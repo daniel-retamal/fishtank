@@ -491,6 +491,48 @@ impl ItemKind {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StockItem {
+    Consumable(ConsumableKind),
+    Junk,
+}
+
+impl StockItem {
+    pub const COFFEE: StockItem = StockItem::Consumable(ConsumableKind::Coffee);
+    pub const BAIT: StockItem = StockItem::Consumable(ConsumableKind::Bait);
+    pub const NECRONOMICON: StockItem = StockItem::Consumable(ConsumableKind::Necronomicon);
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            StockItem::Consumable(kind) => ConsumableKind::display_name(kind),
+            StockItem::Junk => "Junk",
+        }
+    }
+
+    pub fn is_consumable(self) -> bool {
+        matches!(self, StockItem::Consumable(_))
+    }
+
+    pub fn from_display_name(name: &str) -> Option<StockItem> {
+        let lower = name.to_ascii_lowercase();
+        if lower == "junk" {
+            return Some(StockItem::Junk);
+        }
+        ConsumableKind::all()
+            .into_iter()
+            .find(|kind| ConsumableKind::display_name(*kind).to_ascii_lowercase() == lower)
+            .map(StockItem::Consumable)
+    }
+
+    pub fn from_item(item: &ItemKind) -> Option<StockItem> {
+        match item {
+            ItemKind::GoldBar => None,
+            ItemKind::Junk(_) => Some(StockItem::Junk),
+            ItemKind::Consumable(kind) => Some(StockItem::Consumable(*kind)),
+        }
+    }
+}
+
 pub enum LootKind {
     Fish(FishSpecies),
     Cash(CashValue),

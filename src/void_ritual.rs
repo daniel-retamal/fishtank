@@ -1,5 +1,6 @@
 use crate::entities::cow::CowVariant;
 use crate::fishes::species::{ALL_SPECIES, FishSpecies};
+use crate::loot::StockItem;
 use crate::tank::TankKind;
 use crate::util::hyperbolic_scale;
 
@@ -97,7 +98,7 @@ pub fn ritual_mean_secs(nothing_stacks: u32) -> f32 {
 pub enum GiveTarget {
     Cash,
     Food,
-    Item { name: &'static str, qty: u32 },
+    Item { stock: StockItem, qty: u32 },
     Fish(FishSpecies),
     Tank(TankKind),
     Cow(Option<CowVariant>),
@@ -239,7 +240,7 @@ fn parse_give_target(rest: &str) -> Option<GiveTarget> {
         "food" => return Some(GiveTarget::Food),
         "junk" => {
             return Some(GiveTarget::Item {
-                name: "Junk",
+                stock: StockItem::Junk,
                 qty: GIVE_JUNK_QTY,
             });
         }
@@ -249,7 +250,7 @@ fn parse_give_target(rest: &str) -> Option<GiveTarget> {
     for kind in crate::loot::ConsumableKind::all() {
         if kind.lowercase_name() == trimmed {
             return Some(GiveTarget::Item {
-                name: kind.display_name(),
+                stock: StockItem::Consumable(kind),
                 qty: give_qty_for(kind),
             });
         }

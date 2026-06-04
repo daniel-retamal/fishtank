@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use ratatui::style::Color;
 
 use crate::economy::{Purchasable, Rarity, Sellable};
@@ -53,7 +55,7 @@ impl FishSpecies {
     }
 
     pub fn all_buyable() -> &'static [FishSpecies] {
-        BUYABLE_SPECIES
+        &BUYABLE_SPECIES
     }
 
     pub fn buy_price(self) -> u32 {
@@ -70,6 +72,8 @@ pub struct SpeciesConfig {
     pub sway_speed: f32,
     pub speed_range: (f32, f32),
     pub rarity: Rarity,
+    pub buyable: bool,
+    pub abductable: bool,
     pub auto_glisten: bool,
     pub auto_mutate: bool,
     pub can_zoomie: bool,
@@ -121,26 +125,13 @@ pub const ALL_SPECIES: &[FishSpecies] = &[
     FishSpecies::Candyfish,
 ];
 
-const BUYABLE_SPECIES: &[FishSpecies] = &[
-    FishSpecies::Merluza,
-    FishSpecies::Betta,
-    FishSpecies::Salmon,
-    FishSpecies::Chromis,
-    FishSpecies::Tang,
-    FishSpecies::Koi,
-    FishSpecies::Carpin,
-    FishSpecies::Turbofish,
-    FishSpecies::Deadfish,
-    FishSpecies::Anchoveta,
-    FishSpecies::Jellyfish,
-    FishSpecies::Goldenfish,
-    FishSpecies::Goldfish,
-    FishSpecies::Snapper,
-    FishSpecies::Mutantfish,
-    FishSpecies::Nishiki,
-    FishSpecies::Aka,
-    FishSpecies::Kuro,
-];
+static BUYABLE_SPECIES: LazyLock<Vec<FishSpecies>> = LazyLock::new(|| {
+    ALL_SPECIES
+        .iter()
+        .copied()
+        .filter(|species| species.config().buyable)
+        .collect()
+});
 
 #[derive(Debug, Clone, Copy)]
 pub enum BodyTemplate {
@@ -309,6 +300,8 @@ fn standard_config(
         sway_speed,
         speed_range,
         rarity,
+        buyable: true,
+        abductable: true,
         auto_glisten: false,
         auto_mutate: false,
         can_zoomie: true,
@@ -339,6 +332,8 @@ fn fixed_config(
         sway_speed: 0.0,
         speed_range,
         rarity,
+        buyable: true,
+        abductable: true,
         auto_glisten: false,
         auto_mutate: false,
         can_zoomie: true,
@@ -457,6 +452,8 @@ impl FishSpecies {
                     sway_speed: 0.04,
                     speed_range: (1.0, 2.5),
                     rarity: Rare,
+                    buyable: true,
+                    abductable: true,
                     auto_glisten: false,
                     auto_mutate: false,
                     can_zoomie: true,
@@ -575,6 +572,8 @@ impl FishSpecies {
                 sway_speed: 0.11,
                 speed_range: (2.0, 5.0),
                 rarity: Legendary,
+                buyable: true,
+                abductable: true,
                 auto_glisten: true,
                 auto_mutate: true,
                 can_zoomie: true,
@@ -585,15 +584,19 @@ impl FishSpecies {
                 sell_base: [0; 4],
                 sell_cap: [0; 4],
             },
-            Candyfish => standard_config(
-                "Candyfish",
-                standard(EYE_ROUND, TailKind::Wide),
-                &CANDYFISH_PALETTE,
-                Solid,
-                0.10,
-                (1.5, 3.0),
-                Legendary,
-            ),
+            Candyfish => {
+                let mut config = standard_config(
+                    "Candyfish",
+                    standard(EYE_ROUND, TailKind::Wide),
+                    &CANDYFISH_PALETTE,
+                    Solid,
+                    0.10,
+                    (1.5, 3.0),
+                    Legendary,
+                );
+                config.buyable = false;
+                config
+            }
             Unfish => SpeciesConfig {
                 name: "Unfish",
                 body: BodyTemplate::Standard(standard(EYE_ROUND, TailKind::Wide)),
@@ -602,6 +605,8 @@ impl FishSpecies {
                 sway_speed: 0.10,
                 speed_range: (2.0, 4.0),
                 rarity: Common,
+                buyable: false,
+                abductable: true,
                 auto_glisten: false,
                 auto_mutate: false,
                 can_zoomie: false,
@@ -616,15 +621,12 @@ impl FishSpecies {
     }
 
     pub fn sell_value(self, weight_g: u32, size_cat: SizeCategory, mutation_count: u32) -> u32 {
-        if self == FishSpecies::Unfish {
-            return 0;
-        }
-        if self == FishSpecies::Mutantfish {
+        let config = self.config();
+        if config.auto_mutate {
             return MUTANT_SELL_BASE
                 + mutation_count * MUTANT_SELL_PER_MUTATION
                 + weight_g / MUTANT_SELL_WEIGHT_DIVISOR;
         }
-        let config = self.config();
         let i = size_cat as usize;
         let (weight_base, weight_cap, sell_base, sell_cap) = (
             config.weight_base[i],

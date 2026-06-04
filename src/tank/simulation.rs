@@ -100,7 +100,10 @@ impl Tank {
     pub(super) fn steer_seeking_fish(&mut self) {
         for i in 0..self.fish.len() {
             let (idx, approach_right) = match self.fish[i].state {
-                FishState::SeekingFood(idx, ar) => (idx, ar),
+                FishState::SeekingFood {
+                    food_idx,
+                    approach_right,
+                } => (food_idx, approach_right),
                 _ => continue,
             };
             if idx >= self.food.len() {
@@ -154,7 +157,7 @@ impl Tank {
     pub(super) fn check_eating_collisions(&mut self) {
         for i in 0..self.fish.len() {
             let idx = match self.fish[i].state {
-                FishState::SeekingFood(idx, _) => idx,
+                FishState::SeekingFood { food_idx, .. } => food_idx,
                 _ => continue,
             };
             if idx >= self.food.len() || self.food[idx].eaten {
@@ -223,7 +226,10 @@ impl Tank {
                 } else {
                     Direction::Left
                 };
-                self.fish[i].state = FishState::SeekingFood(idx, approach_right);
+                self.fish[i].state = FishState::SeekingFood {
+                    food_idx: idx,
+                    approach_right,
+                };
             }
         }
     }
@@ -293,7 +299,8 @@ impl Tank {
         let y_max = (self.height as f32 - 5.0).max(3.0);
         let x = rng.random_range(5.0_f32..x_max);
         let y = rng.random_range(3.0_f32..y_max);
-        let fish = crate::fishes::fish::Fish::new_unfish(kind, actual_name.clone(), x, y, rng);
+        let mut fish = crate::fishes::fish::Fish::new_unfish(kind, actual_name.clone(), x, y, rng);
+        self.mark_if_hell(&mut fish);
         self.used_names.insert(actual_name);
         self.fish.push(fish);
     }

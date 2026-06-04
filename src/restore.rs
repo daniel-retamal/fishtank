@@ -18,7 +18,7 @@ impl Restorable for Fish {
         if !matches!(config.body, BodyTemplate::Fixed { .. }) {
             self.body_size = config.sizes[self.size_category as usize];
         }
-        if self.species == FishSpecies::Mutantfish {
+        if config.auto_mutate {
             self.color = FishSpecies::mutant_color_for_seed(self.pattern_seed);
         } else if !config.palette.is_empty() {
             self.color = config.palette[0];

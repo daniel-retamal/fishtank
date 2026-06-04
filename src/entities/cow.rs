@@ -5,7 +5,6 @@ use ratatui::style::Color;
 
 use crate::colors::{BROWN, DARK_GRAY, LIGHT_GREEN, LIGHT_YELLOW, PINK, WHITE};
 use crate::entities::components::{Position, SwayState, tick_sway};
-use crate::entities::glistening::{color_for_glisten, derive_glistening_palette};
 use crate::fishes::mutant::{EyeState, MutantState, MutantTail, MutationRecord};
 use crate::fishes::mutations::Mutatable;
 
@@ -14,7 +13,7 @@ pub const COW_BASE_TORSO: usize = 7;
 const COW_HEAD_CAP: usize = 5;
 const COW_HEAD_TOP_W: usize = 4;
 pub const COW_DEFAULT_SWAY_SPEED: f32 = 0.05;
-pub const COW_TRANSPARENT: char = '\0';
+pub const COW_TRANSPARENT: char = crate::sprite::TRANSPARENT;
 pub const COW_ANTENNA_ROWS: u16 = 1;
 const ANTENNA_BALL: char = 'o';
 const ANTENNA_LEFT_STEM: char = '\\';
@@ -296,7 +295,7 @@ pub fn cow_sprite(cow: &Cow) -> Vec<Vec<(char, Color)>> {
             );
         }
         if let Some(peak) = glisten_color {
-            apply_glisten(&mut rows, phase, glisten_mode, cow.color, peak);
+            crate::sprite::apply_glisten(&mut rows, phase, glisten_mode, cow.color, peak);
         }
         for &(pos, color) in &cow.mutant.color_patches {
             apply_color_patch(&mut rows, pos, color);
@@ -398,7 +397,7 @@ pub fn cow_sprite(cow: &Cow) -> Vec<Vec<(char, Color)>> {
     }
 
     if let Some(peak) = glisten_color {
-        apply_glisten(&mut rows, phase, glisten_mode, cow.color, peak);
+        crate::sprite::apply_glisten(&mut rows, phase, glisten_mode, cow.color, peak);
     }
 
     for &(pos, color) in &cow.mutant.color_patches {
@@ -606,30 +605,6 @@ fn apply_random_patches(rows: &mut [Vec<(char, Color)>], patch: Color, seed: u64
                     }
                     target -= 1;
                 }
-            }
-        }
-    }
-}
-
-fn apply_glisten(
-    rows: &mut [Vec<(char, Color)>],
-    phase: f32,
-    mode: crate::entities::glistening::GlisteningMode,
-    base: Color,
-    peak: Color,
-) {
-    let (b, mid, p_default) = derive_glistening_palette(base);
-    let p = if peak == Color::Reset {
-        p_default
-    } else {
-        peak
-    };
-    let total = rows.len();
-    for (row_i, row) in rows.iter_mut().enumerate() {
-        let c = color_for_glisten(mode, phase, row_i, total, b, mid, p);
-        for cell in row.iter_mut() {
-            if cell.0 != ' ' && cell.0 != COW_TRANSPARENT {
-                cell.1 = c;
             }
         }
     }

@@ -56,7 +56,10 @@ impl Direction {
 #[derive(Clone, Copy)]
 pub enum FishState {
     Idle,
-    SeekingFood(usize, bool),
+    SeekingFood {
+        food_idx: usize,
+        approach_right: bool,
+    },
     Eating {
         time_remaining: f32,
     },
@@ -137,12 +140,12 @@ fn init_body_fields(
     let weight_g = config.weight_base[size_cat as usize];
     let speed = rng.random_range(config.speed_range.0..config.speed_range.1);
     let pattern_seed: u64 = rng.random();
-    let color = if species == FishSpecies::Mutantfish {
+    let color = if config.auto_mutate {
         FishSpecies::mutant_color_for_seed(pattern_seed)
     } else {
         config.palette[rng.random_range(0..config.palette.len())]
     };
-    let mutant = if species == FishSpecies::Mutantfish {
+    let mutant = if config.auto_mutate {
         Some(Box::new(MutantState::new(body_size, pattern_seed, rng)))
     } else {
         None
@@ -165,7 +168,7 @@ fn init_body_fields(
 
 impl Fish {
     pub fn new(species: FishSpecies, name: String, x: f32, y: f32, rng: &mut impl RngExt) -> Self {
-        let size_cat = if species == FishSpecies::Mutantfish {
+        let size_cat = if species.config().auto_mutate {
             SizeCategory::M
         } else {
             roll_size_category(rng)
@@ -731,7 +734,7 @@ impl Fish {
         let eating = matches!(self.state, FishState::Eating { .. });
 
         let (mouth, body_ch, wave_ch, non_double_tail): (char, char, char, Vec<char>) =
-            if self.species == FishSpecies::Mutantfish {
+            if self.species.config().auto_mutate {
                 let (raw_mouth, bc, wc) =
                     body_chars_for_variant(mutant.body_variant, facing_left, mutant.mouth_inverted);
                 let mo = if eating {
@@ -936,7 +939,7 @@ impl Fish {
                     };
                 }
             }
-            FishState::SeekingFood(_, _) => {}
+            FishState::SeekingFood { .. } => {}
             FishState::Eating { time_remaining } => {
                 let new_time = time_remaining - dt;
                 if new_time <= 0.0 {

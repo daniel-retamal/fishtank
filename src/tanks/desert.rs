@@ -10,7 +10,7 @@ use crate::colors::{
 use crate::entities::star::{StarTwinkle, star_field_target};
 use crate::tanks::coral::mirror_char;
 
-const TRANSPARENT: char = '\0';
+use crate::sprite::TRANSPARENT;
 
 pub const CYCLE_SECS: f32 = 7.5 * 60.0;
 const SKY_SPEED: f32 = TAU / CYCLE_SECS;
@@ -204,14 +204,6 @@ const CACTUS_E: &[&str] = &[
     r"  -\_-_|_-_|_/",
 ];
 
-fn mirror_cactus_char(ch: char) -> char {
-    match ch {
-        '`' => '\'',
-        '\'' => '`',
-        other => mirror_char(other),
-    }
-}
-
 #[derive(Clone, Copy)]
 enum CactusVariant {
     A,
@@ -315,7 +307,7 @@ fn build_cactus_grid(
         for row in &mut grid {
             row.reverse();
             for cell in row.iter_mut() {
-                cell.0 = mirror_cactus_char(cell.0);
+                cell.0 = mirror_char(cell.0);
             }
         }
     }

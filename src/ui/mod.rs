@@ -8,6 +8,7 @@ pub mod hints;
 pub mod index_overlay;
 pub mod input_action;
 pub mod inventory_overlay;
+pub mod line_editor;
 pub mod scroll_list;
 pub mod shop_overlay;
 pub mod show_overlay;

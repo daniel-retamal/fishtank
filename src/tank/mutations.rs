@@ -12,21 +12,22 @@ use crate::fishes::mutations::{
 };
 use crate::fishes::species::{BodyTemplate, FishSpecies};
 use crate::fishes::unfish::{
-    SLIME_GLISTEN_SPEED_FAST, SLIME_GLISTEN_SPEED_SLOW, UnfishKind, worm_display_width,
+    SLIME_GLISTEN_SPEED_FAST, SLIME_GLISTEN_SPEED_SLOW, UnfishKind, UnfishMutationStyle,
+    worm_display_width,
 };
 use crate::util::{hyperbolic_scale, sample_exponential};
 
+use super::Tank;
 use super::{
     MIN_SPLIT_BODY_SIZE, MUTATION_ALPHA, MUTATION_INTERVAL_BASE, MUTATION_MEAN_FLOOR_SECS,
 };
-use super::{Tank, TankKind};
 
 impl Tank {
     pub(super) fn tick_mutations(&mut self, dt: f32) {
         let mutant_count = self
             .fish
             .iter()
-            .filter(|f| f.species == FishSpecies::Mutantfish)
+            .filter(|f| f.species.config().auto_mutate)
             .count();
         if mutant_count == 0 {
             return;
@@ -191,9 +192,7 @@ impl Tank {
                 .count = parent_mutation_count;
         }
         new_fish.display_width = new_fish.mutant.as_ref().unwrap().display_width(other_half);
-        if self.kind == TankKind::Hell {
-            new_fish.devil_marked = true;
-        }
+        self.mark_if_hell(&mut new_fish);
 
         self.used_names.insert(new_name);
         self.fish.push(new_fish);
@@ -260,9 +259,7 @@ impl Tank {
                 .get_or_insert_with(|| Box::new(MutationRecord::default()))
                 .count = mut_count;
         }
-        if self.kind == TankKind::Hell {
-            new_fish.devil_marked = true;
-        }
+        self.mark_if_hell(&mut new_fish);
         let parent_fish_name = self.fish[idx].name.clone();
         self.fish[idx]
             .mutations
@@ -286,24 +283,19 @@ impl Tank {
         };
         let mut rng = rand::rng();
         if self.fish[fish_idx].species == FishSpecies::Unfish {
-            let kind = self.fish[fish_idx].unfish_state.as_ref().map(|us| us.kind);
-            if matches!(
-                kind,
-                Some(
-                    UnfishKind::Ball
-                        | UnfishKind::Skull
-                        | UnfishKind::Reversed
-                        | UnfishKind::Blinker
-                        | UnfishKind::Doppleganger
-                        | UnfishKind::Phantom
-                )
-            ) {
-                self.apply_slime_mutation(fish_idx, mutation_name, &mut rng);
-            } else if matches!(kind, Some(UnfishKind::Worm)) {
-                if mutation_name.eq_ignore_ascii_case("mitosis") {
-                    self.apply_worm_mitosis(fish_idx);
-                } else {
-                    self.apply_worm_mutation(fish_idx, mutation_name, &mut rng);
+            let Some(kind) = self.fish[fish_idx].unfish_state.as_ref().map(|us| us.kind) else {
+                return;
+            };
+            match kind.mutation_style() {
+                UnfishMutationStyle::Slime => {
+                    self.apply_slime_mutation(fish_idx, mutation_name, &mut rng)
+                }
+                UnfishMutationStyle::Worm => {
+                    if mutation_name.eq_ignore_ascii_case("mitosis") {
+                        self.apply_worm_mitosis(fish_idx);
+                    } else {
+                        self.apply_worm_mutation(fish_idx, mutation_name, &mut rng);
+                    }
                 }
             }
             return;
@@ -651,9 +643,7 @@ impl Tank {
             unfish_state.slime_glisten_speed = glisten_speed;
         }
         new_fish.display_width = worm_display_width(other_half, extra_eyes, false);
-        if self.kind == TankKind::Hell {
-            new_fish.devil_marked = true;
-        }
+        self.mark_if_hell(&mut new_fish);
         self.used_names.insert(new_name);
         self.fish.push(new_fish);
         let new_idx = self.fish.len() - 1;
@@ -826,25 +816,20 @@ impl Tank {
         };
         let mut rng = rand::rng();
         if self.fish[fish_idx].species == FishSpecies::Unfish {
-            let kind = self.fish[fish_idx].unfish_state.as_ref().map(|us| us.kind);
             let mutation_name_lower = mutation_name.to_ascii_lowercase();
-            if matches!(
-                kind,
-                Some(
-                    UnfishKind::Ball
-                        | UnfishKind::Skull
-                        | UnfishKind::Reversed
-                        | UnfishKind::Blinker
-                        | UnfishKind::Doppleganger
-                        | UnfishKind::Phantom
-                )
-            ) {
-                self.apply_slime_mutation(fish_idx, &mutation_name_lower, &mut rng);
-            } else if matches!(kind, Some(UnfishKind::Worm)) {
-                if mutation_name_lower == "mitosis" {
-                    self.apply_worm_mitosis(fish_idx);
-                } else {
-                    self.apply_worm_mutation(fish_idx, &mutation_name_lower, &mut rng);
+            let Some(kind) = self.fish[fish_idx].unfish_state.as_ref().map(|us| us.kind) else {
+                return true;
+            };
+            match kind.mutation_style() {
+                UnfishMutationStyle::Slime => {
+                    self.apply_slime_mutation(fish_idx, &mutation_name_lower, &mut rng)
+                }
+                UnfishMutationStyle::Worm => {
+                    if mutation_name_lower == "mitosis" {
+                        self.apply_worm_mitosis(fish_idx);
+                    } else {
+                        self.apply_worm_mutation(fish_idx, &mutation_name_lower, &mut rng);
+                    }
                 }
             }
             return true;

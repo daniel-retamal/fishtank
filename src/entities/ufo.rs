@@ -314,8 +314,8 @@ pub fn ufo_sprite(ufo: &Ufo) -> Vec<Vec<(char, Color)>> {
         } else {
             None
         };
-        let interior = cow_overlay_row
-            .and_then(|row| interior_mask.as_ref().map(|m| m[row].as_slice()));
+        let interior =
+            cow_overlay_row.and_then(|row| interior_mask.as_ref().map(|m| m[row].as_slice()));
         rows.push(color_cone_row(line, wave_color, row_cow_colors, interior));
     }
 
@@ -395,8 +395,7 @@ fn cow_bay_interior_mask() -> Vec<Vec<bool>> {
         })
         .collect();
     let mut exterior = vec![vec![false; width]; height];
-    let mut queue: std::collections::VecDeque<(usize, usize)> =
-        std::collections::VecDeque::new();
+    let mut queue: std::collections::VecDeque<(usize, usize)> = std::collections::VecDeque::new();
     for r in 0..height {
         for c in 0..width {
             if (r == 0 || r + 1 == height || c == 0 || c + 1 == width)

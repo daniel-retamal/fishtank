@@ -239,21 +239,7 @@ impl FloorAlgae {
     }
 }
 
-pub fn mirror_char(ch: char) -> char {
-    match ch {
-        '/' => '\\',
-        '\\' => '/',
-        '(' => ')',
-        ')' => '(',
-        '{' => '}',
-        '}' => '{',
-        '╱' => '╲',
-        '╲' => '╱',
-        '⟋' => '⟍',
-        '⟍' => '⟋',
-        _ => ch,
-    }
-}
+pub use crate::sprite::mirror_char;
 
 pub fn vert_wave_char(base: char, row: usize, phase: f32) -> char {
     if base == '|' || base == '│' {

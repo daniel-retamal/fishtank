@@ -9,6 +9,7 @@ use crate::colors::{
     ORANGE_DARK, ORANGE_LIGHT, WHITE,
 };
 use crate::entities::components::{BlinkTimer, SwayState, tick_sway};
+use crate::sprite::opaque_line;
 use crate::util::sample_exponential;
 
 pub const GATE_COLOR: Color = GRAY;
@@ -42,7 +43,7 @@ const GRAVE_MIN_WIDTH: i32 = 13;
 const GRAVE_NAME_PAD: i32 = 1;
 const GRAVE_BODY_BLANK_ROWS: usize = 4;
 const GRAVE_COLOR: Color = DARK_GRAY;
-pub const GRAVE_TRANSPARENT: char = '\0';
+pub const GRAVE_TRANSPARENT: char = crate::sprite::TRANSPARENT;
 
 const PUMPKIN_EYE_OPEN: char = '0';
 const PUMPKIN_EYE_CLOSED: char = '-';
@@ -165,26 +166,6 @@ impl PumpkinVariant {
     }
 }
 
-fn opaque_line(s: &str, color: Color) -> Vec<(char, Color)> {
-    let chars: Vec<char> = s.chars().collect();
-    let first = chars.iter().position(|&c| c != ' ');
-    let last = chars.iter().rposition(|&c| c != ' ');
-    chars
-        .iter()
-        .enumerate()
-        .map(|(i, &c)| {
-            if c == ' ' {
-                match (first, last) {
-                    (Some(f), Some(l)) if i > f && i < l => (' ', color),
-                    _ => (GRAVE_TRANSPARENT, color),
-                }
-            } else {
-                (c, color)
-            }
-        })
-        .collect()
-}
-
 pub struct Grave {
     pub base_x: i32,
     pub width: i32,
@@ -247,12 +228,12 @@ fn cap_row(tw: usize, cap_w: usize) -> Vec<(char, Color)> {
         cap,
         " ".repeat(tw - lead - cap_w)
     );
-    opaque_line(&line, GRAVE_COLOR)
+    opaque_line(&line, GRAVE_COLOR, |_, _| GRAVE_COLOR)
 }
 
 fn shoulder_row(tw: usize) -> Vec<(char, Color)> {
     let line = format!(".'{}`.", " ".repeat(tw - 4));
-    opaque_line(&line, GRAVE_COLOR)
+    opaque_line(&line, GRAVE_COLOR, |_, _| GRAVE_COLOR)
 }
 
 fn body_row(tw: usize, name: Option<&str>) -> Vec<(char, Color)> {
@@ -269,7 +250,7 @@ fn body_row(tw: usize, name: Option<&str>) -> Vec<(char, Color)> {
         .chain(content)
         .chain(std::iter::once('|'))
         .collect();
-    opaque_line(&line, GRAVE_COLOR)
+    opaque_line(&line, GRAVE_COLOR, |_, _| GRAVE_COLOR)
 }
 
 fn grave_width_for(name: Option<&str>) -> i32 {
@@ -313,7 +294,7 @@ impl Pumpkin {
             .iter()
             .enumerate()
             .map(|(row_idx, line)| {
-                let mut cells = opaque_line(line, self.color);
+                let mut cells = opaque_line(line, self.color, |_, _| self.color);
                 for &(er, ec) in eyes {
                     if er == row_idx && ec < cells.len() {
                         cells[ec] = (eye_char, PUMPKIN_EYE_COLOR);

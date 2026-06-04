@@ -1,3 +1,4 @@
+pub mod abduction;
 pub mod app;
 pub mod colors;
 pub mod commands;
@@ -9,6 +10,7 @@ pub mod loot;
 pub mod names;
 pub mod restore;
 pub mod settings;
+pub mod sprite;
 pub mod tank;
 pub mod tanks;
 pub mod ui;

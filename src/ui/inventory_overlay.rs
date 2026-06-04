@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use crate::colors::{BLACK, DARK_GRAY, STEEL, WHITE};
-use crate::loot::ConsumableKind;
+use crate::loot::StockItem;
 use crate::ui::{
     hints::{HINT_CLOSE, HINT_ENTER_CONSUME, HINT_NAV},
     scroll_list, table,
@@ -28,42 +28,29 @@ pub struct InventoryState {
     pub items: Vec<InventoryItem>,
 }
 
-fn consumable_for_name(name: &str) -> Option<ConsumableKind> {
-    ConsumableKind::all()
-        .into_iter()
-        .find(|k| k.display_name() == name)
-}
-
-pub fn is_consumable_name(name: &str) -> bool {
-    consumable_for_name(name).is_some()
-}
-
-fn item_desc(name: &str, rng: &mut impl RngExt) -> String {
-    if let Some(kind) = consumable_for_name(name) {
-        return kind.description().to_string();
-    }
-    match name {
-        "Junk" => {
+fn item_desc(stock: StockItem, rng: &mut impl RngExt) -> String {
+    match stock {
+        StockItem::Consumable(kind) => kind.description().to_string(),
+        StockItem::Junk => {
             if rng.random_range(0..10u32) == 0 {
                 "Junk... having 100 would be nice".to_string()
             } else {
                 "Junk...".to_string()
             }
         }
-        _ => String::new(),
     }
 }
 
 impl InventoryState {
-    pub fn new(inventory: &HashMap<String, u32>, rng: &mut impl RngExt) -> Option<Self> {
+    pub fn new(inventory: &HashMap<StockItem, u32>, rng: &mut impl RngExt) -> Option<Self> {
         let mut items: Vec<InventoryItem> = inventory
             .iter()
             .filter(|(_, qty)| **qty > 0)
-            .map(|(name, qty)| InventoryItem {
-                name: name.clone(),
+            .map(|(stock, qty)| InventoryItem {
+                name: stock.display_name().to_string(),
                 qty: *qty,
-                is_consumable: is_consumable_name(name),
-                desc: item_desc(name, rng),
+                is_consumable: stock.is_consumable(),
+                desc: item_desc(*stock, rng),
             })
             .collect();
         if items.is_empty() {
@@ -77,7 +64,7 @@ impl InventoryState {
         })
     }
 
-    pub fn update_from(&mut self, inventory: &HashMap<String, u32>, rng: &mut impl RngExt) {
+    pub fn update_from(&mut self, inventory: &HashMap<StockItem, u32>, rng: &mut impl RngExt) {
         let old_descs: HashMap<String, String> = self
             .items
             .iter()
@@ -87,15 +74,16 @@ impl InventoryState {
         let mut items: Vec<InventoryItem> = inventory
             .iter()
             .filter(|(_, qty)| **qty > 0)
-            .map(|(name, qty)| {
+            .map(|(stock, qty)| {
+                let name = stock.display_name().to_string();
                 let desc = old_descs
-                    .get(name)
+                    .get(&name)
                     .cloned()
-                    .unwrap_or_else(|| item_desc(name, rng));
+                    .unwrap_or_else(|| item_desc(*stock, rng));
                 InventoryItem {
-                    name: name.clone(),
+                    name,
                     qty: *qty,
-                    is_consumable: is_consumable_name(name),
+                    is_consumable: stock.is_consumable(),
                     desc,
                 }
             })

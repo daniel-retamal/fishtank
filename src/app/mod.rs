@@ -7,11 +7,15 @@ use ratatui::{
 };
 
 use crate::{
+    abduction::Abductable,
     commands,
     consumable::{ActiveMilkStatus, CONSUMABLE_STACK_BONUS},
     fishes::fish::Fish,
     fishes::species::FishSpecies,
-    loot::{ConsumableKind, CowCounts, ItemKind, LootKind, LootPool, roll_loot, roll_loot_no_fish},
+    loot::{
+        ConsumableKind, CowCounts, ItemKind, LootKind, LootPool, StockItem, roll_loot,
+        roll_loot_no_fish,
+    },
     names,
     settings::Settings,
     tank::{ActiveConsumable, Tank, TankEvent, TankKind},
@@ -23,6 +27,7 @@ use crate::{
         fishtanks_overlay::{FishtanksOverlay, FishtanksState},
         index_overlay::{IndexOverlay, IndexState},
         inventory_overlay::{InventoryOverlay, InventoryState},
+        line_editor::{CommandHistory, LineEditor},
         shop_overlay::{NecroPopupWidget, ShopOverlay, ShopState},
         show_overlay::{ShowOverlay, ShowState},
         tank_view::TankView,
@@ -37,6 +42,21 @@ mod input;
 const TERMINAL_HEIGHT_DEFAULT: u16 = 24;
 const TERMINAL_WIDTH_DEFAULT: u16 = 80;
 
+enum Overlay {
+    Index(IndexState),
+    Show {
+        state: ShowState,
+        backed_index: Option<Box<IndexState>>,
+    },
+    Inventory(InventoryState),
+    Fishing(FishingState),
+    Catch(CatchState),
+    Shop(ShopState),
+    Fishtanks(FishtanksState),
+    ConsumePicker(ConsumePickerState),
+    Necronomicon(TextInput),
+}
+
 pub struct App {
     pub settings: Settings,
     pub tanks: Vec<Tank>,
@@ -44,27 +64,13 @@ pub struct App {
     used_tank_names: HashSet<String>,
     pub cash: u32,
     pub food_supply: u32,
-    pub inventory: HashMap<String, u32>,
+    pub inventory: HashMap<StockItem, u32>,
     pub active_consumables: Vec<ActiveConsumable>,
     pub active_statuses: Vec<ActiveMilkStatus>,
-    pub command_input: String,
+    pub editor: LineEditor,
     pub running: bool,
-    cursor_pos: usize,
-    cursor_visible: bool,
-    blink_counter: f32,
-    history: Vec<String>,
-    history_pos: Option<usize>,
-    draft: String,
-    pub index_state: Option<IndexState>,
-    backed_index_state: Option<IndexState>,
-    show_state: Option<ShowState>,
-    inventory_state: Option<InventoryState>,
-    fishing_state: Option<FishingState>,
-    catch_state: Option<CatchState>,
-    shop_state: Option<ShopState>,
-    pub fishtanks_state: Option<FishtanksState>,
-    pub consume_picker_state: Option<ConsumePickerState>,
-    necronomicon_popup: Option<TextInput>,
+    history: CommandHistory,
+    active_overlay: Option<Overlay>,
     terminal_height: u16,
     terminal_width: u16,
     pub graveyard: Vec<Fish>,
@@ -114,31 +120,17 @@ impl App {
             food_supply: 0,
             inventory: {
                 let mut inv = HashMap::new();
-                inv.insert("Coffee".to_string(), 1);
-                inv.insert("Bait".to_string(), 1);
-                inv.insert("Necronomicon".to_string(), 1);
+                inv.insert(StockItem::COFFEE, 1);
+                inv.insert(StockItem::BAIT, 1);
+                inv.insert(StockItem::NECRONOMICON, 1);
                 inv
             },
             active_consumables: Vec::new(),
             active_statuses: Vec::new(),
-            command_input: String::new(),
+            editor: LineEditor::new(),
             running: true,
-            cursor_pos: 0,
-            cursor_visible: true,
-            blink_counter: 0.0,
-            history: Vec::new(),
-            history_pos: None,
-            draft: String::new(),
-            index_state: None,
-            backed_index_state: None,
-            show_state: None,
-            inventory_state: None,
-            fishing_state: None,
-            catch_state: None,
-            shop_state: None,
-            fishtanks_state: None,
-            consume_picker_state: None,
-            necronomicon_popup: None,
+            history: CommandHistory::new(),
+            active_overlay: None,
             terminal_height: TERMINAL_HEIGHT_DEFAULT,
             terminal_width: TERMINAL_WIDTH_DEFAULT,
             graveyard: Vec::new(),
@@ -149,6 +141,140 @@ impl App {
             nothing_stacks: 0,
             pending_ufo_dest: HashMap::new(),
         }
+    }
+
+    fn index_state(&self) -> Option<&IndexState> {
+        match &self.active_overlay {
+            Some(Overlay::Index(s)) => Some(s),
+            _ => None,
+        }
+    }
+
+    fn index_state_mut(&mut self) -> Option<&mut IndexState> {
+        match &mut self.active_overlay {
+            Some(Overlay::Index(s)) => Some(s),
+            _ => None,
+        }
+    }
+
+    fn show_state_mut(&mut self) -> Option<&mut ShowState> {
+        match &mut self.active_overlay {
+            Some(Overlay::Show { state, .. }) => Some(state),
+            _ => None,
+        }
+    }
+
+    fn inventory_state(&self) -> Option<&InventoryState> {
+        match &self.active_overlay {
+            Some(Overlay::Inventory(s)) => Some(s),
+            _ => None,
+        }
+    }
+
+    fn inventory_state_mut(&mut self) -> Option<&mut InventoryState> {
+        match &mut self.active_overlay {
+            Some(Overlay::Inventory(s)) => Some(s),
+            _ => None,
+        }
+    }
+
+    fn fishing_state(&self) -> Option<&FishingState> {
+        match &self.active_overlay {
+            Some(Overlay::Fishing(s)) => Some(s),
+            _ => None,
+        }
+    }
+
+    fn fishing_state_mut(&mut self) -> Option<&mut FishingState> {
+        match &mut self.active_overlay {
+            Some(Overlay::Fishing(s)) => Some(s),
+            _ => None,
+        }
+    }
+
+    fn catch_state(&self) -> Option<&CatchState> {
+        match &self.active_overlay {
+            Some(Overlay::Catch(s)) => Some(s),
+            _ => None,
+        }
+    }
+
+    fn catch_state_mut(&mut self) -> Option<&mut CatchState> {
+        match &mut self.active_overlay {
+            Some(Overlay::Catch(s)) => Some(s),
+            _ => None,
+        }
+    }
+
+    fn consume_picker_state(&self) -> Option<&ConsumePickerState> {
+        match &self.active_overlay {
+            Some(Overlay::ConsumePicker(s)) => Some(s),
+            _ => None,
+        }
+    }
+
+    fn consume_picker_state_mut(&mut self) -> Option<&mut ConsumePickerState> {
+        match &mut self.active_overlay {
+            Some(Overlay::ConsumePicker(s)) => Some(s),
+            _ => None,
+        }
+    }
+
+    fn necronomicon_popup(&self) -> Option<&TextInput> {
+        match &self.active_overlay {
+            Some(Overlay::Necronomicon(input)) => Some(input),
+            _ => None,
+        }
+    }
+
+    fn necronomicon_popup_mut(&mut self) -> Option<&mut TextInput> {
+        match &mut self.active_overlay {
+            Some(Overlay::Necronomicon(input)) => Some(input),
+            _ => None,
+        }
+    }
+
+    pub fn index_overlay_open(&self) -> bool {
+        matches!(self.active_overlay, Some(Overlay::Index(_)))
+    }
+
+    pub fn fishtanks_overlay_open(&self) -> bool {
+        matches!(self.active_overlay, Some(Overlay::Fishtanks(_)))
+    }
+
+    pub fn fishtanks_state_mut(&mut self) -> Option<&mut FishtanksState> {
+        match &mut self.active_overlay {
+            Some(Overlay::Fishtanks(s)) => Some(s),
+            _ => None,
+        }
+    }
+
+    fn take_catch_state(&mut self) -> Option<CatchState> {
+        match self.active_overlay.take() {
+            Some(Overlay::Catch(s)) => Some(s),
+            other => {
+                self.active_overlay = other;
+                None
+            }
+        }
+    }
+
+    fn take_shop_state(&mut self) -> Option<ShopState> {
+        match self.active_overlay.take() {
+            Some(Overlay::Shop(s)) => Some(s),
+            other => {
+                self.active_overlay = other;
+                None
+            }
+        }
+    }
+
+    fn set_overlay(&mut self, overlay: Overlay) {
+        self.active_overlay = Some(overlay);
+    }
+
+    fn close_overlay(&mut self) {
+        self.active_overlay = None;
     }
 
     fn tank(&self) -> &Tank {
@@ -311,31 +437,35 @@ impl App {
         kind: ConsumableKind,
         source: crate::ui::consume_picker::ConsumePickerSource,
     ) {
-        let item_name = kind.display_name().to_string();
-        if self.inventory.get(&item_name).copied().unwrap_or(0) == 0 {
+        let stock = StockItem::Consumable(kind);
+        if self.inventory.get(&stock).copied().unwrap_or(0) == 0 {
             return;
         }
         match kind {
             ConsumableKind::Necronomicon => {
-                self.inventory_state = None;
-                self.necronomicon_popup = Some(crate::ui::text_input::TextInput::new());
+                self.set_overlay(Overlay::Necronomicon(
+                    crate::ui::text_input::TextInput::new(),
+                ));
             }
             ConsumableKind::Milk(crate::loot::MilkVariant::Plain) => {
-                self.apply_plain_milk(&item_name);
+                self.apply_plain_milk(stock);
             }
             ConsumableKind::Milk(variant) => {
-                self.open_consume_picker(variant, item_name, source);
+                self.open_consume_picker(variant, kind.display_name().to_string(), source);
             }
             ConsumableKind::Coffee | ConsumableKind::Bait => {
                 self.consume_item(kind);
-                let entry = self.inventory.entry(item_name).or_insert(0);
+                let entry = self.inventory.entry(stock).or_insert(0);
                 *entry = entry.saturating_sub(1);
                 self.inventory.retain(|_, v| *v > 0);
-                if let Some(ref mut state) = self.inventory_state {
+                let now_empty = if let Some(Overlay::Inventory(state)) = &mut self.active_overlay {
                     state.update_from(&self.inventory, &mut rand::rng());
-                    if state.items.is_empty() {
-                        self.inventory_state = None;
-                    }
+                    state.items.is_empty()
+                } else {
+                    false
+                };
+                if now_empty {
+                    self.close_overlay();
                 }
                 let bh = self.bar_height();
                 let tw = self.terminal_width;
@@ -346,82 +476,84 @@ impl App {
         }
     }
 
-    pub fn tick(&mut self) {
-        if let Some(ref mut catch) = self.catch_state {
-            catch.tick(self.settings.fps);
+    fn tick_fishing(&mut self) {
+        let fps = self.settings.fps;
+        let coffee = self.coffee_stacks();
+        let milk = self.milk_buffs();
+        if let Some(s) = self.fishing_state_mut() {
+            s.tick(fps, coffee, milk);
+        }
+        let (game_over, captured) = match self.fishing_state() {
+            Some(s) => (s.game_over, s.captured),
+            None => return,
+        };
+        if game_over {
+            self.close_overlay();
             return;
         }
-
-        if self.necronomicon_popup.is_some() {
+        if !captured {
             return;
         }
-
-        if self.fishing_state.is_some() {
-            let coffee = self.coffee_stacks();
-            let milk = self.milk_buffs();
-            self.fishing_state
-                .as_mut()
-                .unwrap()
-                .tick(self.settings.fps, coffee, milk);
-            let game_over = self.fishing_state.as_ref().unwrap().game_over;
-            let captured = self.fishing_state.as_ref().unwrap().captured;
-            if game_over {
-                self.fishing_state = None;
-            } else if captured {
-                let mut rng = rand::rng();
-                let bait = self.bait_stacks();
-                let all_tanks_full = self.tanks.iter().all(|t| t.is_full());
-                let devils_luck = self.devils_luck();
-                let cow_counts = self.tank_cow_counts();
-                let in_candy_tank = self.tank().kind == TankKind::Candy;
-                let loot = if all_tanks_full {
-                    roll_loot_no_fish(&mut rng, devils_luck, &cow_counts)
-                } else if in_candy_tank {
-                    LootPool::default_pool()
-                        .with_candyfish()
-                        .with_bait(bait)
-                        .with_devils_luck(devils_luck)
-                        .with_cows(&cow_counts)
-                        .roll(&mut rng)
-                } else {
-                    roll_loot(&mut rng, bait, devils_luck, &cow_counts)
-                };
-                let item_qty = match &loot {
-                    LootKind::Item(ItemKind::GoldBar) => 0,
-                    LootKind::Item(item) => {
-                        self.inventory
-                            .get(item.display_name())
-                            .copied()
-                            .unwrap_or(0)
-                            + 1
-                    }
-                    _ => 0,
-                };
-                let mut cs = CatchState::new(loot, &mut rng);
-                cs.item_qty = item_qty;
-                self.catch_state = Some(cs);
-                self.fishing_state = None;
+        let mut rng = rand::rng();
+        let bait = self.bait_stacks();
+        let all_tanks_full = self.tanks.iter().all(|t| t.is_full());
+        let devils_luck = self.devils_luck();
+        let cow_counts = self.tank_cow_counts();
+        let in_candy_tank = self.tank().kind == TankKind::Candy;
+        let loot = if all_tanks_full {
+            roll_loot_no_fish(&mut rng, devils_luck, &cow_counts)
+        } else if in_candy_tank {
+            LootPool::default_pool()
+                .with_candyfish()
+                .with_bait(bait)
+                .with_devils_luck(devils_luck)
+                .with_cows(&cow_counts)
+                .roll(&mut rng)
+        } else {
+            roll_loot(&mut rng, bait, devils_luck, &cow_counts)
+        };
+        let item_qty = match &loot {
+            LootKind::Item(ItemKind::GoldBar) => 0,
+            LootKind::Item(item) => {
+                StockItem::from_item(item)
+                    .and_then(|stock| self.inventory.get(&stock).copied())
+                    .unwrap_or(0)
+                    + 1
             }
+            _ => 0,
+        };
+        let mut cs = CatchState::new(loot, &mut rng);
+        cs.item_qty = item_qty;
+        self.set_overlay(Overlay::Catch(cs));
+    }
+
+    pub fn tick(&mut self) {
+        if matches!(self.active_overlay, Some(Overlay::Fishing(_))) {
+            self.tick_fishing();
             return;
         }
-
-        if let Some(ref mut show) = self.show_state {
-            show.tick_animation(1.0 / self.settings.fps);
-            return;
-        }
-
-        if let Some(ref mut idx) = self.index_state {
-            idx.tick_animation(1.0 / self.settings.fps);
-            return;
-        }
-
-        if self.inventory_state.is_some() || self.fishtanks_state.is_some() {
-            return;
-        }
-
-        if let Some(ref mut shop) = self.shop_state {
-            shop.tick(self.settings.fps);
-            return;
+        match &mut self.active_overlay {
+            Some(Overlay::Catch(catch)) => {
+                catch.tick(self.settings.fps);
+                return;
+            }
+            Some(Overlay::Necronomicon(_))
+            | Some(Overlay::Inventory(_))
+            | Some(Overlay::Fishtanks(_)) => return,
+            Some(Overlay::Show { state, .. }) => {
+                state.tick_animation(1.0 / self.settings.fps);
+                return;
+            }
+            Some(Overlay::Index(idx)) => {
+                idx.tick_animation(1.0 / self.settings.fps);
+                return;
+            }
+            Some(Overlay::Shop(shop)) => {
+                shop.tick(self.settings.fps);
+                return;
+            }
+            Some(Overlay::Fishing(_)) => return,
+            Some(Overlay::ConsumePicker(_)) | None => {}
         }
 
         let dt = 1.0 / self.settings.fps;
@@ -504,11 +636,10 @@ impl App {
     }
 
     fn show_visible_count(&self) -> usize {
-        if let Some(ref s) = self.show_state {
-            ShowState::visible_count(s.overlay_h(self.tank_height(), self.terminal_width))
-        } else {
-            0
-        }
+        let Some(Overlay::Show { state, .. }) = &self.active_overlay else {
+            return 0;
+        };
+        ShowState::visible_count(state.overlay_h(self.tank_height(), self.terminal_width))
     }
 
     fn inventory_visible_rows(&self) -> usize {
@@ -552,7 +683,13 @@ impl App {
             .collect();
         let owned_consumable_strings: Vec<String> = crate::loot::ConsumableKind::all()
             .iter()
-            .filter(|k| self.inventory.get(k.display_name()).copied().unwrap_or(0) > 0)
+            .filter(|k| {
+                self.inventory
+                    .get(&StockItem::Consumable(**k))
+                    .copied()
+                    .unwrap_or(0)
+                    > 0
+            })
             .map(|k| k.lowercase_name())
             .collect();
         let consumable_names: Vec<&str> = owned_consumable_strings
@@ -581,7 +718,7 @@ impl App {
             String::new()
         } else {
             commands::autocomplete(
-                &self.command_input,
+                &self.editor.text,
                 &commands::CompletionCtx {
                     fish_names: &fish_names,
                     consumable_names: &consumable_names,
@@ -598,9 +735,9 @@ impl App {
         let devils_luck = self.devils_luck();
         frame.render_widget(
             CommandBar {
-                input: &self.command_input,
-                cursor_pos: self.cursor_pos,
-                cursor_visible: self.cursor_visible,
+                input: &self.editor.text,
+                cursor_pos: self.editor.cursor,
+                cursor_visible: self.editor.visible,
                 ghost: &ghost,
                 fish_count: self.tank().fish.len(),
                 fish_capacity: self.tank().capacity(),
@@ -615,59 +752,40 @@ impl App {
             command_area,
         );
 
-        if let Some(ref state) = self.index_state {
-            frame.render_widget(IndexOverlay::new(state), tank_area);
-        }
-
-        if let Some(ref state) = self.show_state {
-            frame.render_widget(ShowOverlay::new(state), tank_area);
-        }
-
-        if let Some(ref state) = self.inventory_state {
-            frame.render_widget(InventoryOverlay::new(state), tank_area);
-        }
-
-        if let Some(ref state) = self.fishtanks_state {
-            frame.render_widget(FishtanksOverlay::new(state), tank_area);
-        }
-
-        if let Some(ref state) = self.consume_picker_state {
-            frame.render_widget(ConsumePickerOverlay { state }, tank_area);
-        }
-
-        if let Some(ref state) = self.fishing_state {
-            frame.render_widget(FishingOverlay::new(state), tank_area);
-        }
-
-        if let Some(ref state) = self.catch_state {
-            frame.render_widget(CatchOverlay::new(state), tank_area);
-        }
-
-        if let Some(ref state) = self.shop_state {
-            frame.render_widget(ShopOverlay::new(state, self.cash), tank_area);
-        }
-
-        if let Some(ref input) = self.necronomicon_popup {
-            frame.render_widget(
+        match &self.active_overlay {
+            Some(Overlay::Index(state)) => frame.render_widget(IndexOverlay::new(state), tank_area),
+            Some(Overlay::Show { state, .. }) => {
+                frame.render_widget(ShowOverlay::new(state), tank_area)
+            }
+            Some(Overlay::Inventory(state)) => {
+                frame.render_widget(InventoryOverlay::new(state), tank_area)
+            }
+            Some(Overlay::Fishtanks(state)) => {
+                frame.render_widget(FishtanksOverlay::new(state), tank_area)
+            }
+            Some(Overlay::ConsumePicker(state)) => {
+                frame.render_widget(ConsumePickerOverlay { state }, tank_area)
+            }
+            Some(Overlay::Fishing(state)) => {
+                frame.render_widget(FishingOverlay::new(state), tank_area)
+            }
+            Some(Overlay::Catch(state)) => frame.render_widget(CatchOverlay::new(state), tank_area),
+            Some(Overlay::Shop(state)) => {
+                frame.render_widget(ShopOverlay::new(state, self.cash), tank_area)
+            }
+            Some(Overlay::Necronomicon(input)) => frame.render_widget(
                 NecroPopupWidget {
                     input,
-                    cursor_visible: self.cursor_visible,
+                    cursor_visible: self.editor.visible,
                 },
                 tank_area,
-            );
+            ),
+            None => {}
         }
     }
 
     fn has_any_overlay(&self) -> bool {
-        self.show_state.is_some()
-            || self.index_state.is_some()
-            || self.inventory_state.is_some()
-            || self.fishing_state.is_some()
-            || self.catch_state.is_some()
-            || self.shop_state.is_some()
-            || self.fishtanks_state.is_some()
-            || self.necronomicon_popup.is_some()
-            || self.consume_picker_state.is_some()
+        self.active_overlay.is_some()
     }
 
     fn tick_void_ritual(&mut self, dt: f32) {
@@ -713,8 +831,7 @@ impl App {
     }
 
     fn start_void_ritual(&mut self) {
-        self.command_input.clear();
-        self.cursor_pos = 0;
+        self.editor.clear();
         self.void_ritual = VoidRitualState::Prayer {
             prayer_idx: self.next_prayer,
             phrase_idx: 0,
@@ -726,8 +843,7 @@ impl App {
         let mean = void_ritual::ritual_mean_secs(self.nothing_stacks);
         let timer = sample_exponential(&mut rand::rng(), mean);
         self.void_ritual = VoidRitualState::Idle { timer };
-        self.command_input.clear();
-        self.cursor_pos = 0;
+        self.editor.clear();
     }
 
     fn handle_ufo_timer_fired(&mut self, source_idx: usize) {
@@ -793,7 +909,7 @@ impl App {
             .fish
             .iter()
             .enumerate()
-            .filter(|(_, f)| f.unfish_state.is_none())
+            .filter(|(_, f)| f.can_be_abducted())
             .map(|(i, _)| i)
             .collect();
         if abductable.is_empty() {
@@ -924,27 +1040,16 @@ impl App {
     }
 
     fn tick_blink(&mut self) {
-        if !self.settings.cursor_blink {
-            self.cursor_visible = true;
-            self.blink_counter = 0.0;
-            return;
-        }
-        self.blink_counter += 1.0;
-        let half_period = (self.settings.fps * 0.5).max(1.0);
-        if self.blink_counter >= half_period {
-            self.blink_counter = 0.0;
-            self.cursor_visible = !self.cursor_visible;
-        }
+        self.editor
+            .tick_blink(self.settings.fps, self.settings.cursor_blink);
     }
 
     fn reset_blink(&mut self) {
-        self.cursor_visible = true;
-        self.blink_counter = 0.0;
-        if let Some(ref mut s) = self.shop_state {
-            s.reset_blink();
-        }
-        if let Some(ref mut s) = self.catch_state {
-            s.reset_blink();
+        self.editor.reset_blink();
+        match &mut self.active_overlay {
+            Some(Overlay::Shop(s)) => s.reset_blink(),
+            Some(Overlay::Catch(s)) => s.reset_blink(),
+            _ => {}
         }
     }
 }

@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use crate::colors::{DARK_GRAY, RED, WHITE};
 use crate::{
     fishes::{fish::Fish, species::FishSpecies},
-    loot::ConsumableKind,
+    loot::{ConsumableKind, MilkVariant, StockItem},
     tank::TankKind,
     ui::{
         hints::{
@@ -99,7 +99,7 @@ pub enum SellEntry {
         qty: u32,
     },
     Milk {
-        name: String,
+        variant: MilkVariant,
         qty: u32,
     },
     Tank {
@@ -120,7 +120,13 @@ impl SellEntry {
             SellEntry::Junk { qty } => format!("Junk ({})", qty),
             SellEntry::Coffee { qty } => format!("Coffee ({})", qty),
             SellEntry::Bait { qty } => format!("Bait ({})", qty),
-            SellEntry::Milk { name, qty } => format!("{} ({})", name, qty),
+            SellEntry::Milk { variant, qty } => {
+                format!(
+                    "{} ({})",
+                    ConsumableKind::display_name(ConsumableKind::Milk(*variant)),
+                    qty
+                )
+            }
             SellEntry::Tank { name, .. } => format!("{} (Fishtank)", name),
             SellEntry::Necronomicon { qty } => format!("Necronomicon ({})", qty),
         }
@@ -196,34 +202,31 @@ pub struct SellMenuState {
 impl SellMenuState {
     pub fn new(
         tank_fish: &[(String, FishSpecies, u32)],
-        inventory: &HashMap<String, u32>,
+        inventory: &HashMap<StockItem, u32>,
         sellable_tanks: &[(String, u32)],
     ) -> Option<Self> {
         let mut items: Vec<SellEntry> = Vec::new();
-        let junk = inventory.get("Junk").copied().unwrap_or(0);
+        let qty_of = |stock: StockItem| inventory.get(&stock).copied().unwrap_or(0);
+        let junk = qty_of(StockItem::Junk);
         if junk > 0 {
             items.push(SellEntry::Junk { qty: junk });
         }
-        let coffee = inventory.get("Coffee").copied().unwrap_or(0);
+        let coffee = qty_of(StockItem::COFFEE);
         if coffee > 0 {
             items.push(SellEntry::Coffee { qty: coffee });
         }
-        let bait = inventory.get("Bait").copied().unwrap_or(0);
+        let bait = qty_of(StockItem::BAIT);
         if bait > 0 {
             items.push(SellEntry::Bait { qty: bait });
         }
-        let necro_qty = inventory.get("Necronomicon").copied().unwrap_or(0);
+        let necro_qty = qty_of(StockItem::NECRONOMICON);
         if necro_qty > 0 {
             items.push(SellEntry::Necronomicon { qty: necro_qty });
         }
-        for &milk in crate::loot::MilkVariant::ALL {
-            let n = ConsumableKind::Milk(milk).display_name();
-            let q = inventory.get(n).copied().unwrap_or(0);
+        for &variant in MilkVariant::ALL {
+            let q = qty_of(StockItem::Consumable(ConsumableKind::Milk(variant)));
             if q > 0 {
-                items.push(SellEntry::Milk {
-                    name: n.to_string(),
-                    qty: q,
-                });
+                items.push(SellEntry::Milk { variant, qty: q });
             }
         }
         for (tank_name, sell_price) in sellable_tanks {
@@ -1339,7 +1342,7 @@ fn draw_tank_list(
         let label = format!(
             "{}{}",
             prefix,
-            table::truncate_str(kind.shop_name(), name_max)
+            table::truncate_str(kind.display_name(), name_max)
         );
         buf.set_string(rx, row_y, label, s);
         buf.set_string(price_x, row_y, &price_str, s);
@@ -1352,7 +1355,11 @@ fn draw_buy_tank_name_popup(buf: &mut Buffer, popup: &BuyTankPopup, cursor_vis: 
     const RIGHT_HINT: &str = HINT_ENTER_BUY;
 
     let kind = TankKind::all()[popup.catalog_idx];
-    let header = format!("{} for sale! Only ${}", kind.shop_name(), kind.buy_price());
+    let header = format!(
+        "{} for sale! Only ${}",
+        kind.display_name(),
+        kind.buy_price()
+    );
     let min_hints_w = (LEFT_HINT.len() + RIGHT_HINT.len() + 2) as u16;
     let inner_w = (header.len() as u16).max(min_hints_w);
     let pop_w = inner_w + 4;
@@ -1361,7 +1368,7 @@ fn draw_buy_tank_name_popup(buf: &mut Buffer, popup: &BuyTankPopup, cursor_vis: 
         return;
     };
     layout.clear_bg(buf, BACKGROUND);
-    let title = format!(" Buy {} ", kind.shop_name());
+    let title = format!(" Buy {} ", kind.display_name());
     layout.draw_border(buf, &title, WHITE, BACKGROUND);
 
     let (ox, oy) = (layout.ox, layout.oy);

@@ -8,7 +8,7 @@ use crate::colors::{
     MAGENTA, ORANGE, PINK, PURPLE, PURPLE_DARK, PURPLE_LIGHT, VIOLET, WHITE,
 };
 
-pub const TRANSPARENT: char = '\0';
+use crate::sprite::{TRANSPARENT, mirror_grid, opaque_line};
 
 const LOLLIPOP_HEAD: &[&str] = &[
     "    _....._   ",
@@ -386,26 +386,6 @@ pub fn extend_candy_decos(
     }
 }
 
-fn opaque_colored(line: &str, color_fn: impl Fn(char, usize) -> Color) -> Vec<(char, Color)> {
-    let chars: Vec<char> = line.chars().collect();
-    let first = chars.iter().position(|&c| c != ' ');
-    let last = chars.iter().rposition(|&c| c != ' ');
-    chars
-        .iter()
-        .enumerate()
-        .map(|(i, &c)| {
-            if c == ' ' {
-                match (first, last) {
-                    (Some(f), Some(l)) if i > f && i < l => (' ', Color::Reset),
-                    _ => (TRANSPARENT, Color::Reset),
-                }
-            } else {
-                (c, color_fn(c, i))
-            }
-        })
-        .collect()
-}
-
 fn stick_row(width: usize, stick_col: usize) -> Vec<(char, Color)> {
     (0..width)
         .map(|i| {
@@ -422,7 +402,7 @@ fn lollipop_rows(plant: &CandyPlant) -> Vec<Vec<(char, Color)>> {
     let stick_count = plant.height.saturating_sub(LOLLIPOP_HEAD_ROWS).max(1);
     let mut rows: Vec<Vec<(char, Color)>> = LOLLIPOP_HEAD
         .iter()
-        .map(|&line| opaque_colored(line, |_, _| plant.color_a))
+        .map(|&line| opaque_line(line, Color::Reset, |_, _| plant.color_a))
         .collect();
     for _ in 0..stick_count {
         rows.push(stick_row(LOLLIPOP_WIDTH as usize, LOLLIPOP_STICK_COL));
@@ -434,7 +414,7 @@ fn koyak_rows(plant: &CandyPlant) -> Vec<Vec<(char, Color)>> {
     let stick_count = plant.height.saturating_sub(KOYAK_HEAD_ROWS).max(1);
     let mut rows: Vec<Vec<(char, Color)>> = KOYAK_HEAD
         .iter()
-        .map(|&line| opaque_colored(line, |_, _| plant.color_a))
+        .map(|&line| opaque_line(line, Color::Reset, |_, _| plant.color_a))
         .collect();
     for _ in 0..stick_count {
         rows.push(stick_row(KOYAK_WIDTH as usize, KOYAK_STICK_COL));
@@ -494,7 +474,7 @@ fn candy_cane_rows(plant: &CandyPlant) -> Vec<Vec<(char, Color)>> {
         .enumerate()
         .map(|(i, &line)| {
             let rfb = (total - 1 - i) as i32;
-            opaque_colored(line, |_, col| {
+            opaque_line(line, Color::Reset, |_, col| {
                 if i < CANE_TOP_ROWS
                     && let Some(color) = cane_hook_color(i, col, pink)
                 {
@@ -597,7 +577,9 @@ fn build_house_rows(
         .iter()
         .enumerate()
         .map(|(row_idx, &line)| {
-            opaque_colored(line, |c, col| color_fn(c, row_idx, col, &o_idx, o_colors))
+            opaque_line(line, Color::Reset, |c, col| {
+                color_fn(c, row_idx, col, &o_idx, o_colors)
+            })
         })
         .collect()
 }
@@ -608,36 +590,6 @@ fn house_rows(o_colors: &[Color]) -> Vec<Vec<(char, Color)>> {
 
 fn house2_rows(o_colors: &[Color]) -> Vec<Vec<(char, Color)>> {
     build_house_rows(HOUSE2_LINES, o_colors, house2_char_color)
-}
-
-fn mirror_candy_char(ch: char) -> char {
-    match ch {
-        '/' => '\\',
-        '\\' => '/',
-        '[' => ']',
-        ']' => '[',
-        '(' => ')',
-        ')' => '(',
-        '`' => '\'',
-        '\'' => '`',
-        _ => ch,
-    }
-}
-
-fn mirror_grid(grid: &[Vec<(char, Color)>]) -> Vec<Vec<(char, Color)>> {
-    let width = grid.iter().map(|row| row.len()).max().unwrap_or(0);
-    grid.iter()
-        .map(|row| {
-            (0..width)
-                .rev()
-                .map(|i| {
-                    row.get(i)
-                        .map(|&(ch, color)| (mirror_candy_char(ch), color))
-                        .unwrap_or((TRANSPARENT, Color::Reset))
-                })
-                .collect()
-        })
-        .collect()
 }
 
 fn shift_row(row: &[(char, Color)], offset: i32) -> Vec<(char, Color)> {
@@ -659,7 +611,7 @@ fn man_rows(accent: Color, sway_offset: i32) -> Vec<Vec<(char, Color)>> {
         .iter()
         .enumerate()
         .map(|(row_idx, &line)| {
-            let row = opaque_colored(line, |c, _| match c {
+            let row = opaque_line(line, Color::Reset, |c, _| match c {
                 '"' => WHITE,
                 ':' | '\'' => accent,
                 _ => BROWN,

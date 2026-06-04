@@ -60,9 +60,6 @@ pub enum TankKind {
 
 pub struct TankConfig {
     pub display_name: &'static str,
-    pub parse_name: &'static str,
-    pub un_name: &'static str,
-    pub shop_name: &'static str,
     pub buy_price: u32,
     pub sell_price: u32,
     pub capacity: usize,
@@ -75,9 +72,6 @@ impl TankKind {
         match self {
             TankKind::Base => TankConfig {
                 display_name: "Fishtank",
-                parse_name: "fishtank",
-                un_name: "Unaquarium",
-                shop_name: "Fishtank",
                 buy_price: 3000,
                 sell_price: 2500,
                 capacity: 50,
@@ -86,9 +80,6 @@ impl TankKind {
             },
             TankKind::CoralReef => TankConfig {
                 display_name: "Coralreeftank",
-                parse_name: "coralreeftank",
-                un_name: "Unsea",
-                shop_name: "Reef Fishtank",
                 buy_price: 5000,
                 sell_price: 2500,
                 capacity: 50,
@@ -97,9 +88,6 @@ impl TankKind {
             },
             TankKind::Hell => TankConfig {
                 display_name: "Helltank",
-                parse_name: "helltank",
-                un_name: "Unnether",
-                shop_name: "Helltank",
                 buy_price: 8000,
                 sell_price: 7000,
                 capacity: 100,
@@ -108,9 +96,6 @@ impl TankKind {
             },
             TankKind::Void => TankConfig {
                 display_name: "Voidtank",
-                parse_name: "voidtank",
-                un_name: "Un",
-                shop_name: "Voidtank",
                 buy_price: 8000,
                 sell_price: 7000,
                 capacity: 100,
@@ -119,9 +104,6 @@ impl TankKind {
             },
             TankKind::Alien => TankConfig {
                 display_name: "Alientank",
-                parse_name: "alientank",
-                un_name: "Unother",
-                shop_name: "Alientank",
                 buy_price: 5000,
                 sell_price: 2500,
                 capacity: 100,
@@ -130,9 +112,6 @@ impl TankKind {
             },
             TankKind::Haunted => TankConfig {
                 display_name: "Hauntedtank",
-                parse_name: "hauntedtank",
-                un_name: "Ungraves",
-                shop_name: "Hauntedtank",
                 buy_price: 5000,
                 sell_price: 2500,
                 capacity: 50,
@@ -141,9 +120,6 @@ impl TankKind {
             },
             TankKind::Candy => TankConfig {
                 display_name: "Candytank",
-                parse_name: "candytank",
-                un_name: "Uncandy",
-                shop_name: "Candytank",
                 buy_price: 5000,
                 sell_price: 2500,
                 capacity: 50,
@@ -152,9 +128,6 @@ impl TankKind {
             },
             TankKind::Desert => TankConfig {
                 display_name: "Desertank",
-                parse_name: "desertank",
-                un_name: "Undune",
-                shop_name: "Desertank",
                 buy_price: 5000,
                 sell_price: 2500,
                 capacity: 50,
@@ -167,17 +140,14 @@ impl TankKind {
     pub fn display_name(self) -> &'static str {
         self.config().display_name
     }
-    pub fn un_name(self) -> &'static str {
-        self.config().un_name
+    pub fn un_name(self) -> String {
+        format!("Un{}", self.config().display_name)
     }
     pub fn buy_price(self) -> u32 {
         self.config().buy_price
     }
     pub fn sell_price(self) -> u32 {
         self.config().sell_price
-    }
-    pub fn shop_name(self) -> &'static str {
-        self.config().shop_name
     }
 }
 
@@ -204,7 +174,7 @@ impl TankKind {
         let normalized: String = s.to_ascii_lowercase().split_whitespace().collect();
         Self::all()
             .iter()
-            .find(|&&k| k.config().parse_name == normalized.as_str())
+            .find(|&&k| k.config().display_name.to_ascii_lowercase() == normalized.as_str())
             .copied()
     }
 
@@ -549,6 +519,12 @@ impl Tank {
         man_sway_offset(self.candy_tick)
     }
 
+    pub(super) fn mark_if_hell(&self, fish: &mut Fish) {
+        if self.kind == TankKind::Hell {
+            fish.devil_marked = true;
+        }
+    }
+
     pub fn spawn_fish(
         &mut self,
         species: FishSpecies,
@@ -564,9 +540,7 @@ impl Tank {
         let x = rng.random_range(FISH_SPAWN_X_MIN..x_max);
         let y = rng.random_range(FISH_SPAWN_Y_MIN..y_max);
         let mut fish = Fish::new(species, actual_name.clone(), x, y, rng);
-        if self.kind == TankKind::Hell {
-            fish.devil_marked = true;
-        }
+        self.mark_if_hell(&mut fish);
         self.used_names.insert(actual_name);
         self.fish.push(fish);
         true
@@ -579,9 +553,7 @@ impl Tank {
         fish.position.x = rng.random_range(FISH_SPAWN_X_MIN..x_max);
         fish.position.y = rng.random_range(FISH_SPAWN_Y_MIN..y_max);
         fish.name = actual_name.clone();
-        if self.kind == TankKind::Hell {
-            fish.devil_marked = true;
-        }
+        self.mark_if_hell(&mut fish);
         self.used_names.insert(actual_name);
         self.fish.push(fish);
     }
@@ -660,7 +632,7 @@ impl Tank {
         self.food.retain(|f| !f.eaten);
         if self.food.len() < prev_len {
             for fish in &mut self.fish {
-                if matches!(fish.state, FishState::SeekingFood(_, _)) {
+                if matches!(fish.state, FishState::SeekingFood { .. }) {
                     fish.cancel_seek();
                 }
             }

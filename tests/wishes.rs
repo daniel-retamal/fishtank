@@ -3,6 +3,7 @@ use fishtank::{
     app::App,
     entities::cow::CowVariant,
     fishes::{fish::Fish, species::FishSpecies},
+    loot::{ConsumableKind, StockItem},
     tank::{Tank, TankKind},
     void_ritual::{
         EXPAND_AMOUNT, GIVE_BAIT_QTY, GIVE_COFFEE_QTY, GIVE_JUNK_QTY, GIVE_NECRONOMICON_QTY,
@@ -46,7 +47,7 @@ fn submit_wish(app: &mut App, wish: &str) {
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
-    app.command_input = wish.to_string();
+    app.editor.set(wish.to_string());
     app.submit_ritual_input();
 }
 
@@ -94,7 +95,7 @@ fn give_coffee_parses() {
     assert!(matches!(
         parse_wish("give coffee", &c),
         Some(WishAction::Give(GiveTarget::Item {
-            name: "Coffee",
+            stock: StockItem::Consumable(ConsumableKind::Coffee),
             qty: GIVE_COFFEE_QTY
         }))
     ));
@@ -109,7 +110,7 @@ fn give_bait_parses() {
     assert!(matches!(
         parse_wish("give bait", &c),
         Some(WishAction::Give(GiveTarget::Item {
-            name: "Bait",
+            stock: StockItem::Consumable(ConsumableKind::Bait),
             qty: GIVE_BAIT_QTY
         }))
     ));
@@ -124,7 +125,7 @@ fn give_junk_parses() {
     assert!(matches!(
         parse_wish("give junk", &c),
         Some(WishAction::Give(GiveTarget::Item {
-            name: "Junk",
+            stock: StockItem::Junk,
             qty: GIVE_JUNK_QTY
         }))
     ));
@@ -139,7 +140,7 @@ fn give_necronomicon_parses() {
     assert!(matches!(
         parse_wish("give necronomicon", &c),
         Some(WishAction::Give(GiveTarget::Item {
-            name: "Necronomicon",
+            stock: StockItem::Consumable(ConsumableKind::Necronomicon),
             qty: GIVE_NECRONOMICON_QTY,
         }))
     ));
@@ -488,10 +489,10 @@ fn execute_give_food_increases_food_supply() {
 #[test]
 fn execute_give_coffee_increases_coffee_inventory() {
     let mut app = App::new();
-    let before = app.inventory.get("Coffee").copied().unwrap_or(0);
+    let before = app.inventory.get(&StockItem::COFFEE).copied().unwrap_or(0);
     submit_wish(&mut app, "give coffee");
     assert_eq!(
-        app.inventory.get("Coffee").copied().unwrap_or(0),
+        app.inventory.get(&StockItem::COFFEE).copied().unwrap_or(0),
         before + GIVE_COFFEE_QTY
     );
 }
@@ -499,10 +500,10 @@ fn execute_give_coffee_increases_coffee_inventory() {
 #[test]
 fn execute_give_bait_increases_bait_inventory() {
     let mut app = App::new();
-    let before = app.inventory.get("Bait").copied().unwrap_or(0);
+    let before = app.inventory.get(&StockItem::BAIT).copied().unwrap_or(0);
     submit_wish(&mut app, "give bait");
     assert_eq!(
-        app.inventory.get("Bait").copied().unwrap_or(0),
+        app.inventory.get(&StockItem::BAIT).copied().unwrap_or(0),
         before + GIVE_BAIT_QTY
     );
 }
@@ -510,10 +511,10 @@ fn execute_give_bait_increases_bait_inventory() {
 #[test]
 fn execute_give_junk_increases_junk_inventory() {
     let mut app = App::new();
-    let before = app.inventory.get("Junk").copied().unwrap_or(0);
+    let before = app.inventory.get(&StockItem::Junk).copied().unwrap_or(0);
     submit_wish(&mut app, "give junk");
     assert_eq!(
-        app.inventory.get("Junk").copied().unwrap_or(0),
+        app.inventory.get(&StockItem::Junk).copied().unwrap_or(0),
         before + GIVE_JUNK_QTY
     );
 }
@@ -521,10 +522,17 @@ fn execute_give_junk_increases_junk_inventory() {
 #[test]
 fn execute_give_necronomicon_increases_necronomicon_inventory() {
     let mut app = App::new();
-    let before = app.inventory.get("Necronomicon").copied().unwrap_or(0);
+    let before = app
+        .inventory
+        .get(&StockItem::NECRONOMICON)
+        .copied()
+        .unwrap_or(0);
     submit_wish(&mut app, "give necronomicon");
     assert_eq!(
-        app.inventory.get("Necronomicon").copied().unwrap_or(0),
+        app.inventory
+            .get(&StockItem::NECRONOMICON)
+            .copied()
+            .unwrap_or(0),
         before + GIVE_NECRONOMICON_QTY
     );
 }
@@ -573,7 +581,7 @@ fn execute_mutate_nonexistent_fish_decrements_retry() {
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
-    app.command_input = "mutate ghost bodycolor".to_string();
+    app.editor.set("mutate ghost bodycolor".to_string());
     app.submit_ritual_input();
     assert_eq!(retries_left(&app), MAX_WISH_RETRIES - 1);
 }
@@ -609,7 +617,7 @@ fn execute_revive_alive_fish_is_invalid_and_decrements_retry() {
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
-    app.command_input = wish;
+    app.editor.set(wish);
     app.submit_ritual_input();
     assert_eq!(app.tanks[app.current_tank].fish.len(), fish_before);
     assert_eq!(app.graveyard.len(), grav_before);
@@ -661,7 +669,7 @@ fn execute_bless_nonexistent_fish_decrements_retry() {
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
-    app.command_input = "bless ghost".to_string();
+    app.editor.set("bless ghost".to_string());
     app.submit_ritual_input();
     assert_eq!(retries_left(&app), MAX_WISH_RETRIES - 1);
 }
@@ -711,7 +719,7 @@ fn invalid_wish_keeps_ritual_in_wish_state() {
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
-    app.command_input = "give foobar".to_string();
+    app.editor.set("give foobar".to_string());
     app.submit_ritual_input();
     assert!(matches!(app.void_ritual, VoidRitualState::Wish { .. }));
 }
@@ -723,12 +731,12 @@ fn four_invalid_wishes_then_valid_executes_and_aborts() {
         app.void_ritual = VoidRitualState::Wish {
             retries_left: MAX_WISH_RETRIES,
         };
-        app.command_input = "give foobar".to_string();
+        app.editor.set("give foobar".to_string());
         app.submit_ritual_input();
     }
     let before_cash = app.cash;
     app.void_ritual = VoidRitualState::Wish { retries_left: 1 };
-    app.command_input = "give cash".to_string();
+    app.editor.set("give cash".to_string());
     app.submit_ritual_input();
     assert!(is_idle(&app));
     assert_eq!(app.cash, before_cash + GIVE_RESOURCE_AMOUNT);
@@ -742,7 +750,7 @@ fn five_invalid_wishes_abort_ritual() {
         app.void_ritual = VoidRitualState::Wish {
             retries_left: retries,
         };
-        app.command_input = "give foobar".to_string();
+        app.editor.set("give foobar".to_string());
         app.submit_ritual_input();
     }
     assert!(is_idle(&app));
@@ -755,7 +763,7 @@ fn retry_count_decrements_on_each_invalid_wish() {
         retries_left: MAX_WISH_RETRIES,
     };
     for expected in (1..MAX_WISH_RETRIES).rev() {
-        app.command_input = "give foobar".to_string();
+        app.editor.set("give foobar".to_string());
         app.submit_ritual_input();
         assert_eq!(retries_left(&app), expected);
     }
@@ -767,7 +775,7 @@ fn wish_index_command_opens_overlay_without_decrementing_retry() {
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
-    app.command_input = "/index".to_string();
+    app.editor.set("/index".to_string());
     app.submit_ritual_input();
     assert_eq!(
         retries_left(&app),
@@ -775,7 +783,7 @@ fn wish_index_command_opens_overlay_without_decrementing_retry() {
         "retry count must not change for /index"
     );
     assert!(
-        app.index_state.is_some(),
+        app.index_overlay_open(),
         "/index must open the index overlay"
     );
 }
@@ -786,7 +794,7 @@ fn wish_fishtanks_command_opens_overlay_without_decrementing_retry() {
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
-    app.command_input = "/fishtanks".to_string();
+    app.editor.set("/fishtanks".to_string());
     app.submit_ritual_input();
     assert_eq!(
         retries_left(&app),
@@ -794,7 +802,7 @@ fn wish_fishtanks_command_opens_overlay_without_decrementing_retry() {
         "retry count must not change for /fishtanks"
     );
     assert!(
-        app.fishtanks_state.is_some(),
+        app.fishtanks_overlay_open(),
         "/fishtanks must open the fishtanks overlay"
     );
 }
@@ -806,7 +814,7 @@ fn wish_names_command_toggles_names_without_decrementing_retry() {
         retries_left: MAX_WISH_RETRIES,
     };
     let before = app.settings.show_names;
-    app.command_input = "/names".to_string();
+    app.editor.set("/names".to_string());
     app.submit_ritual_input();
     assert_eq!(
         retries_left(&app),
@@ -826,7 +834,7 @@ fn wish_stats_command_toggles_stats_without_decrementing_retry() {
         retries_left: MAX_WISH_RETRIES,
     };
     let before = app.settings.show_stats;
-    app.command_input = "/stats".to_string();
+    app.editor.set("/stats".to_string());
     app.submit_ritual_input();
     assert_eq!(
         retries_left(&app),
@@ -845,7 +853,7 @@ fn wish_overlay_command_does_not_abort_ritual() {
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
-    app.command_input = "/index".to_string();
+    app.editor.set("/index".to_string());
     app.submit_ritual_input();
     assert!(
         matches!(app.void_ritual, VoidRitualState::Wish { .. }),
@@ -859,7 +867,7 @@ fn wish_fishtanks_same_tank_enter_does_not_abort_ritual() {
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
-    app.command_input = "/fishtanks".to_string();
+    app.editor.set("/fishtanks".to_string());
     app.submit_ritual_input();
     app.handle_input(key_press(KeyCode::Enter));
     assert!(
@@ -876,9 +884,9 @@ fn wish_fishtanks_switch_tank_aborts_ritual() {
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
-    app.command_input = "/fishtanks".to_string();
+    app.editor.set("/fishtanks".to_string());
     app.submit_ritual_input();
-    if let Some(ref mut state) = app.fishtanks_state {
+    if let Some(state) = app.fishtanks_state_mut() {
         state.selected = 1;
     }
     app.handle_input(key_press(KeyCode::Enter));
@@ -896,11 +904,11 @@ fn wish_fishtanks_esc_closes_overlay_without_aborting_ritual() {
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
-    app.command_input = "/fishtanks".to_string();
+    app.editor.set("/fishtanks".to_string());
     app.submit_ritual_input();
     app.handle_input(key_press(KeyCode::Esc));
     assert!(
-        app.fishtanks_state.is_none(),
+        !app.fishtanks_overlay_open(),
         "ESC must close the fishtanks overlay"
     );
     assert!(
@@ -915,11 +923,11 @@ fn wish_index_esc_closes_overlay_without_aborting_ritual() {
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
-    app.command_input = "/index".to_string();
+    app.editor.set("/index".to_string());
     app.submit_ritual_input();
     app.handle_input(key_press(KeyCode::Esc));
     assert!(
-        app.index_state.is_none(),
+        !app.index_overlay_open(),
         "ESC must close the index overlay"
     );
     assert!(

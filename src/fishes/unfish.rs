@@ -21,10 +21,23 @@ pub enum UnfishKind {
     Worm,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum UnfishMutationStyle {
+    Slime,
+    Worm,
+}
+
 const WORM_DY_FRACTION: f32 = 0.05;
 const DEFAULT_DY_FRACTION: f32 = 0.4;
 
 impl UnfishKind {
+    pub fn mutation_style(self) -> UnfishMutationStyle {
+        match self {
+            UnfishKind::Worm => UnfishMutationStyle::Worm,
+            _ => UnfishMutationStyle::Slime,
+        }
+    }
+
     pub fn dy_fraction(self) -> f32 {
         match self {
             UnfishKind::Worm => WORM_DY_FRACTION,
