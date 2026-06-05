@@ -14,7 +14,6 @@ pub const COFFEE_SWAY_MULT: f32 = 0.7;
 pub const COFFEE_ZOOMIE_DT_MULT: f32 = 0.3;
 
 const CHOCOLATE_WEIGHT_BONUS_G: u32 = 5000;
-const STRAWBERRY_SELL_BONUS_PCT: u8 = 25;
 
 pub const MILK_STATUS_DURATION: f32 = 60.0;
 pub const MILK_STATUS_STACK_BONUS: f32 = 30.0;
@@ -65,13 +64,10 @@ pub fn apply_milk_to_fish(variant: MilkVariant, fish: &mut Fish, rng: &mut impl 
         MilkVariant::Plain => {}
         MilkVariant::Chocolate => {
             fish.weight_g = fish.weight_g.saturating_add(CHOCOLATE_WEIGHT_BONUS_G);
-            apply_mutation_to_fish(fish, Mutation::SizeChange(1), rng);
+            apply_mutation_to_fish(fish, Mutation::SizeIncrease, rng);
         }
         MilkVariant::Strawberry => {
             apply_mutation_to_fish(fish, Mutation::Strawberry, rng);
-            fish.sell_price_bonus_pct = fish
-                .sell_price_bonus_pct
-                .saturating_add(STRAWBERRY_SELL_BONUS_PCT);
         }
         MilkVariant::Vanilla => fish.restore(),
         MilkVariant::Alien => {

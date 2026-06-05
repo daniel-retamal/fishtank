@@ -6,7 +6,10 @@ use crate::colors::{DARK_GRAY, GRAY, WHITE};
 
 use crate::entities::components::BlinkTimer;
 use crate::entities::glistening::GlisteningMode;
-use crate::util::sample_exponential;
+use crate::fishes::fused::FusedComponent;
+use crate::fishes::mutant::{Circadian, random_rgb};
+use crate::sprite::{BodyExtension, EAR_LEFT, EAR_RIGHT, Feet};
+use crate::util::{even_indices, sample_exponential};
 
 pub const VOID_SPAWN_MEAN_SECS: f32 = 3600.0;
 
@@ -51,6 +54,13 @@ impl UnfishKind {
             UnfishKind::Worm => (2.88, 5.04),
             _ => (2.0, 4.0),
         }
+    }
+
+    pub fn has_fused_behavior(self) -> bool {
+        matches!(
+            self,
+            UnfishKind::Phantom | UnfishKind::Blinker | UnfishKind::Doppleganger
+        )
     }
 }
 
@@ -143,74 +153,153 @@ pub const SKULL_CLOSED: [&str; 6] = [
 pub const SKULL_INTERIOR: &[(usize, i32, i32)] = &[(2, 4, 8), (3, 4, 8), (4, 4, 8)];
 
 pub const WORM_DEFAULT_SEGMENTS: usize = 6;
+const WORM_SEGMENT_W: usize = 3;
+const WORM_EYE_GLYPH: char = '0';
+const WORM_TAIL_GLYPH: char = ',';
 
-pub fn build_worm(
-    facing_left: bool,
-    forward: bool,
-    segments: usize,
-    extra_eyes: usize,
-    is_double: bool,
-) -> String {
+fn worm_hydra_boundaries(segments: usize, hydra: usize) -> Vec<usize> {
+    if segments < 2 || hydra == 0 {
+        return Vec::new();
+    }
+    let avail = segments - 1;
+    even_indices(avail, hydra.min(avail))
+        .into_iter()
+        .map(|slot| 1 + slot)
+        .collect()
+}
+
+fn worm_body(segments: usize, hydra: usize, pattern: &str) -> String {
+    let bounds = worm_hydra_boundaries(segments, hydra);
+    let mut body = String::new();
+    let mut next = 0;
+    for k in 0..segments {
+        if next < bounds.len() && bounds[next] == k {
+            body.push(WORM_EYE_GLYPH);
+            next += 1;
+        }
+        body.push_str(pattern);
+    }
+    body
+}
+
+fn worm_hydra_cols(segments: usize, hydra: usize, body_start: usize) -> Vec<usize> {
+    worm_hydra_boundaries(segments, hydra)
+        .into_iter()
+        .enumerate()
+        .map(|(j, b)| body_start + WORM_SEGMENT_W * b + j)
+        .collect()
+}
+
+#[derive(Clone, Copy)]
+pub struct WormShape {
+    pub facing_left: bool,
+    pub forward: bool,
+    pub segments: usize,
+    pub extra_eyes: usize,
+    pub is_double: bool,
+    pub backwards: bool,
+    pub ears: usize,
+    pub hydra: usize,
+}
+
+pub fn build_worm(shape: &WormShape) -> String {
+    let WormShape {
+        facing_left,
+        forward,
+        segments,
+        extra_eyes,
+        is_double,
+        backwards,
+        ears,
+        hydra,
+    } = *shape;
     let head = "(0)".repeat(1 + extra_eyes);
-    if is_double {
-        let body = ",/\\".repeat(segments);
-        format!("{}{},{}", head, body, head)
+    let left_ears: String = std::iter::repeat_n(EAR_LEFT, ears).collect();
+    let right_ears: String = std::iter::repeat_n(EAR_RIGHT, ears).collect();
+    if is_double && backwards {
+        let body = worm_body(segments, hydra, ",/\\");
+        let cap: String = std::iter::repeat_n(WORM_TAIL_GLYPH, head.chars().count()).collect();
+        format!("{}{}{},{}", cap, left_ears, body, cap)
+    } else if is_double {
+        let body = worm_body(segments, hydra, ",/\\");
+        format!("{}{}{},{}", head, left_ears, body, head)
     } else if facing_left {
-        let body = if forward {
-            ",/\\".repeat(segments)
-        } else {
-            "\\,/".repeat(segments)
-        };
+        let pattern = if forward { ",/\\" } else { "\\,/" };
+        let body = worm_body(segments, hydra, pattern);
         if forward {
-            format!("{}{},", head, body)
+            format!("{}{}{},", head, left_ears, body)
         } else {
-            format!("{},{}", head, body)
+            format!("{}{},{}", head, left_ears, body)
         }
     } else {
-        let body = if forward {
-            ",/\\".repeat(segments)
-        } else {
-            "\\,/".repeat(segments)
-        };
-        format!("{},{}", body, head)
+        let pattern = if forward { ",/\\" } else { "\\,/" };
+        let body = worm_body(segments, hydra, pattern);
+        format!("{},{}{}", body, right_ears, head)
     }
 }
 
-pub fn worm_eye_cols(
-    facing_left: bool,
-    segments: usize,
-    extra_eyes: usize,
-    is_double: bool,
-) -> Vec<usize> {
+pub fn worm_eye_cols(shape: &WormShape) -> Vec<usize> {
+    let WormShape {
+        facing_left,
+        forward,
+        segments,
+        extra_eyes,
+        is_double,
+        backwards,
+        ears,
+        hydra,
+    } = *shape;
     let head_count = 1 + extra_eyes;
+    let body_w = WORM_SEGMENT_W * segments + hydra;
     let mut cols = Vec::new();
-    if is_double {
+    if is_double && backwards {
+        cols.extend(worm_hydra_cols(
+            segments,
+            hydra,
+            WORM_SEGMENT_W * head_count + ears,
+        ));
+    } else if is_double {
         for k in 0..head_count {
-            cols.push(1 + 3 * k);
+            cols.push(1 + WORM_SEGMENT_W * k);
         }
-        let right_start = 3 * head_count + 3 * segments + 1;
+        let right_start = WORM_SEGMENT_W * head_count + ears + body_w + 1;
         for k in 0..head_count {
-            cols.push(right_start + 1 + 3 * k);
+            cols.push(right_start + 1 + WORM_SEGMENT_W * k);
         }
+        cols.extend(worm_hydra_cols(
+            segments,
+            hydra,
+            WORM_SEGMENT_W * head_count + ears,
+        ));
     } else if facing_left {
         for k in 0..head_count {
-            cols.push(1 + 3 * k);
+            cols.push(1 + WORM_SEGMENT_W * k);
         }
+        let body_start = WORM_SEGMENT_W * head_count + ears + if forward { 0 } else { 1 };
+        cols.extend(worm_hydra_cols(segments, hydra, body_start));
     } else {
-        let head_start = 3 * segments + 1;
+        let head_start = body_w + 1 + ears;
         for k in 0..head_count {
-            cols.push(head_start + 1 + 3 * k);
+            cols.push(head_start + 1 + WORM_SEGMENT_W * k);
         }
+        cols.extend(worm_hydra_cols(segments, hydra, 0));
     }
     cols
 }
 
-pub fn worm_display_width(segments: usize, extra_eyes: usize, is_double: bool) -> usize {
-    let head_chars = 3 * (1 + extra_eyes);
+pub fn worm_display_width(
+    segments: usize,
+    extra_eyes: usize,
+    is_double: bool,
+    ears: usize,
+    hydra: usize,
+) -> usize {
+    let head_chars = WORM_SEGMENT_W * (1 + extra_eyes);
+    let body_w = WORM_SEGMENT_W * segments + hydra;
     if is_double {
-        head_chars + 3 * segments + 1 + head_chars
+        head_chars + ears + body_w + 1 + head_chars
     } else {
-        3 * segments + 1 + head_chars
+        body_w + 1 + head_chars + ears
     }
 }
 
@@ -242,6 +331,7 @@ pub struct FloatingEye {
     pub vel: f32,
     pub vel_y: f32,
     pub blink: BlinkTimer,
+    pub color: Option<Color>,
     dir_timer: f32,
 }
 
@@ -258,6 +348,7 @@ impl FloatingEye {
             vel,
             vel_y,
             blink: BlinkTimer::entity_eye(rng),
+            color: None,
             dir_timer: rng.random_range(EYE_DIR_TIMER_MIN..EYE_DIR_TIMER_MAX),
         }
     }
@@ -335,8 +426,19 @@ pub struct UnfishState {
     pub worm_segments: usize,
     pub worm_extra_eyes: usize,
     pub worm_is_double: bool,
+    pub worm_backwards: bool,
+    pub fused: Vec<FusedComponent>,
+    pub worm_eye_colors: Vec<Option<Color>>,
     pub slime_eye_color: Option<Color>,
     pub slime_color_patches: Vec<(usize, Color)>,
+    pub bubble_color: Option<Color>,
+    pub circadian: Circadian,
+    pub heterochromia: bool,
+    pub ear_count: usize,
+    pub ear_color: Option<Color>,
+    pub hydra_count: usize,
+    pub feet: Option<Feet>,
+    pub body_extension: Option<BodyExtension>,
 }
 
 impl UnfishState {
@@ -403,8 +505,19 @@ impl UnfishState {
             worm_segments: WORM_DEFAULT_SEGMENTS,
             worm_extra_eyes: 0,
             worm_is_double: false,
+            worm_backwards: false,
+            fused: Vec::new(),
+            worm_eye_colors: Vec::new(),
             slime_eye_color: None,
             slime_color_patches: Vec::new(),
+            bubble_color: None,
+            circadian: Circadian::Neutral,
+            heterochromia: false,
+            ear_count: 0,
+            ear_color: None,
+            hydra_count: 0,
+            feet: None,
+            body_extension: None,
         }
     }
 
@@ -413,8 +526,12 @@ impl UnfishState {
     }
 
     pub fn tick(&mut self, dt: f32, rng: &mut impl RngExt) {
+        let forced_eye = self.circadian.forced_eye_open();
         self.eye.tick(dt);
         self.wings.tick(dt);
+        if let Some(open) = forced_eye {
+            self.eye.is_open = open;
+        }
 
         let interior: &[(usize, i32, i32)] = match self.kind {
             UnfishKind::Ball => BALL_INTERIOR,
@@ -423,6 +540,9 @@ impl UnfishState {
         };
         for eye in &mut self.floating_eyes {
             eye.blink.tick(dt);
+            if let Some(open) = forced_eye {
+                eye.blink.is_open = open;
+            }
             eye.dir_timer -= dt;
             if eye.dir_timer <= 0.0 {
                 let speed = rng.random_range(EYE_SPEED_MIN..EYE_SPEED_MAX);
@@ -541,5 +661,75 @@ impl UnfishState {
         }
         let idx = rng.random_range(0..self.floating_eyes.len());
         self.floating_eyes.remove(idx);
+    }
+
+    pub fn worm_eye_count(&self) -> usize {
+        let head = 1 + self.worm_extra_eyes;
+        let heads = if self.worm_is_double && self.worm_backwards {
+            0
+        } else if self.worm_is_double {
+            head * 2
+        } else {
+            head
+        };
+        heads + self.hydra_count
+    }
+
+    pub fn resync_worm_eye_colors(&mut self, rng: &mut impl RngExt) {
+        if !self.heterochromia {
+            return;
+        }
+        let n = self.worm_eye_count();
+        while self.worm_eye_colors.len() < n {
+            self.worm_eye_colors.push(Some(random_rgb(rng)));
+        }
+        self.worm_eye_colors.truncate(n);
+    }
+
+    pub fn worm_eye_render_color(&self, eye_idx: usize) -> Color {
+        self.worm_eye_colors
+            .get(eye_idx)
+            .copied()
+            .flatten()
+            .or(self.slime_eye_color)
+            .unwrap_or(UNFISH_EYE_COLOR)
+    }
+
+    pub fn make_heterochromatic(&mut self, rng: &mut impl RngExt) {
+        self.heterochromia = true;
+        if self.kind == UnfishKind::Worm {
+            let n = self.worm_eye_count();
+            self.worm_eye_colors = (0..n).map(|_| Some(random_rgb(rng))).collect();
+            return;
+        }
+        if self.floating_eyes.is_empty() {
+            self.slime_eye_color = Some(random_rgb(rng));
+            return;
+        }
+        for eye in &mut self.floating_eyes {
+            eye.color = Some(random_rgb(rng));
+        }
+    }
+
+    pub fn recolor_one_eye(&mut self, rng: &mut impl RngExt) {
+        if self.kind == UnfishKind::Worm {
+            if self.heterochromia {
+                self.resync_worm_eye_colors(rng);
+                if self.worm_eye_colors.is_empty() {
+                    return;
+                }
+                let idx = rng.random_range(0..self.worm_eye_colors.len());
+                self.worm_eye_colors[idx] = Some(random_rgb(rng));
+            } else {
+                self.slime_eye_color = Some(random_rgb(rng));
+            }
+            return;
+        }
+        if self.heterochromia && !self.floating_eyes.is_empty() {
+            let idx = rng.random_range(0..self.floating_eyes.len());
+            self.floating_eyes[idx].color = Some(random_rgb(rng));
+            return;
+        }
+        self.slime_eye_color = Some(random_rgb(rng));
     }
 }

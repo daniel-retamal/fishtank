@@ -6,7 +6,10 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthChar;
 
-use crate::colors::{PINK, WHITE, YELLOW};
+use crate::colors::{LIGHT_GREEN, PINK, WHITE, YELLOW};
+use crate::sprite::{
+    Cell, EAR_LEFT, EAR_RIGHT, Feet, TRANSPARENT, extension_row, feet_row, painted_span,
+};
 
 use crate::{
     entities::bubble::Bubble,
@@ -15,14 +18,14 @@ use crate::{
     entities::glistening::{color_for_glisten, derive_glistening_palette},
     entities::plant::Seaweed,
     entities::ufo::{Ufo, ufo_sprite},
-    fishes::fish::Fish,
+    fishes::fish::{Fish, line_extension_bands},
     fishes::species::FishSpecies,
     fishes::unfish::{
         BALL_BASE, BALL_CENTER_ROW, BALL_EYE_COL, BALL_EYE_ROW, BALL_WIDTH, SKULL_CENTER_ROW,
         SKULL_CLOSED, SKULL_OPEN, SKULL_WIDTH, UNFISH_BODY_COLOR, UNFISH_EYE_COLOR, UnfishKind,
         is_multi_row,
     },
-    tank::{Tank, TankKind},
+    tank::{Tank, TankBackground, TankKind},
     tanks::alien::{AlienPyramid, AlienStar, pyramid_canvas_w, pyramid_lines},
     tanks::coral::{
         CORAL_A_LINES, CORAL_A_ROWS, CORAL_COLOR, CoralAlgaeInstance, CoralStructure,
@@ -40,6 +43,7 @@ use crate::{
     tanks::hell::{
         FACE_COLOR, H_WAVE_AMPLITUDE, H_WAVE_ROW_SPREAD, HellBackground, RANDOM_FACE_COLOR,
     },
+    tanks::radioactive::{FLUID_COLOR, FluidChar, RadBarrel},
     tanks::void::{VOID_EYE_CENTER_X, VOID_EYE_VERTICAL_OFFSET, VoidBackground},
     void_ritual::VOID_TEXT_BELOW_EYE_OFFSET,
 };
@@ -69,140 +73,139 @@ impl Widget for TankView<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let ritual_active = self.ritual_text.is_some() && self.tank.kind == TankKind::Void;
 
-        match self.tank.kind {
-            TankKind::Base => {
-                for plant in &self.tank.plants {
+        match &self.tank.background {
+            TankBackground::Plain { plants } => {
+                for plant in plants {
                     if plant.x >= area.width as i32 {
                         break;
                     }
                     render_seaweed(plant, area, buf);
                 }
             }
-            TankKind::CoralReef => {
-                for coral in &self.tank.corals {
+            TankBackground::Coral { corals, .. } => {
+                for coral in corals {
                     if coral.base_x >= area.width as i32 {
                         break;
                     }
                     render_coral_structure(coral, area, buf);
                 }
-                for coral in &self.tank.corals {
+                for coral in corals {
                     if coral.base_x >= area.width as i32 {
                         break;
                     }
                     render_coral_algae_all(coral, area, buf);
                 }
             }
-            TankKind::Hell => {
-                if let Some(bg) = &self.tank.hell_bg {
-                    render_hell_background(bg, area, buf);
-                }
-                for plant in &self.tank.hell_plants {
+            TankBackground::Hell { bg, plants } => {
+                render_hell_background(bg, area, buf);
+                for plant in plants {
                     if plant.x >= area.width as i32 {
                         break;
                     }
                     render_seaweed(plant, area, buf);
                 }
             }
-            TankKind::Void => {
-                if let Some(bg) = &self.tank.void_bg {
-                    if ritual_active {
-                        render_void_background_at(bg, 0, area, buf);
-                    } else {
-                        render_void_background(bg, area, buf);
-                    }
+            TankBackground::Void { bg } => {
+                if ritual_active {
+                    render_void_background_at(bg, 0, area, buf);
+                } else {
+                    render_void_background(bg, area, buf);
                 }
             }
-            TankKind::Alien => {
-                if let Some(bg) = &self.tank.alien_bg {
-                    for star in &bg.stars {
-                        render_alien_star(star, area, buf);
+            TankBackground::Alien { bg } => {
+                for star in &bg.stars {
+                    render_alien_star(star, area, buf);
+                }
+                for tentacle in &bg.tentacles {
+                    if tentacle.x >= area.width as i32 {
+                        break;
                     }
-                    for tentacle in &bg.tentacles {
-                        if tentacle.x >= area.width as i32 {
-                            break;
-                        }
-                        render_seaweed(tentacle, area, buf);
+                    render_seaweed(tentacle, area, buf);
+                }
+                for pyramid in &bg.pyramids {
+                    if pyramid.base_x >= area.width as i32 {
+                        break;
                     }
-                    for pyramid in &bg.pyramids {
-                        if pyramid.base_x >= area.width as i32 {
-                            break;
-                        }
-                        render_alien_pyramid(pyramid, bg.color.pyramid_color(), area, buf);
-                    }
+                    render_alien_pyramid(pyramid, bg.color.pyramid_color(), area, buf);
                 }
             }
-            TankKind::Haunted => {
-                render_haunted_gate(area, buf, self.tank.haunted_bg.as_ref());
-                if let Some(bg) = &self.tank.haunted_bg {
-                    let bottom_y = area.y as i32 + area.height as i32 - 1;
-                    for grave in &bg.graves {
-                        if grave.base_x >= area.width as i32 {
-                            break;
-                        }
-                        render_opaque_grid(&grave.rows(), grave.base_x, bottom_y, area, buf);
+            TankBackground::Haunted { bg } => {
+                render_haunted_gate(area, buf, Some(bg));
+                let bottom_y = area.y as i32 + area.height as i32 - 1;
+                for grave in &bg.graves {
+                    if grave.base_x >= area.width as i32 {
+                        break;
                     }
-                    for pumpkin in &bg.pumpkins {
-                        if pumpkin.base_x >= area.width as i32 {
-                            continue;
-                        }
-                        render_opaque_grid(&pumpkin.rows(), pumpkin.base_x, bottom_y, area, buf);
+                    render_opaque_grid(&grave.rows(), grave.base_x, bottom_y, area, buf);
+                }
+                for pumpkin in &bg.pumpkins {
+                    if pumpkin.base_x >= area.width as i32 {
+                        continue;
                     }
+                    render_opaque_grid(&pumpkin.rows(), pumpkin.base_x, bottom_y, area, buf);
                 }
             }
-            TankKind::Candy => {
-                if let Some(bg) = &self.tank.candy_bg {
-                    let bottom_y = area.y as i32 + area.height as i32 - 1;
-                    for plant in &self.tank.plants {
-                        if plant.x >= area.width as i32 {
-                            break;
-                        }
-                        render_seaweed(plant, area, buf);
+            TankBackground::Candy { bg, pink_plants } => {
+                let bottom_y = area.y as i32 + area.height as i32 - 1;
+                for plant in pink_plants {
+                    if plant.x >= area.width as i32 {
+                        break;
                     }
-                    for plant in &bg.plants {
-                        if plant.x >= area.width as i32 {
-                            break;
-                        }
-                        render_opaque_grid(&plant.rows(), plant.x, bottom_y, area, buf);
+                    render_seaweed(plant, area, buf);
+                }
+                for plant in &bg.plants {
+                    if plant.x >= area.width as i32 {
+                        break;
                     }
-                    let sway = self.tank.candy_man_sway();
-                    for deco in &bg.decos {
-                        if deco.x >= area.width as i32 {
-                            break;
-                        }
-                        render_opaque_grid(&deco.rows(sway), deco.x, bottom_y, area, buf);
+                    render_opaque_grid(&plant.rows(), plant.x, bottom_y, area, buf);
+                }
+                let sway = self.tank.candy_man_sway();
+                for deco in &bg.decos {
+                    if deco.x >= area.width as i32 {
+                        break;
                     }
+                    render_opaque_grid(&deco.rows(sway), deco.x, bottom_y, area, buf);
                 }
             }
-            TankKind::Desert => {
-                if let Some(bg) = &self.tank.desert_bg {
-                    if bg.is_night() {
-                        render_desert_stars(bg, area, buf);
-                    } else {
-                        render_desert_sun(bg, area, buf);
+            TankBackground::Desert { bg } => {
+                if bg.is_night() {
+                    render_desert_stars(bg, area, buf);
+                } else {
+                    render_desert_sun(bg, area, buf);
+                }
+                let bottom_y = area.y as i32 + area.height as i32 - 1;
+                for cactus in &bg.cacti {
+                    if cactus.x >= area.width as i32 {
+                        break;
                     }
-                    let bottom_y = area.y as i32 + area.height as i32 - 1;
-                    for cactus in &bg.cacti {
-                        if cactus.x >= area.width as i32 {
-                            break;
-                        }
-                        render_opaque_grid(&cactus.grid, cactus.x, bottom_y, area, buf);
+                    render_opaque_grid(&cactus.grid, cactus.x, bottom_y, area, buf);
+                }
+                if let Some(tw) = &bg.tumbleweed {
+                    render_opaque_grid(
+                        &tw.grid(),
+                        tw.x as i32,
+                        bottom_y - tw.hop_height(),
+                        area,
+                        buf,
+                    );
+                }
+            }
+            TankBackground::Rad { bg } => {
+                let bottom_y = area.y as i32 + area.height as i32 - 1;
+                render_rad_floor(&bg.floor, bottom_y, area, buf);
+                for barrel in &bg.barrels {
+                    if barrel.x >= area.width as i32 {
+                        break;
                     }
-                    if let Some(tw) = &bg.tumbleweed {
-                        render_opaque_grid(
-                            &tw.grid(),
-                            tw.x as i32,
-                            bottom_y - tw.hop_height(),
-                            area,
-                            buf,
-                        );
-                    }
+                    render_opaque_grid(&barrel.rows(), barrel.x, bottom_y - 1, area, buf);
+                    render_rad_spurts(barrel, bottom_y, area, buf);
                 }
             }
         }
         for bubble in &self.tank.bubbles {
             render_bubble(bubble, area, buf);
         }
-        if let Some(bg) = &self.tank.haunted_bg {
+        if let TankBackground::Haunted { bg } = &self.tank.background {
             for bat in &bg.bats {
                 render_bat(bat, area, buf);
             }
@@ -219,8 +222,8 @@ impl Widget for TankView<'_> {
         for fish in &self.tank.fish {
             render_fish(fish, area, buf);
         }
-        if self.tank.kind == TankKind::CoralReef {
-            for fa in &self.tank.floor_algae {
+        if let TankBackground::Coral { floor_algae, .. } = &self.tank.background {
+            for fa in floor_algae {
                 if fa.base_x >= area.width as i32 {
                     break;
                 }
@@ -248,7 +251,7 @@ impl Widget for TankView<'_> {
                     buf[(x, y)].set_style(Style::default().add_modifier(Modifier::DIM));
                 }
             }
-            if let Some(bg) = &self.tank.void_bg {
+            if let TankBackground::Void { bg } = &self.tank.background {
                 render_void_background_at(bg, 0, area, buf);
             }
             if let Some(text) = &self.ritual_text {
@@ -523,6 +526,44 @@ fn render_floor_algae(fa: &FloorAlgae, area: Rect, buf: &mut Buffer) {
     }
 }
 
+fn render_rad_floor(floor: &[FluidChar], bottom_y: i32, area: Rect, buf: &mut Buffer) {
+    if bottom_y < area.y as i32 || bottom_y >= area.bottom() as i32 {
+        return;
+    }
+    let style = Style::new()
+        .fg(LIGHT_GREEN)
+        .remove_modifier(Modifier::all());
+    for (col, cell) in floor.iter().enumerate() {
+        let sx = area.x as i32 + col as i32;
+        if sx >= area.right() as i32 {
+            break;
+        }
+        buf[(sx as u16, bottom_y as u16)]
+            .set_char(cell.ch)
+            .set_style(style);
+    }
+}
+
+fn render_rad_spurts(barrel: &RadBarrel, bottom_y: i32, area: Rect, buf: &mut Buffer) {
+    let top_y = bottom_y - barrel.height();
+    let style = Style::new()
+        .fg(FLUID_COLOR)
+        .remove_modifier(Modifier::all());
+    for cell in barrel.spurt_cells() {
+        let sx = area.x as i32 + barrel.x + cell.col;
+        let sy = top_y + cell.row;
+        if sx < area.x as i32 || sx >= area.right() as i32 {
+            continue;
+        }
+        if sy < area.y as i32 || sy >= area.bottom() as i32 {
+            continue;
+        }
+        buf[(sx as u16, sy as u16)]
+            .set_char(cell.ch)
+            .set_style(style);
+    }
+}
+
 fn render_bubble(bubble: &Bubble, area: Rect, buf: &mut Buffer) {
     let x = area.x + bubble.position.x as u16;
     let y = area.y + bubble.position.y as u16;
@@ -610,24 +651,37 @@ fn render_fish(fish: &Fish, area: Rect, buf: &mut Buffer) {
         }
     }
 
-    let segs = fish.segments();
-    let y = area.y + fish.position.y as u16;
+    render_line_sprite(fish, area, buf);
+}
 
-    if y >= area.bottom() {
-        return;
-    }
-
-    let x_base = area.x + fish.position.x as u16;
-    let mut col = 0u16;
-    for (ch, color) in &segs {
-        let x = x_base + col;
-        if x >= area.right() {
-            break;
+fn render_line_sprite(fish: &Fish, area: Rect, buf: &mut Buffer) {
+    let sprite = fish.line_sprite();
+    let body_screen_y = area.y as i32 + fish.position.y as i32;
+    let base_y = body_screen_y - sprite.body_row as i32;
+    let x_base = area.x as i32 + fish.position.x as i32;
+    for (row_idx, row) in sprite.rows.iter().enumerate() {
+        let sy = base_y + row_idx as i32;
+        if sy < area.y as i32 || sy >= area.bottom() as i32 {
+            continue;
         }
-        buf[(x, y)]
-            .set_char(*ch)
-            .set_style(Style::new().fg(*color).remove_modifier(Modifier::all()));
-        col += UnicodeWidthChar::width(*ch).unwrap_or(1) as u16;
+        let mut col = 0i32;
+        for &(ch, color) in row {
+            let w = UnicodeWidthChar::width(ch).unwrap_or(1) as i32;
+            if ch == TRANSPARENT {
+                col += w;
+                continue;
+            }
+            let sx = x_base + col;
+            if sx >= area.right() as i32 {
+                break;
+            }
+            if sx >= area.x as i32 {
+                buf[(sx as u16, sy as u16)]
+                    .set_char(ch)
+                    .set_style(Style::new().fg(color).remove_modifier(Modifier::all()));
+            }
+            col += w;
+        }
     }
 }
 
@@ -653,6 +707,31 @@ fn interior_col_range(line: &str) -> Option<(usize, usize)> {
         return None;
     }
     Some((first + 1, last - 1))
+}
+
+const SKULL_WING_WIDTH: i32 = 2;
+
+fn ear_border_cols(line: &str, width: usize) -> (i32, i32) {
+    let chars: Vec<char> = line.chars().collect();
+    let left_wing = chars.first() == Some(&'}');
+    let right_wing = chars.last() == Some(&'{');
+    let first = chars.iter().position(|&c| c != ' ').unwrap_or(0) as i32;
+    let last = chars
+        .iter()
+        .rposition(|&c| c != ' ')
+        .map(|p| p as i32)
+        .unwrap_or(0);
+    let left = if left_wing {
+        SKULL_WING_WIDTH
+    } else {
+        first - 1
+    };
+    let right = if right_wing {
+        width as i32 - 1 - SKULL_WING_WIDTH
+    } else {
+        last + 1
+    };
+    (left, right)
 }
 
 #[derive(Clone, Copy)]
@@ -794,14 +873,15 @@ pub(crate) fn render_multi_row_unfish_at(
                     }
                     let col = eye.col.round() as i32;
                     let ec = if eye.blink.is_open { '0' } else { '-' };
+                    let ec_color = eye.color.unwrap_or(eye_color);
                     if col >= 1 {
-                        eye_overrides.push(((col - 1) as usize, '(', eye_color));
+                        eye_overrides.push(((col - 1) as usize, '(', ec_color));
                     }
                     if col >= 0 {
-                        eye_overrides.push((col as usize, ec, eye_color));
+                        eye_overrides.push((col as usize, ec, ec_color));
                     }
                     if col + 1 < line.len() as i32 {
-                        eye_overrides.push(((col + 1) as usize, ')', eye_color));
+                        eye_overrides.push(((col + 1) as usize, ')', ec_color));
                     }
                 }
                 render_sprite_row(
@@ -818,9 +898,174 @@ pub(crate) fn render_multi_row_unfish_at(
                         color_patches: &unfish_state.slime_color_patches,
                     },
                 );
+                if row_idx < unfish_state.ear_count {
+                    let ear_color = unfish_state.ear_color.unwrap_or(PINK);
+                    let (left_col, right_col) = ear_border_cols(line, sprite_w);
+                    for (col, glyph) in [(left_col, EAR_LEFT), (right_col, EAR_RIGHT)] {
+                        let sx = base_x + col;
+                        if sx >= area.x as i32 && sx < area.right() as i32 {
+                            buf[(sx as u16, screen_y as u16)]
+                                .set_char(glyph)
+                                .set_fg(ear_color);
+                        }
+                    }
+                }
             }
+            if let Some(feet) = unfish_state.feet {
+                let lowest = lines.last().copied().unwrap_or("");
+                let feet_y = base_y + lines.len() as i32;
+                render_feet_row(
+                    lowest,
+                    body_color,
+                    &glisten_colors,
+                    &unfish_state.slime_color_patches,
+                    feet,
+                    base_x,
+                    feet_y,
+                    area,
+                    buf,
+                );
+            }
+            render_extension_bands(
+                fish,
+                lines,
+                body_color,
+                &glisten_colors,
+                &unfish_state.slime_color_patches,
+                base_x,
+                base_y,
+                area,
+                buf,
+            );
         }
         _ => {}
+    }
+}
+
+fn resolve_line_cells(
+    body_line: &str,
+    body_color: Color,
+    glisten_colors: &[Color],
+    color_patches: &[(usize, Color)],
+) -> Vec<Cell> {
+    body_line
+        .chars()
+        .enumerate()
+        .map(|(col, ch)| {
+            let color = glisten_colors
+                .get(col)
+                .copied()
+                .or_else(|| {
+                    color_patches
+                        .iter()
+                        .rev()
+                        .find(|&&(pos, _)| pos == col)
+                        .map(|&(_, c)| c)
+                })
+                .unwrap_or(body_color);
+            (ch, color)
+        })
+        .collect()
+}
+
+fn draw_appendage_row(row: &[Cell], base_x: i32, screen_y: i32, area: Rect, buf: &mut Buffer) {
+    if screen_y < area.y as i32 || screen_y >= area.bottom() as i32 {
+        return;
+    }
+    for (col, &(ch, color)) in row.iter().enumerate() {
+        if ch == TRANSPARENT {
+            continue;
+        }
+        let sx = base_x + col as i32;
+        if sx >= area.x as i32 && sx < area.right() as i32 {
+            buf[(sx as u16, screen_y as u16)].set_char(ch).set_fg(color);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_feet_row(
+    body_line: &str,
+    body_color: Color,
+    glisten_colors: &[Color],
+    color_patches: &[(usize, Color)],
+    feet: Feet,
+    base_x: i32,
+    screen_y: i32,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    let body_cells = resolve_line_cells(body_line, body_color, glisten_colors, color_patches);
+    let Some(span) = painted_span(&body_cells) else {
+        return;
+    };
+    draw_appendage_row(
+        &feet_row(&body_cells, span, feet),
+        base_x,
+        screen_y,
+        area,
+        buf,
+    );
+}
+
+const MULTI_ROW_MAX_TENTACLES: usize = 2;
+
+#[allow(clippy::too_many_arguments)]
+fn render_extension_bands(
+    fish: &Fish,
+    lines: &[&str],
+    body_color: Color,
+    glisten_colors: &[Color],
+    color_patches: &[(usize, Color)],
+    base_x: i32,
+    base_y: i32,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    let Some(ext) = fish.body_extension() else {
+        return;
+    };
+    let facing_left = fish.facing_left();
+    let phase = fish.sway.phase;
+    let max_tentacles = Some(MULTI_ROW_MAX_TENTACLES);
+    let top_cells = resolve_line_cells(lines[0], body_color, glisten_colors, color_patches);
+    let bottom_line = lines.last().copied().unwrap_or("");
+    let bottom_cells = resolve_line_cells(bottom_line, body_color, glisten_colors, color_patches);
+    let top_span = painted_span(&top_cells);
+    let bottom_span = painted_span(&bottom_cells);
+    for depth in 0..ext.length {
+        if let Some(span) = top_span {
+            let top_row = extension_row(
+                &top_cells,
+                span,
+                ext,
+                depth,
+                true,
+                facing_left,
+                phase,
+                max_tentacles,
+            );
+            draw_appendage_row(&top_row, base_x, base_y - 1 - depth as i32, area, buf);
+        }
+        if let Some(span) = bottom_span {
+            let bottom_row = extension_row(
+                &bottom_cells,
+                span,
+                ext,
+                depth,
+                false,
+                facing_left,
+                phase,
+                max_tentacles,
+            );
+            draw_appendage_row(
+                &bottom_row,
+                base_x,
+                base_y + lines.len() as i32 + depth as i32,
+                area,
+                buf,
+            );
+        }
     }
 }
 
@@ -836,7 +1081,7 @@ fn render_multi_row_unfish(fish: &Fish, area: Rect, buf: &mut Buffer) {
 }
 
 fn render_worm_portal(fish: &Fish, area: Rect, buf: &mut Buffer) {
-    let segs = fish.segments();
+    let segs = fish.fused_worm_cells().unwrap_or_else(|| fish.segments());
     let tank_h = area.height as i32;
     let tank_w = area.width as i32;
     let y_wrapped = (fish.position.y as i32).rem_euclid(tank_h);
@@ -850,6 +1095,58 @@ fn render_worm_portal(fish: &Fish, area: Rect, buf: &mut Buffer) {
         buf[(screen_x as u16, sy)]
             .set_char(*ch)
             .set_style(Style::new().fg(*color).remove_modifier(Modifier::all()));
+    }
+    let origin_x = fish.position.x as i32;
+    let body_y = fish.position.y as i32;
+    let Some(span) = painted_span(&segs) else {
+        return;
+    };
+    if let Some(ext) = fish.body_extension() {
+        let facing_left = fish.facing_left();
+        let phase = fish.sway.phase;
+        let (above, below) = line_extension_bands(ext.variant);
+        if above {
+            for depth in 0..ext.length {
+                let row = extension_row(&segs, span, ext, depth, true, facing_left, phase, None);
+                draw_portal_row(&row, origin_x, body_y - 1 - depth as i32, area, buf);
+            }
+        }
+        if below {
+            for depth in 0..ext.length {
+                let row = extension_row(&segs, span, ext, depth, false, facing_left, phase, None);
+                draw_portal_row(&row, origin_x, body_y + 1 + depth as i32, area, buf);
+            }
+        }
+        return;
+    }
+    if let Some(feet) = fish.feet() {
+        draw_portal_row(
+            &feet_row(&segs, span, feet),
+            origin_x,
+            body_y + 1,
+            area,
+            buf,
+        );
+    }
+}
+
+fn draw_portal_row(row: &[Cell], origin_x: i32, unwrapped_y: i32, area: Rect, buf: &mut Buffer) {
+    let tank_h = area.height as i32;
+    let tank_w = area.width as i32;
+    let y_wrapped = unwrapped_y.rem_euclid(tank_h);
+    let sy = (area.y as i32 + y_wrapped) as u16;
+    if sy < area.y || sy >= area.bottom() {
+        return;
+    }
+    for (i, &(ch, color)) in row.iter().enumerate() {
+        if ch == TRANSPARENT {
+            continue;
+        }
+        let tank_x = (origin_x + i as i32).rem_euclid(tank_w);
+        let screen_x = area.x as i32 + tank_x;
+        buf[(screen_x as u16, sy)]
+            .set_char(ch)
+            .set_style(Style::new().fg(color).remove_modifier(Modifier::all()));
     }
 }
 
@@ -1357,6 +1654,45 @@ fn render_cow(cow: &Cow, area: Rect, buf: &mut Buffer) {
                 .set_style(Style::new().fg(color).remove_modifier(Modifier::all()));
         }
     }
+    render_cow_extension(cow, &sprite, base_x, base_y, area, buf);
+}
+
+const COW_FACES_LEFT: bool = true;
+
+fn render_cow_extension(
+    cow: &Cow,
+    sprite: &[Vec<Cell>],
+    base_x: i32,
+    base_y: i32,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    let Some(ext) = cow.mutant.body_extension else {
+        return;
+    };
+    let torso_row_idx = cow.sprite_top_offset() as usize + 1;
+    let Some(torso_row) = sprite.get(torso_row_idx) else {
+        return;
+    };
+    let mask: Vec<Cell> = torso_row
+        .iter()
+        .map(|&(ch, color)| {
+            if ch == '_' {
+                (ch, color)
+            } else {
+                (TRANSPARENT, color)
+            }
+        })
+        .collect();
+    let Some(span) = painted_span(&mask) else {
+        return;
+    };
+    let phase = cow.sway.phase;
+    for depth in 0..ext.length {
+        let row = extension_row(&mask, span, ext, depth, true, COW_FACES_LEFT, phase, None);
+        let screen_y = base_y + torso_row_idx as i32 - 1 - depth as i32;
+        draw_appendage_row(&row, base_x, screen_y, area, buf);
+    }
 }
 
 fn render_cow_name(cow: &Cow, area: Rect, buf: &mut Buffer) {
@@ -1401,6 +1737,7 @@ fn render_cow_speech(cow: &Cow, area: Rect, buf: &mut Buffer) {
 }
 
 fn draw_speech_bubble(cow: &Cow, text: &str, leftmost_eye_col: i32, area: Rect, buf: &mut Buffer) {
+    let fg = cow.bubble_color();
     let bubble = build_speech_bubble(text);
     let bubble_h = bubble.len() as i32;
     let cow_x = area.x as i32 + cow.position.x as i32;
@@ -1424,7 +1761,7 @@ fn draw_speech_bubble(cow: &Cow, text: &str, leftmost_eye_col: i32, area: Rect, 
             }
             buf[(sx as u16, sy as u16)]
                 .set_char(ch)
-                .set_style(Style::new().fg(WHITE).remove_modifier(Modifier::all()));
+                .set_style(Style::new().fg(fg).remove_modifier(Modifier::all()));
         }
     }
     if upper_tail_y >= area.y as i32
@@ -1434,7 +1771,7 @@ fn draw_speech_bubble(cow: &Cow, text: &str, leftmost_eye_col: i32, area: Rect, 
     {
         buf[(upper_tail_x as u16, upper_tail_y as u16)]
             .set_char('\\')
-            .set_style(Style::new().fg(WHITE).remove_modifier(Modifier::all()));
+            .set_style(Style::new().fg(fg).remove_modifier(Modifier::all()));
     }
     if lower_tail_y >= area.y as i32
         && lower_tail_y < area.bottom() as i32
@@ -1443,7 +1780,7 @@ fn draw_speech_bubble(cow: &Cow, text: &str, leftmost_eye_col: i32, area: Rect, 
     {
         buf[(lower_tail_x as u16, lower_tail_y as u16)]
             .set_char('\\')
-            .set_style(Style::new().fg(WHITE).remove_modifier(Modifier::all()));
+            .set_style(Style::new().fg(fg).remove_modifier(Modifier::all()));
     }
 }
 
@@ -1509,7 +1846,7 @@ mod tests {
     fn render_at_angle(angle: f32, w: u16, h: u16) {
         let mut tank = Tank::new("Smoke".into(), TankKind::Desert, &[]);
         tank.resize(w, h, &[]);
-        if let Some(bg) = &mut tank.desert_bg {
+        if let TankBackground::Desert { bg } = &mut tank.background {
             bg.sky_angle = angle;
         }
         let area = Rect::new(0, 0, w, h);
@@ -1524,6 +1861,287 @@ mod tests {
             render_at_angle(PI * 1.5, w, h);
             render_at_angle(0.0, w, h);
             render_at_angle(PI, w, h);
+        }
+    }
+
+    #[test]
+    fn ball_border_ears_trace_both_contours() {
+        let mut rng = rand::rng();
+        let mut fish = Fish::new_unfish(UnfishKind::Ball, "Orb".into(), 5.0, 5.0, &mut rng);
+        let rows = BALL_BASE.len();
+        if let Some(us) = fish.unfish_state.as_mut() {
+            us.ear_count = rows;
+        }
+        let area = Rect::new(0, 0, 40, 20);
+        let mut buf = Buffer::empty(area);
+        render_multi_row_unfish_at(&fish, 10, 2, area, &mut buf);
+        let mut left = 0;
+        let mut right = 0;
+        for y in 0..area.height {
+            for x in 0..area.width {
+                match buf[(x, y)].symbol() {
+                    "Ɛ" => left += 1,
+                    "3" => right += 1,
+                    _ => {}
+                }
+            }
+        }
+        assert_eq!(left, rows, "every ball row gets a left Ɛ ear");
+        assert_eq!(right, rows, "every ball row gets a right 3 ear");
+    }
+
+    #[test]
+    fn ball_spike_extension_flanks_both_edges() {
+        use crate::sprite::{BodyExtension, ExtensionVariant};
+        let mut rng = rand::rng();
+        let mut fish = Fish::new_unfish(UnfishKind::Ball, "Orb".into(), 5.0, 5.0, &mut rng);
+        if let Some(us) = fish.unfish_state.as_mut() {
+            us.body_extension = Some(BodyExtension {
+                variant: ExtensionVariant::Spike,
+                length: 2,
+                seed: 0,
+            });
+        }
+        let base_x = 10i32;
+        let base_y = 4i32;
+        let area = Rect::new(0, 0, 40, 24);
+        let mut buf = Buffer::empty(area);
+        render_multi_row_unfish_at(&fish, base_x, base_y, area, &mut buf);
+        let above = |y: i32| {
+            (0..area.width)
+                .filter(|&x| buf[(x, y as u16)].symbol() == "¦")
+                .count()
+        };
+        let top_band = above(base_y - 1) + above(base_y - 2);
+        let bottom_band =
+            above(base_y + BALL_BASE.len() as i32) + above(base_y + BALL_BASE.len() as i32 + 1);
+        assert!(top_band > 0, "spikes sit above the ball's highest row");
+        assert!(bottom_band > 0, "spikes sit below the ball's lowest row");
+        let on_body = (base_y..base_y + BALL_BASE.len() as i32)
+            .map(above)
+            .sum::<usize>();
+        assert_eq!(on_body, 0, "spikes never overlap the ball body rows");
+    }
+
+    #[test]
+    fn ball_tentacle_extension_caps_at_two_per_band() {
+        use crate::sprite::{BodyExtension, ExtensionVariant};
+        let mut rng = rand::rng();
+        let mut fish = Fish::new_unfish(UnfishKind::Ball, "Orb".into(), 5.0, 5.0, &mut rng);
+        if let Some(us) = fish.unfish_state.as_mut() {
+            us.body_extension = Some(BodyExtension {
+                variant: ExtensionVariant::Tentacle,
+                length: 1,
+                seed: 0,
+            });
+        }
+        let base_x = 10i32;
+        let base_y = 4i32;
+        let area = Rect::new(0, 0, 40, 24);
+        let mut buf = Buffer::empty(area);
+        render_multi_row_unfish_at(&fish, base_x, base_y, area, &mut buf);
+        let top = (0..area.width)
+            .filter(|&x| buf[(x, (base_y - 1) as u16)].symbol() == "|")
+            .count();
+        assert!(
+            (1..=MULTI_ROW_MAX_TENTACLES).contains(&top),
+            "a ball band carries at most two tentacles"
+        );
+    }
+
+    #[test]
+    fn ball_feet_sit_on_the_row_below_the_body() {
+        use crate::sprite::{Feet, FeetStyle};
+        let mut rng = rand::rng();
+        let mut fish = Fish::new_unfish(UnfishKind::Ball, "Orb".into(), 5.0, 5.0, &mut rng);
+        if let Some(us) = fish.unfish_state.as_mut() {
+            us.feet = Some(Feet {
+                style: FeetStyle::Quote,
+                color: None,
+            });
+        }
+        let base_x = 10i32;
+        let base_y = 2i32;
+        let area = Rect::new(0, 0, 40, 20);
+        let mut buf = Buffer::empty(area);
+        render_multi_row_unfish_at(&fish, base_x, base_y, area, &mut buf);
+        let feet_y = (base_y + BALL_BASE.len() as i32) as u16;
+        let feet = (0..area.width)
+            .filter(|&x| buf[(x, feet_y)].symbol() == "\"")
+            .count();
+        assert!(
+            feet > 0,
+            "a footed ball stamps feet on the row directly below its lowest line"
+        );
+        let body_rows = (base_y..base_y + BALL_BASE.len() as i32)
+            .flat_map(|y| (0..area.width).map(move |x| (x, y as u16)))
+            .filter(|&(x, y)| buf[(x, y)].symbol() == "\"")
+            .count();
+        assert_eq!(body_rows, 0, "feet never overlap the ball body rows");
+    }
+
+    #[test]
+    fn worm_feet_sit_one_row_below_the_body() {
+        use crate::sprite::{Feet, FeetStyle};
+        let mut rng = rand::rng();
+        let mut fish = Fish::new_unfish(UnfishKind::Worm, "Wiggly".into(), 6.0, 8.0, &mut rng);
+        if let Some(us) = fish.unfish_state.as_mut() {
+            us.feet = Some(Feet {
+                style: FeetStyle::Caret,
+                color: None,
+            });
+        }
+        let area = Rect::new(0, 0, 60, 24);
+        let mut buf = Buffer::empty(area);
+        render_fish(&fish, area, &mut buf);
+        let body_y = area.y + fish.position.y as u16;
+        let feet_y = body_y + 1;
+        let feet = (0..area.width)
+            .filter(|&x| buf[(x, feet_y)].symbol() == "^")
+            .count();
+        assert!(feet > 0, "a footed worm stamps carets on the row below it");
+        let on_body = (0..area.width)
+            .filter(|&x| buf[(x, body_y)].symbol() == "^")
+            .count();
+        assert_eq!(on_body, 0, "the worm body row never carries feet");
+    }
+
+    #[test]
+    fn cow_spike_extension_sits_above_the_torso_top() {
+        use crate::entities::cow::CowVariant;
+        use crate::sprite::{BodyExtension, ExtensionVariant};
+        let mut rng = rand::rng();
+        let mut cow = Cow::new("Bessie".into(), CowVariant::Brown, 5.0, 8.0, &mut rng);
+        cow.mutant.body_extension = Some(BodyExtension {
+            variant: ExtensionVariant::Spike,
+            length: 2,
+            seed: 0,
+        });
+        let area = Rect::new(0, 0, 60, 24);
+        let mut buf = Buffer::empty(area);
+        render_cow(&cow, area, &mut buf);
+        let top_offset = cow.sprite_top_offset() as i32;
+        let base_y = area.y as i32 + cow.position.y as i32 - top_offset;
+        let torso_top_screen = base_y + top_offset + 1;
+        let mut count = 0;
+        for y in 0..area.height {
+            for x in 0..area.width {
+                if buf[(x, y)].symbol() == "¦" {
+                    count += 1;
+                    assert!(
+                        (y as i32) < torso_top_screen,
+                        "the cow's spikes sit strictly above the torso top line"
+                    );
+                }
+            }
+        }
+        assert!(count > 0, "the cow grows spikes above its torso");
+    }
+
+    #[test]
+    fn worm_tentacle_extension_hangs_below_the_body() {
+        use crate::sprite::{BodyExtension, ExtensionVariant};
+        let mut rng = rand::rng();
+        let mut fish = Fish::new_unfish(UnfishKind::Worm, "Wiggly".into(), 6.0, 8.0, &mut rng);
+        if let Some(us) = fish.unfish_state.as_mut() {
+            us.body_extension = Some(BodyExtension {
+                variant: ExtensionVariant::Tentacle,
+                length: 2,
+                seed: 0,
+            });
+        }
+        let area = Rect::new(0, 0, 60, 24);
+        let mut buf = Buffer::empty(area);
+        render_fish(&fish, area, &mut buf);
+        let body_y = area.y + fish.position.y as u16;
+        let below = (0..area.width)
+            .filter(|&x| buf[(x, body_y + 1)].symbol() == "|")
+            .count();
+        assert!(below > 0, "worm tentacles hang on the rows below the body");
+        let on_body = (0..area.width)
+            .filter(|&x| buf[(x, body_y)].symbol() == "|")
+            .count();
+        assert_eq!(on_body, 0, "the worm body row never carries tentacles");
+    }
+
+    #[test]
+    fn skull_border_ears_sit_inside_the_wings() {
+        let mut rng = rand::rng();
+        let mut fish = Fish::new_unfish(UnfishKind::Skull, "Skull".into(), 5.0, 5.0, &mut rng);
+        if let Some(us) = fish.unfish_state.as_mut() {
+            us.ear_count = SKULL_OPEN.len();
+            us.wings.is_open = true;
+        }
+        let base_x = 10i32;
+        let base_y = 2i32;
+        let area = Rect::new(0, 0, 40, 20);
+        let mut buf = Buffer::empty(area);
+        render_multi_row_unfish_at(&fish, base_x, base_y, area, &mut buf);
+        let wing_row_y = (base_y + 2) as u16;
+        assert_eq!(
+            buf[((base_x) as u16, wing_row_y)].symbol(),
+            "}",
+            "the left wing is preserved"
+        );
+        assert_eq!(
+            buf[((base_x + 2) as u16, wing_row_y)].symbol(),
+            "Ɛ",
+            "the left ear sits at the inner body wall, never outside the wing"
+        );
+        assert_eq!(
+            buf[((base_x + 10) as u16, wing_row_y)].symbol(),
+            "3",
+            "the right ear sits at the inner body wall"
+        );
+        assert_eq!(
+            buf[((base_x + 12) as u16, wing_row_y)].symbol(),
+            "{",
+            "the right wing is preserved"
+        );
+    }
+
+    fn assert_body_row_matches(fish: &Fish, buf: &Buffer, area: Rect) {
+        let segs = fish.segments();
+        let y = area.y + fish.position.y as u16;
+        let mut col = 0u16;
+        for (ch, color) in segs {
+            let x = area.x + fish.position.x as u16 + col;
+            if x >= area.right() {
+                break;
+            }
+            let cell = &buf[(x, y)];
+            assert_eq!(cell.symbol(), ch.to_string(), "char at col {col}");
+            assert_eq!(cell.fg, color, "color at col {col}");
+            col += UnicodeWidthChar::width(ch).unwrap_or(1) as u16;
+        }
+    }
+
+    #[test]
+    fn line_fish_body_row_is_byte_identical_to_segments() {
+        use crate::fishes::fish::Direction;
+        let mut rng = rand::rng();
+        let area = Rect::new(0, 0, 80, 24);
+        let line_species = [
+            FishSpecies::Merluza,
+            FishSpecies::Salmon,
+            FishSpecies::Koi,
+            FishSpecies::Mutantfish,
+        ];
+        for species in line_species {
+            for facing in [Direction::Left, Direction::Right] {
+                let mut fish = Fish::new(species, "T".into(), 6.0, 8.0, &mut rng);
+                fish.facing = facing;
+                let mut buf = Buffer::empty(area);
+                render_fish(&fish, area, &mut buf);
+                assert_body_row_matches(&fish, &buf, area);
+            }
+        }
+        for facing in [Direction::Left, Direction::Right] {
+            let mut fish = Fish::new_unfish(UnfishKind::Reversed, "U".into(), 6.0, 8.0, &mut rng);
+            fish.facing = facing;
+            let mut buf = Buffer::empty(area);
+            render_fish(&fish, area, &mut buf);
+            assert_body_row_matches(&fish, &buf, area);
         }
     }
 }

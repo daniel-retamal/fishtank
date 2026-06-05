@@ -5,8 +5,11 @@ use ratatui::style::Color;
 
 use crate::colors::{BROWN, DARK_GRAY, LIGHT_GREEN, LIGHT_YELLOW, PINK, WHITE};
 use crate::entities::components::{Position, SwayState, tick_sway};
-use crate::fishes::mutant::{EyeState, MutantState, MutantTail, MutationRecord};
-use crate::fishes::mutations::Mutatable;
+use crate::fishes::fused::FusedComponent;
+use crate::fishes::mutant::{Circadian, EyeState, MutantState, MutantTail, MutationRecord};
+use crate::fishes::mutations::{
+    MutantBacked, Mutatable, Mutation, MutationOutcome, apply_mutant_mutation,
+};
 
 pub const COW_SPRITE_ROWS: u16 = 5;
 pub const COW_BASE_TORSO: usize = 7;
@@ -20,6 +23,11 @@ const ANTENNA_LEFT_STEM: char = '\\';
 const ANTENNA_RIGHT_STEM: char = '/';
 const ANTENNA_STEM_FILL: char = '_';
 const ALIENATION_TAG: &str = "alienation";
+const COW_UDDER: char = 'w';
+const COW_BELLY: char = '-';
+const COW_TAIL_W: usize = 4;
+const COW_LEFT_TAIL: [char; COW_TAIL_W] = ['/', '\\', '/', '('];
+const COW_RIGHT_TAIL: [char; COW_TAIL_W] = [')', '\\', '/', '\\'];
 
 pub fn cow_default_sway_speed() -> f32 {
     COW_DEFAULT_SWAY_SPEED
@@ -117,6 +125,7 @@ pub struct Cow {
     pub mutations: Option<Box<MutationRecord>>,
     pub speech: Option<SpeechBubble>,
     pub display_width: usize,
+    pub engulf_timer: f32,
 }
 
 impl Cow {
@@ -142,12 +151,16 @@ impl Cow {
             mutations: None,
             speech: None,
             display_width: 0,
+            engulf_timer: 0.0,
         };
         cow.display_width = cow_display_width(&cow);
         cow
     }
 
     pub fn tick(&mut self, dt: f32) {
+        if self.engulf_timer > 0.0 {
+            self.engulf_timer = (self.engulf_timer - dt).max(0.0);
+        }
         tick_sway(&mut self.sway, self.sway_speed);
         self.mutant.tick_eyes(dt);
         if let Some(b) = &mut self.speech {
@@ -169,8 +182,27 @@ impl Cow {
         COW_BASE_TORSO + self.body_length
     }
 
+    pub fn bubble_color(&self) -> Color {
+        self.mutant.bubble_color.unwrap_or(WHITE)
+    }
+
     pub fn eye_count(&self) -> usize {
         self.mutant.left_eyes.len()
+    }
+
+    pub fn milk_yield(&self) -> u32 {
+        (self.mutant.fused.len() as u32).max(1)
+    }
+
+    pub fn milk_components(&self) -> Vec<CowVariant> {
+        if self.mutant.fused.is_empty() {
+            return vec![self.variant];
+        }
+        self.mutant
+            .fused
+            .iter()
+            .filter_map(|c| c.cow_variant())
+            .collect()
     }
 
     pub fn is_alienated(&self) -> bool {
@@ -194,7 +226,129 @@ impl Cow {
     }
 }
 
+const COW_CAPS: &[Mutation] = &[
+    Mutation::SizeIncrease,
+    Mutation::SizeDecrease,
+    Mutation::EyeIncrease,
+    Mutation::EyeDecrease,
+    Mutation::ColorPatch,
+    Mutation::EyeColor,
+    Mutation::GlistenFast,
+    Mutation::GlistenSlow,
+    Mutation::GlistenMode,
+    Mutation::GlistenColor,
+    Mutation::GlistenEnable,
+    Mutation::GlistenDisable,
+    Mutation::BodyColor,
+    Mutation::MouthVariant,
+    Mutation::Telophase,
+    Mutation::BackwardsTelophase,
+    Mutation::Cytokinesis,
+    Mutation::Endocytosis,
+    Mutation::Engulfment,
+    Mutation::Alienation,
+    Mutation::Strawberry,
+    Mutation::BubbleColor,
+    Mutation::NightOwl,
+    Mutation::HelpedByGod,
+    Mutation::Heterochromia,
+    Mutation::Hydra,
+    Mutation::BodyExtension,
+    Mutation::DecreaseExtension,
+];
+
+const COW_HYDRA_HEAD_W: usize = 4;
+const COW_HYDRA_HEAD_GAP: usize = 1;
+
+pub fn cow_hydra_capacity(cow: &Cow) -> usize {
+    if cow.mutant.is_double {
+        return 0;
+    }
+    let torso = cow.torso_width();
+    (torso + COW_HYDRA_HEAD_GAP) / (COW_HYDRA_HEAD_W + COW_HYDRA_HEAD_GAP)
+}
+
+fn cow_hydra_offsets(torso: usize, count: usize) -> Vec<usize> {
+    let used = count * COW_HYDRA_HEAD_W + count.saturating_sub(1) * COW_HYDRA_HEAD_GAP;
+    let margin = torso.saturating_sub(used) / 2;
+    (0..count)
+        .map(|i| margin + i * (COW_HYDRA_HEAD_W + COW_HYDRA_HEAD_GAP))
+        .collect()
+}
+
+fn stamp_cow_row(row: &mut Vec<(char, Color)>, col: usize, cells: &[(char, Color)], body: Color) {
+    while row.len() < col {
+        row.push((COW_TRANSPARENT, body));
+    }
+    for (k, &cell) in cells.iter().enumerate() {
+        let idx = col + k;
+        if idx < row.len() {
+            row[idx] = cell;
+        } else {
+            row.push(cell);
+        }
+    }
+}
+
+fn overlay_hydra_heads(rows: &mut [Vec<(char, Color)>], cow: &Cow) {
+    let count = cow.mutant.hydra_eyes.len().min(cow_hydra_capacity(cow));
+    if count == 0 {
+        return;
+    }
+    let body = cow.color;
+    let eye_default = cow.mutant.eye_color.unwrap_or(DARK_GRAY);
+    let torso = cow.torso_width();
+    let torso_start = cow_head_render_count(cow) + 2 + 1;
+    let top = cow.sprite_top_offset() as usize;
+    for (i, off) in cow_hydra_offsets(torso, count).into_iter().enumerate() {
+        let col = torso_start + off;
+        let eye = &cow.mutant.hydra_eyes[i];
+        let ec = cow.mutant.eye_render_color(eye, eye_default);
+        let eye_ch = if eye.is_open() { 'o' } else { '-' };
+        let top_row = [('^', body), ('_', body), ('_', body), ('^', body)];
+        let mid_row = [('(', body), (eye_ch, ec), (eye_ch, ec), (')', body)];
+        let bot_row = [('(', body), ('_', body), ('_', body), (')', body)];
+        stamp_cow_row(&mut rows[top], col, &top_row, body);
+        stamp_cow_row(&mut rows[top + 1], col, &mid_row, body);
+        stamp_cow_row(&mut rows[top + 2], col, &bot_row, body);
+    }
+}
+
 impl Mutatable for Cow {
+    fn capabilities(&self) -> &'static [Mutation] {
+        COW_CAPS
+    }
+    fn is_double(&self) -> bool {
+        self.mutant.is_double
+    }
+    fn has_glisten(&self) -> bool {
+        self.mutant.glistening_color.is_some()
+    }
+    fn apply_one(&mut self, mutation: Mutation, rng: &mut impl RngExt) -> MutationOutcome {
+        apply_mutant_mutation(self, mutation, rng)
+    }
+    fn record_mut(&mut self) -> &mut MutationRecord {
+        self.mutations
+            .get_or_insert_with(|| Box::new(MutationRecord::default()))
+    }
+    fn circadian(&self) -> Circadian {
+        self.mutant.circadian
+    }
+    fn backwards(&self) -> bool {
+        self.mutant.backwards
+    }
+    fn hydra_count(&self) -> usize {
+        self.mutant.hydra_eyes.len()
+    }
+    fn hydra_max(&self) -> usize {
+        cow_hydra_capacity(self)
+    }
+    fn has_bodyextension(&self) -> bool {
+        self.mutant.body_extension.is_some()
+    }
+}
+
+impl MutantBacked for Cow {
     fn body_size(&self) -> usize {
         self.body_length + COW_BASE_TORSO
     }
@@ -223,21 +377,23 @@ impl Mutatable for Cow {
     fn mutant_mut(&mut self) -> &mut MutantState {
         &mut self.mutant
     }
-    fn mutations_record_mut(&mut self) -> &mut MutationRecord {
-        self.mutations
-            .get_or_insert_with(|| Box::new(MutationRecord::default()))
-    }
-    fn doublefish_eye_count<R: RngExt>(&self, _rng: &mut R) -> usize {
+    fn doublefish_eye_count(&self, _rng: &mut impl RngExt) -> usize {
         self.eye_count().clamp(2, COW_HEAD_CAP)
-    }
-    fn allows_tail_variant(&self) -> bool {
-        false
     }
     fn recompute_display_width(&mut self) {
         self.display_width = cow_display_width(self);
     }
+    fn self_component(&self) -> FusedComponent {
+        FusedComponent::cow(self.variant, self.name.clone())
+    }
+    fn arm_engulf(&mut self) {
+        self.engulf_timer = crate::fishes::fish::ENGULF_WINDOW_SECS;
+    }
     fn color_patch_range(&self) -> usize {
         cow_paintable_cell_count(self)
+    }
+    fn hydra_capacity(&self) -> usize {
+        cow_hydra_capacity(self)
     }
 }
 
@@ -253,7 +409,9 @@ pub fn cow_display_width(cow: &Cow) -> usize {
     let torso = cow.torso_width();
     let head_eye_render = cow_head_render_count(cow);
     let head_w = (head_eye_render.max(2)) + 2;
-    if cow.mutant.is_double {
+    if cow.mutant.is_double && cow.mutant.backwards {
+        2 * COW_TAIL_W + torso
+    } else if cow.mutant.is_double {
         let right_head_w = (cow.mutant.double_head_eyes.len().max(1)) + 2;
         head_w + torso + 1 + right_head_w
     } else {
@@ -286,21 +444,24 @@ pub fn cow_sprite(cow: &Cow) -> Vec<Vec<(char, Color)>> {
     let alienated = cow.is_alienated();
 
     if cow.mutant.is_double {
-        let mut rows = double_cow_sprite(cow, head_render, torso, alienated);
-        if let Some(pc) = patch_color {
-            apply_random_patches(
-                &mut rows,
-                pc,
-                cow.position.x as u64 ^ (cow.name.len() as u64) << 8,
-            );
+        if cow.mutant.backwards {
+            let mut rows = backward_cow_sprite(cow, torso, alienated);
+            apply_cow_skin_decor(&mut rows, cow);
+            return rows;
         }
-        if let Some(peak) = glisten_color {
-            crate::sprite::apply_glisten(&mut rows, phase, glisten_mode, cow.color, peak);
+        if let Some((left, right)) = cow_fused_render_halves(cow) {
+            return per_half_double_cow(cow, left, right, head_render, torso, alienated);
         }
-        for &(pos, color) in &cow.mutant.color_patches {
-            apply_color_patch(&mut rows, pos, color);
-        }
-        return rows;
+        let right_eyes = cow.mutant.double_head_eyes.len().max(1);
+        return skinned_double_cow(
+            cow,
+            &cow.mutant.left_eyes,
+            &cow.mutant.double_head_eyes,
+            head_render,
+            torso,
+            right_eyes,
+            alienated,
+        );
     }
 
     let row1 = build_row1(head_w, body, alienated);
@@ -308,7 +469,8 @@ pub fn cow_sprite(cow: &Cow) -> Vec<Vec<(char, Color)>> {
     let mut row2: Vec<(char, Color)> = Vec::new();
     row2.push(('(', body));
     for i in 0..head_render {
-        let open = cow.mutant.left_eyes.get(i).is_none_or(|e| e.is_open());
+        let eye = cow.mutant.left_eyes.get(i);
+        let open = eye.is_none_or(|e| e.is_open());
         let ch = if i < head_eye_render && open {
             'o'
         } else if i < head_eye_render {
@@ -316,7 +478,8 @@ pub fn cow_sprite(cow: &Cow) -> Vec<Vec<(char, Color)>> {
         } else {
             ' '
         };
-        row2.push((ch, eye_color));
+        let cell_color = eye.map_or(eye_color, |e| cow.mutant.eye_render_color(e, eye_color));
+        row2.push((ch, cell_color));
     }
     row2.push((')', body));
     row2.push(('\\', body));
@@ -336,11 +499,8 @@ pub fn cow_sprite(cow: &Cow) -> Vec<Vec<(char, Color)>> {
     for i in 0..torso {
         let eye_index = head_eye_render + i;
         let is_eye = i < body_overflow;
-        let open = cow
-            .mutant
-            .left_eyes
-            .get(eye_index)
-            .is_none_or(|e| e.is_open());
+        let eye = cow.mutant.left_eyes.get(eye_index);
+        let open = eye.is_none_or(|e| e.is_open());
         let ch = if is_eye && open {
             'o'
         } else if is_eye {
@@ -348,7 +508,11 @@ pub fn cow_sprite(cow: &Cow) -> Vec<Vec<(char, Color)>> {
         } else {
             ' '
         };
-        let color = if is_eye { eye_color } else { body };
+        let color = if is_eye {
+            eye.map_or(eye_color, |e| cow.mutant.eye_render_color(e, eye_color))
+        } else {
+            body
+        };
         row3.push((ch, color));
     }
     row3.push((')', body));
@@ -364,10 +528,10 @@ pub fn cow_sprite(cow: &Cow) -> Vec<Vec<(char, Color)>> {
     row4.push(('|', body));
     row4.push(('|', body));
     for _ in 0..(torso.saturating_sub(3)) {
-        row4.push(('-', body));
+        row4.push((COW_BELLY, body));
     }
-    row4.push(('-', body));
-    row4.push(('w', body));
+    row4.push((COW_BELLY, body));
+    row4.push((COW_UDDER, body));
     row4.push((' ', body));
     row4.push(('|', body));
 
@@ -403,6 +567,8 @@ pub fn cow_sprite(cow: &Cow) -> Vec<Vec<(char, Color)>> {
     for &(pos, color) in &cow.mutant.color_patches {
         apply_color_patch(&mut rows, pos, color);
     }
+
+    overlay_hydra_heads(&mut rows, cow);
 
     rows
 }
@@ -440,16 +606,120 @@ fn build_antenna_row(head_w: usize, body: Color) -> Vec<(char, Color)> {
     row
 }
 
-fn double_cow_sprite(
-    cow: &Cow,
+fn apply_cow_skin_decor(rows: &mut [Vec<(char, Color)>], skin: &Cow) {
+    if let Some(pc) = skin.variant.patches_color() {
+        apply_random_patches(
+            rows,
+            pc,
+            skin.position.x as u64 ^ (skin.name.len() as u64) << 8,
+        );
+    }
+    if let Some(peak) = skin.mutant.glistening_color {
+        crate::sprite::apply_glisten(
+            rows,
+            skin.sway.phase,
+            skin.mutant.glistening_mode,
+            skin.color,
+            peak,
+        );
+    }
+    for &(pos, color) in &skin.mutant.color_patches {
+        apply_color_patch(rows, pos, color);
+    }
+}
+
+fn cow_fused_render_halves(cow: &Cow) -> Option<(&Cow, &Cow)> {
+    if !cow.mutant.is_double || cow.mutant.fused.len() != 2 {
+        return None;
+    }
+    let left = cow.mutant.fused[0].cow_snapshot()?;
+    let right = cow.mutant.fused[1].cow_snapshot()?;
+    Some((left, right))
+}
+
+fn skinned_double_cow(
+    skin: &Cow,
+    left_head_eyes: &[EyeState],
+    right_head_eyes: &[EyeState],
+    head_render: usize,
+    torso: usize,
+    right_eyes: usize,
+    alienated: bool,
+) -> Vec<Vec<(char, Color)>> {
+    let mut rows = double_cow_sprite(
+        skin,
+        left_head_eyes,
+        right_head_eyes,
+        head_render,
+        torso,
+        right_eyes,
+        alienated,
+    );
+    apply_cow_skin_decor(&mut rows, skin);
+    rows
+}
+
+fn per_half_double_cow(
+    host: &Cow,
+    left: &Cow,
+    right: &Cow,
     head_render: usize,
     torso: usize,
     alienated: bool,
 ) -> Vec<Vec<(char, Color)>> {
-    let body = cow.color;
-    let eye_color = cow.mutant.eye_color.unwrap_or(DARK_GRAY);
+    let right_eyes = host.mutant.double_head_eyes.len().max(1);
+    let left_rows = skinned_double_cow(
+        left,
+        &left.mutant.left_eyes,
+        &[],
+        head_render,
+        torso,
+        right_eyes,
+        alienated,
+    );
+    let right_rows = skinned_double_cow(
+        right,
+        &[],
+        &right.mutant.left_eyes,
+        head_render,
+        torso,
+        right_eyes,
+        alienated,
+    );
+    let seam = head_render + 3 + torso / 2;
+    splice_cow_halves(left_rows, right_rows, seam)
+}
+
+fn splice_cow_halves(
+    left: Vec<Vec<(char, Color)>>,
+    right: Vec<Vec<(char, Color)>>,
+    seam: usize,
+) -> Vec<Vec<(char, Color)>> {
+    left.into_iter()
+        .zip(right)
+        .map(|(l, r)| {
+            let cut = seam.min(l.len());
+            let mut row = l[..cut].to_vec();
+            if seam < r.len() {
+                row.extend_from_slice(&r[seam..]);
+            }
+            row
+        })
+        .collect()
+}
+
+fn double_cow_sprite(
+    skin: &Cow,
+    left_head_eyes: &[EyeState],
+    right_head_eyes: &[EyeState],
+    head_render: usize,
+    torso: usize,
+    right_eyes: usize,
+    alienated: bool,
+) -> Vec<Vec<(char, Color)>> {
+    let body = skin.color;
+    let eye_color = skin.mutant.eye_color.unwrap_or(DARK_GRAY);
     let head_w = head_render + 2;
-    let right_eyes = cow.mutant.double_head_eyes.len().max(1);
     let right_head_w = right_eyes + 2;
 
     let left_pad = head_w.saturating_sub(COW_HEAD_TOP_W) / 2;
@@ -487,8 +757,10 @@ fn double_cow_sprite(
     let mut row2 = Vec::new();
     row2.push(('(', body));
     for i in 0..head_render {
-        let open = cow.mutant.left_eyes.get(i).is_none_or(|e| e.is_open());
-        row2.push((if open { 'o' } else { '-' }, eye_color));
+        let eye = left_head_eyes.get(i);
+        let open = eye.is_none_or(|e| e.is_open());
+        let cell_color = eye.map_or(eye_color, |e| skin.mutant.eye_render_color(e, eye_color));
+        row2.push((if open { 'o' } else { '-' }, cell_color));
     }
     row2.push((')', body));
     row2.push(('\\', body));
@@ -498,12 +770,10 @@ fn double_cow_sprite(
     row2.push(('/', body));
     row2.push(('(', body));
     for i in 0..right_eyes {
-        let open = cow
-            .mutant
-            .double_head_eyes
-            .get(i)
-            .is_none_or(|e| e.is_open());
-        row2.push((if open { 'o' } else { '-' }, eye_color));
+        let eye = right_head_eyes.get(i);
+        let open = eye.is_none_or(|e| e.is_open());
+        let cell_color = eye.map_or(eye_color, |e| skin.mutant.eye_render_color(e, eye_color));
+        row2.push((if open { 'o' } else { '-' }, cell_color));
     }
     row2.push((')', body));
 
@@ -530,12 +800,12 @@ fn double_cow_sprite(
     }
     row4.push(('|', body));
     row4.push(('|', body));
-    row4.push(('w', body));
+    row4.push((COW_BELLY, body));
     for _ in 0..(torso.saturating_sub(3)) {
-        row4.push(('-', body));
+        row4.push((COW_BELLY, body));
     }
-    row4.push(('-', body));
-    row4.push(('w', body));
+    row4.push((COW_BELLY, body));
+    row4.push((COW_BELLY, body));
     row4.push(('|', body));
     row4.push(('|', body));
 
@@ -568,6 +838,70 @@ fn double_cow_sprite(
         antenna.push((COW_TRANSPARENT, body));
         antenna.push((COW_TRANSPARENT, body));
         antenna.push((ANTENNA_BALL, body));
+        rows.insert(0, antenna);
+    }
+    rows
+}
+
+fn backward_cow_sprite(cow: &Cow, torso: usize, alienated: bool) -> Vec<Vec<(char, Color)>> {
+    let body = cow.color;
+    let total_w = 2 * COW_TAIL_W + torso;
+    let belly_indent = COW_TAIL_W - 1;
+    let belly_dashes = torso.saturating_sub(4);
+    let leg_gap = torso.saturating_sub(2);
+
+    let row1: Vec<(char, Color)> = vec![(COW_TRANSPARENT, body); total_w];
+
+    let mut row2 = Vec::new();
+    for _ in 0..COW_TAIL_W {
+        row2.push((COW_TRANSPARENT, body));
+    }
+    for _ in 0..torso {
+        row2.push(('_', body));
+    }
+
+    let mut row3 = Vec::new();
+    for &c in COW_LEFT_TAIL.iter() {
+        row3.push((c, body));
+    }
+    for _ in 0..torso {
+        row3.push((' ', body));
+    }
+    for &c in COW_RIGHT_TAIL.iter() {
+        row3.push((c, body));
+    }
+
+    let mut row4 = Vec::new();
+    for _ in 0..belly_indent {
+        row4.push((COW_TRANSPARENT, body));
+    }
+    row4.push(('|', body));
+    row4.push((' ', body));
+    row4.push((COW_UDDER, body));
+    for _ in 0..belly_dashes {
+        row4.push((COW_BELLY, body));
+    }
+    row4.push((COW_UDDER, body));
+    row4.push((' ', body));
+    row4.push(('|', body));
+
+    let mut row5 = Vec::new();
+    for _ in 0..belly_indent {
+        row5.push((COW_TRANSPARENT, body));
+    }
+    row5.push(('|', body));
+    row5.push(('|', body));
+    for _ in 0..leg_gap {
+        row5.push((COW_TRANSPARENT, body));
+    }
+    row5.push(('|', body));
+    row5.push(('|', body));
+
+    let mut rows = vec![row1, row2, row3, row4, row5];
+    if alienated {
+        let mut antenna = vec![(COW_TRANSPARENT, body); total_w];
+        antenna[0] = (ANTENNA_BALL, body);
+        antenna[total_w - 1] = (ANTENNA_BALL, body);
         rows.insert(0, antenna);
     }
     rows
@@ -623,4 +957,105 @@ pub fn build_speech_bubble(text: &str) -> Vec<String> {
 
 pub fn random_cow_color(rng: &mut impl RngExt) -> CowVariant {
     CowVariant::random(rng)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const UDDER_ROW: usize = 3;
+
+    fn test_cow(double: bool) -> Cow {
+        let mut rng = rand::rng();
+        let mut cow = Cow::new("Bessie".to_string(), CowVariant::Brown, 0.0, 0.0, &mut rng);
+        cow.mutant.is_double = double;
+        if double {
+            let component = cow.self_component();
+            cow.mutant.fused = vec![component.clone(), component];
+        }
+        cow
+    }
+
+    fn row_chars(rows: &[Vec<(char, Color)>], idx: usize) -> Vec<char> {
+        rows[idx].iter().map(|(c, _)| *c).collect()
+    }
+
+    #[test]
+    fn telophase_cow_has_dash_udders_not_w() {
+        let row = row_chars(&cow_sprite(&test_cow(true)), UDDER_ROW);
+        assert!(
+            !row.contains(&COW_UDDER),
+            "plain telophase cow must show '-' udders, got {row:?}"
+        );
+    }
+
+    #[test]
+    fn single_cow_keeps_one_w_udder() {
+        let row = row_chars(&cow_sprite(&test_cow(false)), UDDER_ROW);
+        let udders = row.iter().filter(|&&c| c == COW_UDDER).count();
+        assert_eq!(udders, 1, "single cow keeps its one udder, got {row:?}");
+    }
+
+    fn backward_cow() -> Cow {
+        let mut cow = test_cow(true);
+        cow.mutant.backwards = true;
+        cow.display_width = cow_display_width(&cow);
+        cow
+    }
+
+    #[test]
+    fn backwardstelophase_cow_has_two_w_udders() {
+        let rows = cow_sprite(&backward_cow());
+        let udders = rows
+            .iter()
+            .flatten()
+            .filter(|&&(c, _)| c == COW_UDDER)
+            .count();
+        assert_eq!(udders, 2, "a backwardstelophase cow shows two w udders");
+    }
+
+    #[test]
+    fn backwardstelophase_cow_shows_tails_not_faces() {
+        let rows = cow_sprite(&backward_cow());
+        let chars: Vec<char> = rows.iter().flatten().map(|&(c, _)| c).collect();
+        assert!(
+            chars.contains(&'/') && chars.contains(&'\\'),
+            "a backward cow shows tail glyphs"
+        );
+        assert!(
+            !chars.contains(&'o'),
+            "a backward cow has no (oo) face eyes"
+        );
+        assert!(
+            !chars.contains(&'^'),
+            "a backward cow has no head-top horns"
+        );
+    }
+
+    #[test]
+    fn backward_cow_display_width_matches_widest_row() {
+        let cow = backward_cow();
+        let widest = cow_sprite(&cow).iter().map(|r| r.len()).max().unwrap();
+        assert_eq!(
+            cow.display_width, widest,
+            "width tracks the rendered sprite"
+        );
+    }
+
+    const TELOPHASE_COW_MILK_YIELD: u32 = 2;
+
+    #[test]
+    fn telophase_cow_yields_double_milk() {
+        assert_eq!(test_cow(false).milk_yield(), 1, "single cow yields one");
+        assert_eq!(
+            test_cow(true).milk_yield(),
+            TELOPHASE_COW_MILK_YIELD,
+            "a forward telophase cow yields per-component milk"
+        );
+        assert_eq!(
+            backward_cow().milk_yield(),
+            TELOPHASE_COW_MILK_YIELD,
+            "a backwardstelophase cow yields per-component milk"
+        );
+    }
 }

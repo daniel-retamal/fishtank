@@ -4,18 +4,26 @@ use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use ratatui::style::Color;
 use unicode_width::UnicodeWidthChar;
 
-use super::mutant::{EXTRA_BODY_FOR_DOUBLE, MutantState, MutationRecord};
-use super::species::{BodyChars, BodyTemplate, FishSpecies, PatternKind, SizeCategory, TailKind};
+use super::fused::FusedComponent;
+use super::mutant::{Circadian, EXTRA_BODY_FOR_DOUBLE, MutantState, MutationRecord};
+use super::species::{
+    BodyChars, BodyTemplate, EYE_ROUND, FishSpecies, PatternKind, SizeCategory, TailKind,
+};
 use super::unfish::{
     BALL_WIDTH, BLINKER_BASE_COLOR, BLINKER_GLISTEN_MID, BLINKER_GLISTEN_PEAK, BLINKER_MID_COLOR,
     BLINKER_PEAK_COLOR, SKULL_WIDTH, UNFISH_BODY_COLOR, UNFISH_EYE_COLOR, UnfishKind, UnfishState,
-    WORM_DEFAULT_SEGMENTS, build_worm, is_multi_row, worm_display_width, worm_eye_cols,
+    WORM_DEFAULT_SEGMENTS, WormShape, build_worm, is_multi_row, worm_display_width, worm_eye_cols,
 };
-use crate::colors::{DARK_GRAY, WHITE};
+use crate::colors::{DARK_GRAY, PINK, WHITE};
 use crate::consumable::{COFFEE_SPEED_MULT, COFFEE_SWAY_MULT, COFFEE_ZOOMIE_DT_MULT};
 use crate::entities::components::{Position, SwayState, Velocity, tick_sway};
 use crate::entities::glistening::{GlisteningMode, color_for_glisten, derive_glistening_palette};
 use crate::settings::Settings;
+use crate::sprite::{
+    BodyExtension, EAR_LEFT, EAR_RIGHT, ExtensionVariant, Feet, ear_glyph, extension_row, feet_row,
+    mirror_char, painted_span,
+};
+use crate::util::even_indices;
 
 const CHAR_SPREAD: f32 = 1.0;
 pub const EATING_DURATION: f32 = 0.15;
@@ -37,6 +45,14 @@ const ZOOMIE_INITIAL_TIMER_MIN: f32 = 30.0;
 const ZOOMIE_INITIAL_TIMER_MAX: f32 = 90.0;
 const DIRECTION_TIMER_DISPLAY_DEFAULT: u32 = 300;
 const ZOOMIE_TIMER_DISPLAY_DEFAULT: f32 = 60.0;
+const LINE_TAIL_W: usize = 2;
+const HYDRA_EYES_PER_HEAD: usize = 2;
+const HELPEDBYGOD_COFFEE_MULT: f32 = 2.0;
+const HELPEDBYGOD_ZOOMIE_MULT: f32 = 3.0;
+const NIGHTOWL_SPEED_MULT: f32 = 0.4;
+const NIGHTOWL_SINK_DY: f32 = 1.5;
+const FEET_ROW_COUNT: usize = 1;
+pub const ENGULF_WINDOW_SECS: f32 = 10.0;
 
 #[derive(Clone, Copy)]
 pub enum Direction {
@@ -52,6 +68,13 @@ impl Direction {
         }
     }
 }
+
+pub struct LineSprite {
+    pub rows: Vec<Vec<(char, Color)>>,
+    pub body_row: usize,
+}
+
+type LineCells = (Vec<(char, Color)>, Option<(usize, usize)>);
 
 #[derive(Clone, Copy)]
 pub enum FishState {
@@ -95,6 +118,7 @@ pub struct Fish {
     pub unfish_state: Option<Box<UnfishState>>,
     pub sell_price_bonus_pct: u8,
     pub abduction_lock: bool,
+    pub engulf_timer: f32,
     direction_timer: u32,
     zoomie_timer: f32,
 }
@@ -208,6 +232,7 @@ impl Fish {
             unfish_state: None,
             sell_price_bonus_pct: 0,
             abduction_lock: false,
+            engulf_timer: 0.0,
         }
     }
 
@@ -243,6 +268,7 @@ impl Fish {
             unfish_state: None,
             sell_price_bonus_pct: 0,
             abduction_lock: false,
+            engulf_timer: 0.0,
         }
     }
 
@@ -258,7 +284,7 @@ impl Fish {
         let display_width = match kind {
             UnfishKind::Skull => SKULL_WIDTH as usize,
             UnfishKind::Ball => BALL_WIDTH as usize,
-            UnfishKind::Worm => worm_display_width(WORM_DEFAULT_SEGMENTS, 0, false),
+            UnfishKind::Worm => worm_display_width(WORM_DEFAULT_SEGMENTS, 0, false, 0, 0),
             _ => compute_display_width(FishSpecies::Unfish, 5),
         };
         let angle = rng.random::<f32>() * TAU;
@@ -295,26 +321,180 @@ impl Fish {
             unfish_state: Some(Box::new(UnfishState::new(kind, rng))),
             sell_price_bonus_pct: 0,
             abduction_lock: false,
+            engulf_timer: 0.0,
         }
     }
 
     pub fn is_invisible(&self) -> bool {
-        self.unfish_state
+        if let Some(us) = self.unfish_state.as_deref() {
+            return us.is_invisible();
+        }
+        self.fused_personas().any(|us| us.is_invisible())
+    }
+
+    fn fused_personas(&self) -> impl Iterator<Item = &UnfishState> {
+        self.mutant
             .as_ref()
-            .is_some_and(|us| us.is_invisible())
+            .into_iter()
+            .flat_map(|m| m.fused.iter())
+            .filter_map(|c| c.persona.as_deref())
+    }
+
+    pub fn personas_mut(&mut self) -> Vec<&mut UnfishState> {
+        if let Some(us) = self.unfish_state.as_deref_mut() {
+            return vec![us];
+        }
+        match self.mutant.as_mut() {
+            Some(m) => m
+                .fused
+                .iter_mut()
+                .filter_map(|c| c.persona.as_deref_mut())
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+
+    pub fn capture_persona(&self) -> Option<Box<UnfishState>> {
+        let us = self.unfish_state.as_deref()?;
+        us.kind.has_fused_behavior().then(|| Box::new(us.clone()))
+    }
+
+    fn tick_passengers(&mut self, dt: f32, rng: &mut impl RngExt) {
+        if self.unfish_state.is_some() {
+            return;
+        }
+        let Some(mutant) = self.mutant.as_mut() else {
+            return;
+        };
+        for component in &mut mutant.fused {
+            if let Some(us) = component.persona.as_deref_mut() {
+                us.tick(dt, rng);
+            }
+        }
     }
 
     pub fn is_weight_uncapped(&self) -> bool {
         self.unfish_state.is_some()
     }
 
+    pub fn bubble_color(&self) -> Option<Color> {
+        if let Some(us) = self.unfish_state.as_ref() {
+            return us.bubble_color;
+        }
+        self.mutant.as_ref().and_then(|m| m.bubble_color)
+    }
+
+    pub fn fused_components(&self) -> &[FusedComponent] {
+        if let Some(us) = self.unfish_state.as_ref() {
+            return &us.fused;
+        }
+        match self.mutant.as_ref() {
+            Some(m) => &m.fused,
+            None => &[],
+        }
+    }
+
+    pub fn fused_components_mut(&mut self) -> &mut [FusedComponent] {
+        if let Some(us) = self.unfish_state.as_mut() {
+            return &mut us.fused;
+        }
+        match self.mutant.as_mut() {
+            Some(m) => &mut m.fused,
+            None => &mut [],
+        }
+    }
+
+    pub fn set_fused(&mut self, components: Vec<FusedComponent>) {
+        if let Some(us) = self.unfish_state.as_mut() {
+            us.fused = components;
+        } else if let Some(m) = self.mutant.as_mut() {
+            m.fused = components;
+        }
+    }
+
+    pub fn ability_components(&self) -> Vec<FishSpecies> {
+        let fused = self.fused_components();
+        if fused.is_empty() {
+            return vec![self.species];
+        }
+        fused.iter().filter_map(|c| c.fish_species()).collect()
+    }
+
+    pub fn fused_self_component(&self) -> FusedComponent {
+        match self.unfish_state.as_ref() {
+            Some(us) => FusedComponent::unfish(us.kind, self.name.clone(), self.weight_g),
+            None => FusedComponent::fish(self.species, self.name.clone(), self.weight_g),
+        }
+    }
+
+    pub fn ability_stacks(&self, species: FishSpecies) -> u32 {
+        self.ability_components()
+            .iter()
+            .filter(|&&s| s == species)
+            .count() as u32
+    }
+
+    pub fn auto_mutate_stacks(&self) -> u32 {
+        self.ability_components()
+            .iter()
+            .filter(|s| s.config().auto_mutate)
+            .count() as u32
+    }
+
+    pub fn circadian_state(&self) -> Circadian {
+        if let Some(us) = self.unfish_state.as_ref() {
+            return us.circadian;
+        }
+        self.mutant
+            .as_ref()
+            .map_or(Circadian::Neutral, |m| m.circadian)
+    }
+
+    fn coffee_response(&self, coffee_stacks: u32) -> f32 {
+        match self.circadian_state() {
+            Circadian::NightOwl => 0.0,
+            Circadian::HelpedByGod => coffee_stacks as f32 * HELPEDBYGOD_COFFEE_MULT,
+            Circadian::Neutral => coffee_stacks as f32,
+        }
+    }
+
+    fn circadian_zoomie_mult(&self) -> f32 {
+        match self.circadian_state() {
+            Circadian::NightOwl => 0.0,
+            Circadian::HelpedByGod => HELPEDBYGOD_ZOOMIE_MULT,
+            Circadian::Neutral => 1.0,
+        }
+    }
+
+    fn circadian_speed_mult(&self) -> f32 {
+        match self.circadian_state() {
+            Circadian::NightOwl => NIGHTOWL_SPEED_MULT,
+            _ => 1.0,
+        }
+    }
+
+    fn circadian_sink_dy(&self) -> f32 {
+        match self.circadian_state() {
+            Circadian::NightOwl => NIGHTOWL_SINK_DY,
+            _ => 0.0,
+        }
+    }
+
     pub fn segments(&self) -> Vec<(char, Color)> {
+        self.line_cells().0
+    }
+
+    fn line_cells(&self) -> LineCells {
         if self.unfish_state.is_some() {
             return self.segments_unfish();
         }
         if self.mutant.is_some() {
             return self.segments_mutant();
         }
+        (self.segments_plain(), None)
+    }
+
+    fn segments_plain(&self) -> Vec<(char, Color)> {
         let config = self.species.config();
         let chars = self.build_chars(&config.body);
         let colors = if matches!(config.pattern, PatternKind::Glistening) {
@@ -345,6 +525,173 @@ impl Fish {
             segs[eye_idx].1 = DARK_GRAY;
         }
         segs
+    }
+
+    pub fn feet(&self) -> Option<Feet> {
+        if let Some(us) = self.unfish_state.as_ref() {
+            return us.feet;
+        }
+        self.mutant.as_ref().and_then(|m| m.feet)
+    }
+
+    pub fn body_extension(&self) -> Option<BodyExtension> {
+        if let Some(us) = self.unfish_state.as_ref() {
+            return us.body_extension;
+        }
+        self.mutant.as_ref().and_then(|m| m.body_extension)
+    }
+
+    pub fn line_sprite(&self) -> LineSprite {
+        if let Some((left, right)) = self.fused_render_halves() {
+            return self.fused_line_sprite(&left, &right);
+        }
+        let (body, struct_span) = self.line_cells();
+        let span = struct_span.or_else(|| painted_span(&body));
+        if let (Some(ext), Some(span)) = (self.body_extension(), span) {
+            return self.line_sprite_with_extension(body, span, ext);
+        }
+        let mut rows = vec![body];
+        if let (Some(feet), Some(span)) = (self.feet(), span) {
+            let feet = feet_row(&rows[0], span, feet);
+            rows.push(feet);
+        }
+        LineSprite { rows, body_row: 0 }
+    }
+
+    pub fn is_double_now(&self) -> bool {
+        if let Some(us) = self.unfish_state.as_ref() {
+            return us.worm_is_double;
+        }
+        self.mutant.as_ref().is_some_and(|m| m.is_double)
+    }
+
+    pub fn fused_render_halves(&self) -> Option<(Fish, Fish)> {
+        if !self.is_double_now() {
+            return None;
+        }
+        let comps = self.fused_components();
+        if comps.len() != 2 {
+            return None;
+        }
+        let left = comps[0].fish_snapshot()?;
+        let right = comps[1].fish_snapshot()?;
+        Some((left.clone(), right.clone()))
+    }
+
+    pub fn fused_render_width(&self) -> usize {
+        if let Some(cells) = self.fused_worm_cells() {
+            return cells.len();
+        }
+        match self.fused_render_halves() {
+            Some((left, right)) => self
+                .fused_line_sprite(&left, &right)
+                .rows
+                .first()
+                .map_or(self.display_width, |r| r.len()),
+            None => self.display_width,
+        }
+    }
+
+    fn is_worm(&self) -> bool {
+        self.unfish_state
+            .as_ref()
+            .is_some_and(|us| us.kind == UnfishKind::Worm)
+    }
+
+    pub fn fused_worm_cells(&self) -> Option<Vec<(char, Color)>> {
+        if !self.is_worm() {
+            return None;
+        }
+        let (left, right) = self.fused_render_halves()?;
+        let mut cells = worm_half_cells(&left);
+        let mut mirrored = worm_half_cells(&right);
+        mirrored.reverse();
+        for cell in &mut mirrored {
+            cell.0 = crate::sprite::mirror_char(cell.0);
+        }
+        cells.extend(mirrored);
+        Some(cells)
+    }
+
+    fn half_sprite(&self, snapshot: &Fish, facing: Direction) -> (LineSprite, usize, usize) {
+        let mut half = snapshot.clone();
+        half.facing = facing;
+        half.sway.phase = self.sway.phase;
+        let (cells, span) = half.line_cells();
+        let last = cells.len().saturating_sub(1);
+        let (lo, hi) = match facing {
+            Direction::Left => (0, span.map_or(last, |(_, hi)| hi)),
+            Direction::Right => (span.map_or(0, |(lo, _)| lo), last),
+        };
+        (half.line_sprite(), lo, hi)
+    }
+
+    fn fused_line_sprite(&self, left: &Fish, right: &Fish) -> LineSprite {
+        let (left_sprite, l_lo, l_hi) = self.half_sprite(left, Direction::Left);
+        let (right_sprite, r_lo, r_hi) = self.half_sprite(right, Direction::Right);
+        let left_w = l_hi + 1 - l_lo;
+        let right_w = r_hi + 1 - r_lo;
+        let top = left_sprite.body_row.max(right_sprite.body_row);
+        let l_bottom = left_sprite.rows.len() - 1 - left_sprite.body_row;
+        let r_bottom = right_sprite.rows.len() - 1 - right_sprite.body_row;
+        let bottom = l_bottom.max(r_bottom);
+        let mut rows = Vec::with_capacity(top + 1 + bottom);
+        for i in 0..(top + 1 + bottom) {
+            let rel = i as isize - top as isize;
+            let mut row = half_row(&left_sprite, rel, l_lo, l_hi, left_w);
+            row.extend(half_row(&right_sprite, rel, r_lo, r_hi, right_w));
+            rows.push(row);
+        }
+        LineSprite {
+            rows,
+            body_row: top,
+        }
+    }
+
+    fn line_sprite_with_extension(
+        &self,
+        body: Vec<(char, Color)>,
+        span: (usize, usize),
+        ext: BodyExtension,
+    ) -> LineSprite {
+        let facing_left = matches!(self.facing, Direction::Left);
+        let phase = self.sway.phase;
+        let (above, below) = line_extension_bands(ext.variant);
+        let mut top_rows: Vec<Vec<(char, Color)>> = Vec::new();
+        if above {
+            for depth in (0..ext.length).rev() {
+                top_rows.push(extension_row(
+                    &body,
+                    span,
+                    ext,
+                    depth,
+                    true,
+                    facing_left,
+                    phase,
+                    None,
+                ));
+            }
+        }
+        let mut bottom_rows: Vec<Vec<(char, Color)>> = Vec::new();
+        if below {
+            for depth in 0..ext.length {
+                bottom_rows.push(extension_row(
+                    &body,
+                    span,
+                    ext,
+                    depth,
+                    false,
+                    facing_left,
+                    phase,
+                    None,
+                ));
+            }
+        }
+        let body_row = top_rows.len();
+        let mut rows = top_rows;
+        rows.push(body);
+        rows.extend(bottom_rows);
+        LineSprite { rows, body_row }
     }
 
     fn build_chars(&self, body: &BodyTemplate) -> Vec<char> {
@@ -404,10 +751,10 @@ impl Fish {
         chars
     }
 
-    fn segments_unfish(&self) -> Vec<(char, Color)> {
+    fn segments_unfish(&self) -> LineCells {
         let unfish_state = self.unfish_state.as_ref().unwrap();
         if is_multi_row(unfish_state.kind) {
-            return vec![];
+            return (vec![], None);
         }
         let config = FishSpecies::Unfish.config();
         let body_chars = match config.body {
@@ -417,19 +764,19 @@ impl Fish {
         match unfish_state.kind {
             UnfishKind::Worm => {
                 let facing_left = matches!(self.facing, Direction::Left);
-                let sprite = build_worm(
+                let shape = WormShape {
                     facing_left,
-                    unfish_state.worm_forward,
-                    unfish_state.worm_segments,
-                    unfish_state.worm_extra_eyes,
-                    unfish_state.worm_is_double,
-                );
-                let eye_cols = worm_eye_cols(
-                    facing_left,
-                    unfish_state.worm_segments,
-                    unfish_state.worm_extra_eyes,
-                    unfish_state.worm_is_double,
-                );
+                    forward: unfish_state.worm_forward,
+                    segments: unfish_state.worm_segments,
+                    extra_eyes: unfish_state.worm_extra_eyes,
+                    is_double: unfish_state.worm_is_double,
+                    backwards: unfish_state.worm_backwards,
+                    ears: unfish_state.ear_count,
+                    hydra: unfish_state.hydra_count,
+                };
+                let sprite = build_worm(&shape);
+                let eye_cols = worm_eye_cols(&shape);
+                let ear_color = unfish_state.ear_color.unwrap_or(PINK);
                 let body_color = unfish_state.slime_body_color.unwrap_or(UNFISH_BODY_COLOR);
                 let n = sprite.chars().count();
                 let glisten_colors: Vec<Color> = if unfish_state.slime_glisten_enabled {
@@ -457,18 +804,21 @@ impl Fish {
                     }
                     colors
                 };
-                sprite
+                let cells: Vec<(char, Color)> = sprite
                     .chars()
                     .enumerate()
                     .map(|(i, c)| {
-                        if eye_cols.contains(&i) {
+                        if let Some(eye_idx) = eye_cols.iter().position(|&col| col == i) {
                             let ch = if unfish_state.eye.is_open { '0' } else { '-' };
-                            (ch, unfish_state.slime_eye_color.unwrap_or(UNFISH_EYE_COLOR))
+                            (ch, unfish_state.worm_eye_render_color(eye_idx))
+                        } else if c == EAR_LEFT || c == EAR_RIGHT {
+                            (c, ear_color)
                         } else {
                             (c, glisten_colors[i])
                         }
                     })
-                    .collect()
+                    .collect();
+                (cells, None)
             }
             UnfishKind::Reversed => {
                 let opposite = match self.facing {
@@ -487,6 +837,7 @@ impl Fish {
                         segs[pos].1 = color;
                     }
                 }
+                let mut span = None;
                 if n >= 2 {
                     let eye_idx = if matches!(self.facing, Direction::Left) {
                         n - 2
@@ -494,8 +845,16 @@ impl Fish {
                         1
                     };
                     segs[eye_idx].1 = UNFISH_EYE_COLOR;
+                    span = insert_line_appendages(
+                        &mut segs,
+                        eye_idx,
+                        unfish_state.ear_count,
+                        unfish_state.ear_color.unwrap_or(PINK),
+                        unfish_state.hydra_count,
+                        UNFISH_EYE_COLOR,
+                    );
                 }
-                segs
+                (segs, span)
             }
             UnfishKind::Blinker => {
                 let chars = self.build_standard_chars(body_chars);
@@ -521,7 +880,23 @@ impl Fish {
                         segs[pos].1 = color;
                     }
                 }
-                segs
+                let mut span = None;
+                if n >= 2 {
+                    let eye_idx = if matches!(self.facing, Direction::Left) {
+                        1
+                    } else {
+                        n - 2
+                    };
+                    span = insert_line_appendages(
+                        &mut segs,
+                        eye_idx,
+                        unfish_state.ear_count,
+                        unfish_state.ear_color.unwrap_or(PINK),
+                        unfish_state.hydra_count,
+                        UNFISH_EYE_COLOR,
+                    );
+                }
+                (segs, span)
             }
             _ => {
                 let chars = self.build_standard_chars(body_chars);
@@ -536,6 +911,7 @@ impl Fish {
                         segs[pos].1 = color;
                     }
                 }
+                let mut span = None;
                 if n >= 2 {
                     let eye_idx = if matches!(self.facing, Direction::Right) {
                         n - 2
@@ -543,8 +919,16 @@ impl Fish {
                         1
                     };
                     segs[eye_idx].1 = UNFISH_EYE_COLOR;
+                    span = insert_line_appendages(
+                        &mut segs,
+                        eye_idx,
+                        unfish_state.ear_count,
+                        unfish_state.ear_color.unwrap_or(PINK),
+                        unfish_state.hydra_count,
+                        UNFISH_EYE_COLOR,
+                    );
                 }
-                segs
+                (segs, span)
             }
         }
     }
@@ -602,7 +986,7 @@ impl Fish {
             .collect()
     }
 
-    fn segments_mutant(&self) -> Vec<(char, Color)> {
+    fn segments_mutant(&self) -> LineCells {
         let mutant = self.mutant.as_ref().unwrap();
 
         if let BodyTemplate::Fixed { left, right } = self.species.config().body {
@@ -616,7 +1000,7 @@ impl Fish {
                 if mutant.glistening_color.is_some() {
                     let (base, mid, peak_default) = derive_glistening_palette(self.color);
                     let peak = mutant.glistening_color.unwrap_or(peak_default);
-                    return (0..n)
+                    let cells: Vec<(char, Color)> = (0..n)
                         .map(|i| {
                             let c = color_for_glisten(
                                 mutant.glistening_mode,
@@ -630,8 +1014,9 @@ impl Fish {
                             (jelly_char, c)
                         })
                         .collect();
+                    return (cells, None);
                 } else {
-                    return (0..n).map(|_| (jelly_char, self.color)).collect();
+                    return ((0..n).map(|_| (jelly_char, self.color)).collect(), None);
                 }
             }
 
@@ -657,41 +1042,57 @@ impl Fish {
             } else {
                 mutant.right_eyes.iter().map(|e| e.big_char()).collect()
             };
-            let eye_start = 1usize;
-            let eye_count = eye_chars.len();
 
-            let mut out_chars: Vec<char> = vec![mouth_ch];
-            out_chars.extend(eye_chars.iter().copied());
-            for _ in 0..self.body_size {
-                out_chars.push(body_ch);
-            }
-
-            let (double_eye_start, double_eye_count) = if mutant.is_double {
-                let mirror_body = invert_mouth(body_ch);
-                let mirror_mouth = invert_mouth(mouth_ch);
-                for _ in 0..self.body_size {
-                    out_chars.push(mirror_body);
-                }
-                let d_start = out_chars.len();
-                let double_eyes: Vec<char> = mutant
-                    .double_head_eyes
-                    .iter()
-                    .map(|e| {
-                        if facing_left_fixed {
-                            e.big_char()
-                        } else {
-                            e.small_char()
+            let mut out_chars: Vec<char> = Vec::new();
+            let (eye_start, eye_count, double_eye_start, double_eye_count) =
+                if mutant.is_double && mutant.backwards {
+                    let mirror_body = invert_mouth(body_ch);
+                    let mirror_tail = invert_mouth(tail_ch);
+                    out_chars.push(tail_ch);
+                    for _ in 0..(eye_chars.len() + self.body_size) {
+                        out_chars.push(body_ch);
+                    }
+                    for _ in 0..(self.body_size + mutant.double_head_eyes.len()) {
+                        out_chars.push(mirror_body);
+                    }
+                    out_chars.push(mirror_tail);
+                    (0usize, 0usize, 0usize, 0usize)
+                } else {
+                    out_chars.push(mouth_ch);
+                    let eye_start = out_chars.len();
+                    out_chars.extend(eye_chars.iter().copied());
+                    let eye_count = eye_chars.len();
+                    for _ in 0..self.body_size {
+                        out_chars.push(body_ch);
+                    }
+                    let (double_eye_start, double_eye_count) = if mutant.is_double {
+                        let mirror_body = invert_mouth(body_ch);
+                        let mirror_mouth = invert_mouth(mouth_ch);
+                        for _ in 0..self.body_size {
+                            out_chars.push(mirror_body);
                         }
-                    })
-                    .collect();
-                let d_count = double_eyes.len();
-                out_chars.extend(double_eyes);
-                out_chars.push(mirror_mouth);
-                (d_start, d_count)
-            } else {
-                out_chars.push(tail_ch);
-                (0usize, 0usize)
-            };
+                        let d_start = out_chars.len();
+                        let double_eyes: Vec<char> = mutant
+                            .double_head_eyes
+                            .iter()
+                            .map(|e| {
+                                if facing_left_fixed {
+                                    e.big_char()
+                                } else {
+                                    e.small_char()
+                                }
+                            })
+                            .collect();
+                        let d_count = double_eyes.len();
+                        out_chars.extend(double_eyes);
+                        out_chars.push(mirror_mouth);
+                        (d_start, d_count)
+                    } else {
+                        out_chars.push(tail_ch);
+                        (0usize, 0usize)
+                    };
+                    (eye_start, eye_count, double_eye_start, double_eye_count)
+                };
 
             let n = out_chars.len();
             let use_glisten = mutant.glistening_color.is_some();
@@ -714,20 +1115,35 @@ impl Fish {
             } else {
                 vec![self.color; n]
             };
+            let eye_a_eyes = if facing_left_fixed {
+                &mutant.left_eyes
+            } else {
+                &mutant.right_eyes
+            };
+            let eye_a_colors: Vec<Option<Color>> = eye_a_eyes
+                .iter()
+                .take(eye_count)
+                .map(|e| e.color.or(mutant.eye_color))
+                .collect();
+            let eye_b_colors: Vec<Option<Color>> = mutant
+                .double_head_eyes
+                .iter()
+                .take(double_eye_count)
+                .map(|e| e.color.or(mutant.eye_color))
+                .collect();
             apply_patches_and_eyes(
                 &mut colors,
                 &mutant.color_patches,
-                mutant.eye_color,
                 eye_start,
-                eye_count,
+                &eye_a_colors,
                 double_eye_start,
-                double_eye_count,
+                &eye_b_colors,
             );
             let mut segs: Vec<(char, Color)> = out_chars.into_iter().zip(colors).collect();
             if !facing_left_fixed {
                 segs.reverse();
             }
-            return segs;
+            return (segs, None);
         }
 
         let facing_left = matches!(self.facing, Direction::Left);
@@ -751,8 +1167,8 @@ impl Fish {
             } else {
                 let config = self.species.config();
                 let body_chars = match config.body {
-                    BodyTemplate::Standard(b) => b,
-                    _ => unreachable!(),
+                    BodyTemplate::Standard(b) | BodyTemplate::Alternating(b, _) => b,
+                    BodyTemplate::Fixed { .. } => unreachable!(),
                 };
                 let (body_char, wave_char, raw_mouth) = if facing_left {
                     (
@@ -789,48 +1205,62 @@ impl Fish {
         let max_eyes = mutant.left_eyes.len().max(mutant.right_eyes.len());
 
         let mut chars: Vec<char> = Vec::new();
-        chars.push(mouth);
-
-        let eye_start = chars.len();
-        let eye_count = if facing_left {
-            for e in &mutant.left_eyes {
-                chars.push(e.small_char());
-            }
-            mutant.left_eyes.len()
-        } else {
-            for e in &mutant.right_eyes {
-                chars.push(e.big_char());
-            }
-            mutant.right_eyes.len()
-        };
-        let extra_body = max_eyes - eye_count;
-
-        for _ in 0..(self.body_size + extra_body) {
-            chars.push(if sway_high { wave_ch } else { body_ch });
-        }
-
-        let double_eye_start;
-        let double_eye_count;
-
-        if mutant.is_double {
-            for _ in 0..EXTRA_BODY_FOR_DOUBLE {
-                chars.push(if sway_high { wave_ch } else { body_ch });
-            }
-            double_eye_start = chars.len();
-            for e in &mutant.double_head_eyes {
-                chars.push(if facing_left {
-                    e.big_char()
+        let (eye_start, eye_count, extra_body, double_eye_start, double_eye_count) =
+            if mutant.is_double && mutant.backwards {
+                let body_ch_now = if sway_high { wave_ch } else { body_ch };
+                let extra_body = max_eyes + EXTRA_BODY_FOR_DOUBLE + mutant.double_head_eyes.len();
+                chars.extend(mirror_tail(&non_double_tail));
+                let body_start = chars.len();
+                for _ in 0..(self.body_size + extra_body) {
+                    chars.push(body_ch_now);
+                }
+                chars.extend(non_double_tail.iter().copied());
+                (body_start, 0usize, extra_body, 0usize, 0usize)
+            } else {
+                chars.push(mouth);
+                let eye_start = chars.len();
+                let eye_count = if facing_left {
+                    for e in &mutant.left_eyes {
+                        chars.push(e.small_char());
+                    }
+                    mutant.left_eyes.len()
                 } else {
-                    e.small_char()
-                });
-            }
-            double_eye_count = mutant.double_head_eyes.len();
-            chars.push(if facing_left { '>' } else { '<' });
-        } else {
-            chars.extend(non_double_tail);
-            double_eye_start = 0;
-            double_eye_count = 0;
-        }
+                    for e in &mutant.right_eyes {
+                        chars.push(e.big_char());
+                    }
+                    mutant.right_eyes.len()
+                };
+                let extra_body = max_eyes - eye_count;
+                for _ in 0..(self.body_size + extra_body) {
+                    chars.push(if sway_high { wave_ch } else { body_ch });
+                }
+                let (double_eye_start, double_eye_count) = if mutant.is_double {
+                    for _ in 0..EXTRA_BODY_FOR_DOUBLE {
+                        chars.push(if sway_high { wave_ch } else { body_ch });
+                    }
+                    let start = chars.len();
+                    for e in &mutant.double_head_eyes {
+                        chars.push(if facing_left {
+                            e.big_char()
+                        } else {
+                            e.small_char()
+                        });
+                    }
+                    let count = mutant.double_head_eyes.len();
+                    chars.push(if facing_left { '>' } else { '<' });
+                    (start, count)
+                } else {
+                    chars.extend(non_double_tail);
+                    (0usize, 0usize)
+                };
+                (
+                    eye_start,
+                    eye_count,
+                    extra_body,
+                    double_eye_start,
+                    double_eye_count,
+                )
+            };
 
         let n = chars.len();
         let use_glisten = mutant.glistening_color.is_some() || self.species.config().auto_glisten;
@@ -853,20 +1283,85 @@ impl Fish {
         } else {
             vec![self.color; n]
         };
+        let eye_a_eyes = if facing_left {
+            &mutant.left_eyes
+        } else {
+            &mutant.right_eyes
+        };
+        let eye_a_colors: Vec<Option<Color>> = eye_a_eyes
+            .iter()
+            .take(eye_count)
+            .map(|e| e.color.or(mutant.eye_color))
+            .collect();
+        let eye_b_colors: Vec<Option<Color>> = mutant
+            .double_head_eyes
+            .iter()
+            .take(double_eye_count)
+            .map(|e| e.color.or(mutant.eye_color))
+            .collect();
         apply_patches_and_eyes(
             &mut colors,
             &mutant.color_patches,
-            mutant.eye_color,
             eye_start,
-            eye_count,
+            &eye_a_colors,
             double_eye_start,
-            double_eye_count,
+            &eye_b_colors,
         );
         let mut segs: Vec<(char, Color)> = chars.into_iter().zip(colors).collect();
+        insert_line_hydra(
+            &mut segs,
+            eye_start + eye_count,
+            self.body_size + extra_body,
+            &mutant_hydra_cells(mutant),
+        );
+        insert_ears(
+            &mut segs,
+            eye_start + eye_count,
+            mutant.ear_count,
+            ear_glyph(facing_left),
+            mutant.ear_color.unwrap_or(PINK),
+        );
         if !facing_left {
             segs.reverse();
         }
-        segs
+        let body_core_len = if mutant.is_double && !mutant.backwards {
+            self.body_size + extra_body + EXTRA_BODY_FOR_DOUBLE
+        } else {
+            self.body_size + extra_body
+        };
+        let hydra_used = mutant
+            .hydra_eyes
+            .len()
+            .min((self.body_size + extra_body).saturating_sub(1));
+        let span = self.mutant_body_span(
+            eye_start + eye_count + mutant.ear_count,
+            body_core_len + hydra_used,
+            segs.len(),
+            facing_left,
+        );
+        (segs, span)
+    }
+
+    fn mutant_body_span(
+        &self,
+        body_lo: usize,
+        body_len: usize,
+        n: usize,
+        facing_left: bool,
+    ) -> Option<(usize, usize)> {
+        if body_len == 0 || body_lo + body_len > n {
+            return None;
+        }
+        let body_hi = body_lo + body_len - 1;
+        Some(if facing_left {
+            (body_lo, body_hi)
+        } else {
+            (n - 1 - body_hi, n - 1 - body_lo)
+        })
+    }
+
+    pub fn facing_left(&self) -> bool {
+        matches!(self.facing, Direction::Left)
     }
 
     pub fn head_x(&self) -> i32 {
@@ -884,6 +1379,11 @@ impl Fish {
         coffee_stacks: u32,
     ) {
         let dt = 1.0 / settings.fps;
+        let coffee = self.coffee_response(coffee_stacks);
+
+        if self.engulf_timer > 0.0 {
+            self.engulf_timer = (self.engulf_timer - dt).max(0.0);
+        }
 
         if self.abduction_lock {
             tick_sway(&mut self.sway, self.sway_speed);
@@ -896,7 +1396,8 @@ impl Fish {
         match self.state {
             FishState::Idle => {
                 if self.species.config().can_zoomie {
-                    let zoomie_dt = dt * (1.0 + COFFEE_ZOOMIE_DT_MULT * coffee_stacks as f32);
+                    let zoomie_dt =
+                        dt * (1.0 + COFFEE_ZOOMIE_DT_MULT * coffee) * self.circadian_zoomie_mult();
                     self.zoomie_timer -= zoomie_dt;
                     if self.zoomie_timer <= 0.0 {
                         self.start_zoomie();
@@ -953,13 +1454,14 @@ impl Fish {
         }
 
         if !matches!(self.state, FishState::Eating { .. }) {
-            let speed_mult = 1.0 + COFFEE_SPEED_MULT * coffee_stacks as f32;
+            let speed_mult = (1.0 + COFFEE_SPEED_MULT * coffee) * self.circadian_speed_mult();
+            let sink_dy = self.circadian_sink_dy();
             self.position.x += self.velocity.dx * dt * speed_mult;
-            self.position.y += self.velocity.dy * dt * speed_mult;
+            self.position.y += (self.velocity.dy + sink_dy) * dt * speed_mult;
             self.bounce_walls(tank_width, tank_height);
         }
 
-        let sway_mult = 1.0 + COFFEE_SWAY_MULT * coffee_stacks as f32;
+        let sway_mult = 1.0 + COFFEE_SWAY_MULT * coffee;
         let effective_sway_speed = if matches!(self.state, FishState::Zoomie { .. }) {
             self.sway_speed * ZOOMIE_SWAY_MULTIPLIER * sway_mult
         } else {
@@ -974,6 +1476,7 @@ impl Fish {
             let mut rng = rand::rng();
             us.tick(dt, &mut rng);
         }
+        self.tick_passengers(dt, &mut rand::rng());
     }
 
     pub fn cancel_seek(&mut self) {
@@ -1128,36 +1631,37 @@ impl Fish {
         };
         match unfish_state.kind {
             UnfishKind::Worm => {
-                let sprite = build_worm(
-                    true,
-                    true,
-                    unfish_state.worm_segments,
-                    unfish_state.worm_extra_eyes,
-                    unfish_state.worm_is_double,
-                );
-                let eye_cols = worm_eye_cols(
-                    true,
-                    unfish_state.worm_segments,
-                    unfish_state.worm_extra_eyes,
-                    unfish_state.worm_is_double,
-                );
+                let shape = WormShape {
+                    facing_left: true,
+                    forward: true,
+                    segments: unfish_state.worm_segments,
+                    extra_eyes: unfish_state.worm_extra_eyes,
+                    is_double: unfish_state.worm_is_double,
+                    backwards: unfish_state.worm_backwards,
+                    ears: unfish_state.ear_count,
+                    hydra: unfish_state.hydra_count,
+                };
+                let sprite = build_worm(&shape);
+                let eye_cols = worm_eye_cols(&shape);
+                let ear_color = unfish_state.ear_color.unwrap_or(PINK);
                 let body_color = unfish_state.slime_body_color.unwrap_or(UNFISH_BODY_COLOR);
                 let mut segs: Vec<(char, Color)> = sprite
                     .chars()
                     .enumerate()
                     .map(|(i, c)| {
-                        if eye_cols.contains(&i) {
-                            (
-                                '0',
-                                unfish_state.slime_eye_color.unwrap_or(UNFISH_EYE_COLOR),
-                            )
+                        if let Some(eye_idx) = eye_cols.iter().position(|&col| col == i) {
+                            ('0', unfish_state.worm_eye_render_color(eye_idx))
+                        } else if c == EAR_LEFT || c == EAR_RIGHT {
+                            (c, ear_color)
                         } else {
                             (c, body_color)
                         }
                     })
                     .collect();
                 for &(pos, color) in &unfish_state.slime_color_patches {
-                    if pos < segs.len() && !eye_cols.contains(&pos) {
+                    let is_ear =
+                        matches!(segs.get(pos), Some(&(EAR_LEFT, _)) | Some(&(EAR_RIGHT, _)));
+                    if pos < segs.len() && !eye_cols.contains(&pos) && !is_ear {
                         segs[pos].1 = color;
                     }
                 }
@@ -1176,6 +1680,14 @@ impl Fish {
                 }
                 if n >= 2 {
                     segs[n - 2].1 = UNFISH_EYE_COLOR;
+                    insert_line_appendages(
+                        &mut segs,
+                        n - 2,
+                        unfish_state.ear_count,
+                        unfish_state.ear_color.unwrap_or(PINK),
+                        unfish_state.hydra_count,
+                        UNFISH_EYE_COLOR,
+                    );
                 }
                 segs
             }
@@ -1191,6 +1703,14 @@ impl Fish {
                 }
                 if n >= 2 {
                     segs[1].1 = UNFISH_EYE_COLOR;
+                    insert_line_appendages(
+                        &mut segs,
+                        1,
+                        unfish_state.ear_count,
+                        unfish_state.ear_color.unwrap_or(PINK),
+                        unfish_state.hydra_count,
+                        UNFISH_EYE_COLOR,
+                    );
                 }
                 segs
             }
@@ -1206,6 +1726,14 @@ impl Fish {
                 }
                 if n >= 2 {
                     segs[1].1 = UNFISH_EYE_COLOR;
+                    insert_line_appendages(
+                        &mut segs,
+                        1,
+                        unfish_state.ear_count,
+                        unfish_state.ear_color.unwrap_or(PINK),
+                        unfish_state.hydra_count,
+                        UNFISH_EYE_COLOR,
+                    );
                 }
                 segs
             }
@@ -1248,33 +1776,49 @@ impl Fish {
             let body_ch = chars_left[1];
             let tail_ch = *chars_left.last().unwrap();
 
-            let eye_start = 1usize;
-            let mut out_chars: Vec<char> = vec![mouth_ch];
-            for e in &mutant.left_eyes {
-                out_chars.push(e.small_char());
-            }
-            let eye_count = mutant.left_eyes.len();
-            for _ in 0..self.body_size {
-                out_chars.push(body_ch);
-            }
-
-            let (double_eye_start, double_eye_count) = if mutant.is_double {
-                let mirror_body = invert_mouth(body_ch);
-                let mirror_mouth = invert_mouth(mouth_ch);
-                for _ in 0..self.body_size {
-                    out_chars.push(mirror_body);
-                }
-                let d_start = out_chars.len();
-                for e in &mutant.double_head_eyes {
-                    out_chars.push(e.big_char());
-                }
-                let d_count = mutant.double_head_eyes.len();
-                out_chars.push(mirror_mouth);
-                (d_start, d_count)
-            } else {
-                out_chars.push(tail_ch);
-                (0usize, 0usize)
-            };
+            let mut out_chars: Vec<char> = Vec::new();
+            let (eye_start, eye_count, double_eye_start, double_eye_count) =
+                if mutant.is_double && mutant.backwards {
+                    let mirror_body = invert_mouth(body_ch);
+                    let mirror_tail = invert_mouth(tail_ch);
+                    out_chars.push(tail_ch);
+                    for _ in 0..(mutant.left_eyes.len() + self.body_size) {
+                        out_chars.push(body_ch);
+                    }
+                    for _ in 0..(self.body_size + mutant.double_head_eyes.len()) {
+                        out_chars.push(mirror_body);
+                    }
+                    out_chars.push(mirror_tail);
+                    (0usize, 0usize, 0usize, 0usize)
+                } else {
+                    out_chars.push(mouth_ch);
+                    let eye_start = out_chars.len();
+                    for e in &mutant.left_eyes {
+                        out_chars.push(e.small_char());
+                    }
+                    let eye_count = mutant.left_eyes.len();
+                    for _ in 0..self.body_size {
+                        out_chars.push(body_ch);
+                    }
+                    let (double_eye_start, double_eye_count) = if mutant.is_double {
+                        let mirror_body = invert_mouth(body_ch);
+                        let mirror_mouth = invert_mouth(mouth_ch);
+                        for _ in 0..self.body_size {
+                            out_chars.push(mirror_body);
+                        }
+                        let d_start = out_chars.len();
+                        for e in &mutant.double_head_eyes {
+                            out_chars.push(e.big_char());
+                        }
+                        let d_count = mutant.double_head_eyes.len();
+                        out_chars.push(mirror_mouth);
+                        (d_start, d_count)
+                    } else {
+                        out_chars.push(tail_ch);
+                        (0usize, 0usize)
+                    };
+                    (eye_start, eye_count, double_eye_start, double_eye_count)
+                };
 
             let n = out_chars.len();
             let use_glisten = mutant.glistening_color.is_some();
@@ -1287,14 +1831,25 @@ impl Fish {
             } else {
                 vec![self.color; n]
             };
+            let eye_a_colors: Vec<Option<Color>> = mutant
+                .left_eyes
+                .iter()
+                .take(eye_count)
+                .map(|e| e.color.or(mutant.eye_color))
+                .collect();
+            let eye_b_colors: Vec<Option<Color>> = mutant
+                .double_head_eyes
+                .iter()
+                .take(double_eye_count)
+                .map(|e| e.color.or(mutant.eye_color))
+                .collect();
             apply_patches_and_eyes(
                 &mut colors,
                 &mutant.color_patches,
-                mutant.eye_color,
                 eye_start,
-                eye_count,
+                &eye_a_colors,
                 double_eye_start,
-                double_eye_count,
+                &eye_b_colors,
             );
             return out_chars.into_iter().zip(colors).collect();
         }
@@ -1307,8 +1862,8 @@ impl Fish {
             } else {
                 let config = self.species.config();
                 let body_chars = match config.body {
-                    BodyTemplate::Standard(b) => b,
-                    _ => unreachable!(),
+                    BodyTemplate::Standard(b) | BodyTemplate::Alternating(b, _) => b,
+                    BodyTemplate::Fixed { .. } => unreachable!(),
                 };
                 let rm = if mutant.mouth_inverted {
                     invert_mouth(body_chars.mouth_left)
@@ -1323,31 +1878,50 @@ impl Fish {
             };
         let max_eyes = mutant.left_eyes.len().max(mutant.right_eyes.len());
         let mut chars: Vec<char> = Vec::new();
-        chars.push(raw_mouth);
-        let eye_start = chars.len();
-        for e in &mutant.left_eyes {
-            chars.push(e.small_char());
-        }
-        let eye_count = mutant.left_eyes.len();
-        let extra_body = max_eyes - eye_count;
-        for _ in 0..(self.body_size + extra_body) {
-            chars.push(body_ch);
-        }
-        let (double_eye_start, double_eye_count) = if mutant.is_double {
-            for _ in 0..EXTRA_BODY_FOR_DOUBLE {
-                chars.push(body_ch);
-            }
-            let start = chars.len();
-            for e in &mutant.double_head_eyes {
-                chars.push(e.big_char());
-            }
-            let count = mutant.double_head_eyes.len();
-            chars.push('>');
-            (start, count)
-        } else {
-            chars.extend(non_double_tail);
-            (0, 0)
-        };
+        let (eye_start, eye_count, extra_body, double_eye_start, double_eye_count) =
+            if mutant.is_double && mutant.backwards {
+                let extra_body = max_eyes + EXTRA_BODY_FOR_DOUBLE + mutant.double_head_eyes.len();
+                chars.extend(mirror_tail(&non_double_tail));
+                let body_start = chars.len();
+                for _ in 0..(self.body_size + extra_body) {
+                    chars.push(body_ch);
+                }
+                chars.extend(non_double_tail.iter().copied());
+                (body_start, 0usize, extra_body, 0usize, 0usize)
+            } else {
+                chars.push(raw_mouth);
+                let eye_start = chars.len();
+                for e in &mutant.left_eyes {
+                    chars.push(e.small_char());
+                }
+                let eye_count = mutant.left_eyes.len();
+                let extra_body = max_eyes - eye_count;
+                for _ in 0..(self.body_size + extra_body) {
+                    chars.push(body_ch);
+                }
+                let (double_eye_start, double_eye_count) = if mutant.is_double {
+                    for _ in 0..EXTRA_BODY_FOR_DOUBLE {
+                        chars.push(body_ch);
+                    }
+                    let start = chars.len();
+                    for e in &mutant.double_head_eyes {
+                        chars.push(e.big_char());
+                    }
+                    let count = mutant.double_head_eyes.len();
+                    chars.push('>');
+                    (start, count)
+                } else {
+                    chars.extend(non_double_tail);
+                    (0, 0)
+                };
+                (
+                    eye_start,
+                    eye_count,
+                    extra_body,
+                    double_eye_start,
+                    double_eye_count,
+                )
+            };
         let n = chars.len();
         let use_glisten = mutant.glistening_color.is_some() || self.species.config().auto_glisten;
         let mut colors: Vec<Color> = if use_glisten {
@@ -1359,27 +1933,72 @@ impl Fish {
         } else {
             vec![self.color; n]
         };
+        let eye_a_colors: Vec<Option<Color>> = mutant
+            .left_eyes
+            .iter()
+            .take(eye_count)
+            .map(|e| e.color.or(mutant.eye_color))
+            .collect();
+        let eye_b_colors: Vec<Option<Color>> = mutant
+            .double_head_eyes
+            .iter()
+            .take(double_eye_count)
+            .map(|e| e.color.or(mutant.eye_color))
+            .collect();
         apply_patches_and_eyes(
             &mut colors,
             &mutant.color_patches,
-            mutant.eye_color,
             eye_start,
-            eye_count,
+            &eye_a_colors,
             double_eye_start,
-            double_eye_count,
+            &eye_b_colors,
         );
-        chars.into_iter().zip(colors).collect()
+        let mut segs: Vec<(char, Color)> = chars.into_iter().zip(colors).collect();
+        insert_line_hydra(
+            &mut segs,
+            eye_start + eye_count,
+            self.body_size + extra_body,
+            &mutant_hydra_cells(mutant),
+        );
+        insert_ears(
+            &mut segs,
+            eye_start + eye_count,
+            mutant.ear_count,
+            ear_glyph(true),
+            mutant.ear_color.unwrap_or(PINK),
+        );
+        segs
+    }
+
+    fn appendage_extent(&self) -> (f32, f32) {
+        if let Some(ext) = self.body_extension() {
+            let len = ext.length as f32;
+            let multi_row = self
+                .unfish_state
+                .as_ref()
+                .is_some_and(|us| is_multi_row(us.kind));
+            if multi_row {
+                return (len, len);
+            }
+            let (above, below) = line_extension_bands(ext.variant);
+            return (if above { len } else { 0.0 }, if below { len } else { 0.0 });
+        }
+        let below = if self.feet().is_some() {
+            FEET_ROW_COUNT as f32
+        } else {
+            0.0
+        };
+        (0.0, below)
     }
 
     fn sprite_y_margins(&self) -> (f32, f32) {
-        if self.species != FishSpecies::Unfish {
-            return (0.0, 0.0);
-        }
-        match self.unfish_state.as_ref().map(|us| us.kind) {
+        let (base_top, base_bottom) = match self.unfish_state.as_ref().map(|us| us.kind) {
             Some(UnfishKind::Skull) => (3.0, 2.0),
             Some(UnfishKind::Ball) => (4.0, 4.0),
             _ => (0.0, 0.0),
-        }
+        };
+        let (extra_top, extra_bottom) = self.appendage_extent();
+        (base_top + extra_top, base_bottom + extra_bottom)
     }
 
     fn bounce_walls(&mut self, tank_width: u16, tank_height: u16) {
@@ -1418,6 +2037,13 @@ impl Fish {
     }
 }
 
+pub fn line_extension_bands(variant: ExtensionVariant) -> (bool, bool) {
+    match variant {
+        ExtensionVariant::Tentacle => (false, true),
+        ExtensionVariant::Spike | ExtensionVariant::Wing => (true, true),
+    }
+}
+
 fn invert_mouth(ch: char) -> char {
     match ch {
         '<' => '>',
@@ -1450,28 +2076,158 @@ fn body_chars_for_variant(
 fn apply_patches_and_eyes(
     colors: &mut [Color],
     patches: &[(usize, Color)],
-    eye_color: Option<Color>,
     eye_a_start: usize,
-    eye_a_count: usize,
+    eye_a_colors: &[Option<Color>],
     eye_b_start: usize,
-    eye_b_count: usize,
+    eye_b_colors: &[Option<Color>],
 ) {
     for &(pos, c) in patches {
         if pos < colors.len() {
             colors[pos] = c;
         }
     }
-    if let Some(ec) = eye_color {
-        for i in eye_a_start..eye_a_start + eye_a_count {
+    for (ranges_start, eye_colors) in [(eye_a_start, eye_a_colors), (eye_b_start, eye_b_colors)] {
+        for (k, color) in eye_colors.iter().enumerate() {
+            let Some(color) = color else { continue };
+            let i = ranges_start + k;
             if i < colors.len() {
-                colors[i] = ec;
+                colors[i] = *color;
             }
         }
-        for i in eye_b_start..eye_b_start + eye_b_count {
-            if i < colors.len() {
-                colors[i] = ec;
-            }
+    }
+}
+
+fn worm_half_cells(snapshot: &Fish) -> Vec<(char, Color)> {
+    let mut half = snapshot.clone();
+    half.facing = Direction::Left;
+    if let Some(us) = half.unfish_state.as_mut() {
+        us.worm_forward = true;
+        us.worm_is_double = false;
+        us.worm_backwards = false;
+    }
+    let mut cells = half.segments();
+    cells.pop();
+    cells
+}
+
+fn insert_ears(segs: &mut Vec<(char, Color)>, at: usize, count: usize, glyph: char, color: Color) {
+    if count == 0 {
+        return;
+    }
+    let at = at.min(segs.len());
+    segs.splice(at..at, std::iter::repeat_n((glyph, color), count));
+}
+
+fn insert_line_appendages(
+    segs: &mut Vec<(char, Color)>,
+    eye_idx: usize,
+    ears: usize,
+    ear_color: Color,
+    hydra: usize,
+    hydra_color: Color,
+) -> Option<(usize, usize)> {
+    if segs.is_empty() {
+        return None;
+    }
+    let n = segs.len();
+    let head_left = eye_idx * 2 < n;
+    let mut inserts: Vec<(usize, (char, Color))> = Vec::new();
+    let ear_at = if head_left { eye_idx + 1 } else { eye_idx };
+    for _ in 0..ears {
+        inserts.push((ear_at, (ear_glyph(head_left), ear_color)));
+    }
+    let (body_start, body_end) = if head_left {
+        (eye_idx + 1, n.saturating_sub(LINE_TAIL_W))
+    } else {
+        (LINE_TAIL_W, eye_idx)
+    };
+    let avail = body_end.saturating_sub(body_start).saturating_sub(1);
+    let hydra_used = hydra.min(avail);
+    for (pos, _eye_start, size) in hydra_cluster_slots(body_start, avail, hydra_used) {
+        for _ in 0..size {
+            inserts.push((pos, (EYE_ROUND, hydra_color)));
         }
+    }
+    inserts.sort_by_key(|insert| std::cmp::Reverse(insert.0));
+    for (pos, cell) in inserts {
+        let pos = pos.min(segs.len());
+        segs.insert(pos, cell);
+    }
+    if body_end <= body_start {
+        return None;
+    }
+    let span = if head_left {
+        (body_start + ears, body_end - 1 + ears + hydra_used)
+    } else {
+        (body_start, body_end - 1 + hydra_used)
+    };
+    Some(span)
+}
+
+fn hydra_cluster_slots(
+    body_start: usize,
+    avail: usize,
+    count: usize,
+) -> Vec<(usize, usize, usize)> {
+    if count == 0 {
+        return Vec::new();
+    }
+    let clusters = count.div_ceil(HYDRA_EYES_PER_HEAD);
+    even_indices(avail, clusters)
+        .into_iter()
+        .enumerate()
+        .map(|(ci, slot)| {
+            let eye_start = ci * HYDRA_EYES_PER_HEAD;
+            let size = (count - eye_start).min(HYDRA_EYES_PER_HEAD);
+            (body_start + 1 + slot, eye_start, size)
+        })
+        .collect()
+}
+
+fn insert_line_hydra(
+    segs: &mut Vec<(char, Color)>,
+    body_start: usize,
+    body_len: usize,
+    eyes: &[(char, Option<Color>)],
+) {
+    let avail = body_len.saturating_sub(1);
+    let count = eyes.len().min(avail);
+    for (pos, eye_start, size) in hydra_cluster_slots(body_start, avail, count)
+        .into_iter()
+        .rev()
+    {
+        for k in (eye_start..eye_start + size).rev() {
+            let (ch, color) = eyes[k];
+            let color = color.unwrap_or_else(|| segs[pos.saturating_sub(1)].1);
+            segs.insert(pos, (ch, color));
+        }
+    }
+}
+
+fn mutant_hydra_cells(mutant: &MutantState) -> Vec<(char, Option<Color>)> {
+    mutant
+        .hydra_eyes
+        .iter()
+        .map(|e| (e.small_char(), e.color.or(mutant.eye_color)))
+        .collect()
+}
+
+fn mirror_tail(tail: &[char]) -> Vec<char> {
+    tail.iter().rev().map(|&c| mirror_char(c)).collect()
+}
+
+fn half_row(
+    sprite: &LineSprite,
+    rel: isize,
+    lo: usize,
+    hi: usize,
+    width: usize,
+) -> Vec<(char, Color)> {
+    let src = sprite.body_row as isize + rel;
+    if src >= 0 && (src as usize) < sprite.rows.len() {
+        sprite.rows[src as usize][lo..=hi].to_vec()
+    } else {
+        vec![(crate::sprite::TRANSPARENT, Color::Reset); width]
     }
 }
 

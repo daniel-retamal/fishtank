@@ -28,7 +28,7 @@ use crate::{
         index_overlay::{IndexOverlay, IndexState},
         inventory_overlay::{InventoryOverlay, InventoryState},
         line_editor::{CommandHistory, LineEditor},
-        shop_overlay::{NecroPopupWidget, ShopOverlay, ShopState},
+        shop_overlay::{ShopOverlay, ShopState, TankSummonPopupWidget},
         show_overlay::{ShowOverlay, ShowState},
         tank_view::TankView,
         text_input::TextInput,
@@ -54,7 +54,10 @@ enum Overlay {
     Shop(ShopState),
     Fishtanks(FishtanksState),
     ConsumePicker(ConsumePickerState),
-    Necronomicon(TextInput),
+    TankSummon {
+        input: TextInput,
+        kind: ConsumableKind,
+    },
 }
 
 pub struct App {
@@ -97,18 +100,16 @@ impl App {
         used_tank_names.insert(initial_name.clone());
         let mut first_tank = Tank::new(initial_name, TankKind::Base, &[]);
 
-        for (species, name) in [
+        const STARTER_SCHOOL: [(FishSpecies, &str); 3] = [
             (FishSpecies::Merluza, "merluza"),
             (FishSpecies::Betta, "betta"),
             (FishSpecies::Salmon, "salmon"),
-            (FishSpecies::Merluza, "merluza"),
-            (FishSpecies::Betta, "betta"),
-            (FishSpecies::Salmon, "salmon"),
-            (FishSpecies::Merluza, "merluza"),
-            (FishSpecies::Betta, "betta"),
-            (FishSpecies::Salmon, "salmon"),
-        ] {
-            first_tank.spawn_fish(species, name.to_string(), &mut rng);
+        ];
+        const STARTER_SCHOOL_ROUNDS: usize = 3;
+        for _ in 0..STARTER_SCHOOL_ROUNDS {
+            for (species, name) in STARTER_SCHOOL {
+                first_tank.spawn_fish(species, name.to_string(), &mut rng);
+            }
         }
 
         Self {
@@ -220,16 +221,16 @@ impl App {
         }
     }
 
-    fn necronomicon_popup(&self) -> Option<&TextInput> {
+    fn tank_summon_input(&self) -> Option<&TextInput> {
         match &self.active_overlay {
-            Some(Overlay::Necronomicon(input)) => Some(input),
+            Some(Overlay::TankSummon { input, .. }) => Some(input),
             _ => None,
         }
     }
 
-    fn necronomicon_popup_mut(&mut self) -> Option<&mut TextInput> {
+    fn tank_summon_input_mut(&mut self) -> Option<&mut TextInput> {
         match &mut self.active_overlay {
-            Some(Overlay::Necronomicon(input)) => Some(input),
+            Some(Overlay::TankSummon { input, .. }) => Some(input),
             _ => None,
         }
     }
@@ -322,67 +323,15 @@ impl App {
         }
     }
 
-    pub fn entity_mut_flags(&self) -> Vec<(String, commands::EntityMutFlags)> {
+    pub fn entity_mutations(&self) -> Vec<(String, Vec<crate::fishes::mutations::Mutation>)> {
         use crate::fishes::mutations::Mutatable;
-        use crate::fishes::species::{BodyTemplate, FishSpecies};
-        use crate::fishes::unfish::UnfishKind;
-        let mut out: Vec<(String, commands::EntityMutFlags)> = Vec::new();
         let tank = self.tank();
+        let mut out = Vec::with_capacity(tank.fish.len() + tank.cows.len());
         for fish in &tank.fish {
-            let is_unfish = fish.species == FishSpecies::Unfish;
-            let unfish_kind = fish.unfish_state.as_ref().map(|u| u.kind);
-            let is_double = fish.mutant.as_ref().is_some_and(|m| m.is_double)
-                || unfish_kind.is_some_and(|k| {
-                    matches!(k, UnfishKind::Worm)
-                        && fish.unfish_state.as_ref().is_some_and(|u| u.worm_is_double)
-                });
-            let has_glisten = fish
-                .mutant
-                .as_ref()
-                .is_some_and(|m| m.glistening_color.is_some())
-                || fish
-                    .unfish_state
-                    .as_ref()
-                    .is_some_and(|u| u.slime_glisten_enabled);
-            let allows_tail = !is_unfish && fish.allows_tail_variant();
-            let allows_size = match (is_unfish, unfish_kind) {
-                (true, Some(UnfishKind::Worm)) => true,
-                (true, _) => false,
-                (false, _) => match fish.species.config().body {
-                    BodyTemplate::Standard(_) | BodyTemplate::Alternating(_, _) => true,
-                    BodyTemplate::Fixed { .. } => false,
-                },
-            };
-            let allows_body_variant =
-                !is_unfish && !matches!(fish.species.config().body, BodyTemplate::Fixed { .. });
-            let allows_mouth =
-                !is_unfish && !matches!(fish.species.config().body, BodyTemplate::Fixed { .. });
-            out.push((
-                fish.name.clone(),
-                commands::EntityMutFlags {
-                    is_double,
-                    has_glisten,
-                    allows_tail,
-                    allows_size,
-                    allows_body_variant,
-                    allows_mouth,
-                },
-            ));
+            out.push((fish.name.clone(), fish.available_mutations()));
         }
         for cow in &tank.cows {
-            let is_double = cow.mutant.is_double;
-            let has_glisten = cow.mutant.glistening_color.is_some();
-            out.push((
-                cow.name.clone(),
-                commands::EntityMutFlags {
-                    is_double,
-                    has_glisten,
-                    allows_tail: false,
-                    allows_size: true,
-                    allows_body_variant: false,
-                    allows_mouth: true,
-                },
-            ));
+            out.push((cow.name.clone(), cow.available_mutations()));
         }
         out
     }
@@ -397,12 +346,14 @@ impl App {
             alien: 0,
         };
         for cow in &self.tank().cows {
-            match cow.variant {
-                CowVariant::Brown => c.chocolate += 1,
-                CowVariant::WhiteBlack => c.plain += 1,
-                CowVariant::Pink => c.strawberry += 1,
-                CowVariant::LightYellow => c.vanilla += 1,
-                CowVariant::LightGreen => c.alien += 1,
+            for variant in cow.milk_components() {
+                match variant {
+                    CowVariant::Brown => c.chocolate += 1,
+                    CowVariant::WhiteBlack => c.plain += 1,
+                    CowVariant::Pink => c.strawberry += 1,
+                    CowVariant::LightYellow => c.vanilla += 1,
+                    CowVariant::LightGreen => c.alien += 1,
+                }
             }
         }
         c
@@ -442,10 +393,11 @@ impl App {
             return;
         }
         match kind {
-            ConsumableKind::Necronomicon => {
-                self.set_overlay(Overlay::Necronomicon(
-                    crate::ui::text_input::TextInput::new(),
-                ));
+            ConsumableKind::Necronomicon | ConsumableKind::DemonCore => {
+                self.set_overlay(Overlay::TankSummon {
+                    input: crate::ui::text_input::TextInput::new(),
+                    kind,
+                });
             }
             ConsumableKind::Milk(crate::loot::MilkVariant::Plain) => {
                 self.apply_plain_milk(stock);
@@ -537,7 +489,7 @@ impl App {
                 catch.tick(self.settings.fps);
                 return;
             }
-            Some(Overlay::Necronomicon(_))
+            Some(Overlay::TankSummon { .. })
             | Some(Overlay::Inventory(_))
             | Some(Overlay::Fishtanks(_)) => return,
             Some(Overlay::Show { state, .. }) => {
@@ -711,9 +663,15 @@ impl App {
                     )
             })
             .collect();
-        let entity_flags = self.entity_mut_flags();
-        let entity_flags_slice: Vec<(&str, commands::EntityMutFlags)> =
-            entity_flags.iter().map(|(n, f)| (n.as_str(), *f)).collect();
+        let entity_mutations = self.entity_mutations();
+        let entity_mutations_slice: Vec<(&str, Vec<crate::fishes::mutations::Mutation>)> =
+            entity_mutations
+                .iter()
+                .map(|(n, m)| (n.as_str(), m.clone()))
+                .collect();
+        let graveyard_name_strings = self.graveyard_names();
+        let graveyard_names: Vec<&str> =
+            graveyard_name_strings.iter().map(String::as_str).collect();
         let ghost = if ritual_blocking {
             String::new()
         } else {
@@ -726,7 +684,8 @@ impl App {
                     current_tank: self.tank().name.as_str(),
                     fish_in_tanks: &fish_in_tanks,
                     has_cow_in_current: self.tank().has_cow(),
-                    entity_flags: &entity_flags_slice,
+                    entity_mutations: &entity_mutations_slice,
+                    graveyard_names: &graveyard_names,
                 },
             )
             .map(|c| c.ghost)
@@ -773,9 +732,10 @@ impl App {
             Some(Overlay::Shop(state)) => {
                 frame.render_widget(ShopOverlay::new(state, self.cash), tank_area)
             }
-            Some(Overlay::Necronomicon(input)) => frame.render_widget(
-                NecroPopupWidget {
+            Some(Overlay::TankSummon { input, kind }) => frame.render_widget(
+                TankSummonPopupWidget {
                     input,
+                    kind: *kind,
                     cursor_visible: self.editor.visible,
                 },
                 tank_area,
@@ -854,14 +814,8 @@ impl App {
         let source_kind = self.tanks[source_idx].kind;
         match source_kind {
             TankKind::Alien => self.plan_cow_delivery(source_idx, &mut rng),
-            TankKind::Desert => {
-                let night = self.tanks[source_idx]
-                    .desert_bg
-                    .as_ref()
-                    .is_some_and(|s| s.is_night());
-                if night {
-                    self.plan_abduction(source_idx, &mut rng);
-                }
+            TankKind::Desert if self.tanks[source_idx].background.is_night() => {
+                self.plan_abduction(source_idx, &mut rng);
             }
             _ => {}
         }

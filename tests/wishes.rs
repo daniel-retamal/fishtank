@@ -1032,3 +1032,64 @@ fn execute_clone_cow_has_expected_name_suffix() {
         .any(|c| c.name == expected_clone_name);
     assert!(has_clone, "cloned cow must be named '<original>'s Clone'");
 }
+
+fn submit_command(app: &mut App, cmd: &str) {
+    app.editor.set(cmd.to_string());
+    app.handle_input(key_press(KeyCode::Enter));
+}
+
+#[test]
+fn command_give_cash_matches_wish_outcome() {
+    let mut app = App::new();
+    let before = app.cash;
+    submit_command(&mut app, "/give cash");
+    assert_eq!(app.cash, before + GIVE_RESOURCE_AMOUNT);
+}
+
+#[test]
+fn command_bless_removes_devil_mark() {
+    let mut app = App::new();
+    app.tanks[0].fish[0].devil_marked = true;
+    let fish_name = app.tanks[0].fish[0].name.clone();
+    submit_command(&mut app, &format!("/bless {}", fish_name));
+    assert!(!app.tanks[0].fish[0].devil_marked);
+}
+
+#[test]
+fn command_clone_adds_fish_to_tank() {
+    let mut app = App::new();
+    let before = app.tanks[app.current_tank].fish.len();
+    let fish_name = app.tanks[0].fish[0].name.clone();
+    submit_command(&mut app, &format!("/clone {}", fish_name));
+    assert_eq!(app.tanks[app.current_tank].fish.len(), before + 1);
+}
+
+#[test]
+fn command_expand_increases_capacity() {
+    let mut app = App::new();
+    let tank_name = app.tanks[0].name.clone();
+    let before = app.tanks[0].capacity();
+    submit_command(&mut app, &format!("/expand {}", tank_name));
+    assert_eq!(app.tanks[0].capacity(), before + EXPAND_AMOUNT as usize);
+}
+
+#[test]
+fn command_revive_moves_fish_from_graveyard_to_tank() {
+    let mut app = App::new();
+    let mut rng = rand::rng();
+    let dead = Fish::new(
+        FishSpecies::Merluza,
+        "Cosmo".to_string(),
+        10.0,
+        10.0,
+        &mut rng,
+    );
+    app.graveyard.push(dead);
+    let fish_before = app.tanks[app.current_tank].fish.len();
+    submit_command(&mut app, "/revive cosmo");
+    assert!(
+        app.graveyard.is_empty(),
+        "graveyard must be empty after revive"
+    );
+    assert_eq!(app.tanks[app.current_tank].fish.len(), fish_before + 1);
+}
