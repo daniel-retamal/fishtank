@@ -1,3 +1,5 @@
+use std::f32::consts::TAU;
+
 use rand::RngExt;
 use ratatui::{
     buffer::Buffer,
@@ -7,7 +9,8 @@ use ratatui::{
 };
 
 use crate::colors::{
-    BROWN_DARK, CREAM, DARK_GRAY, GOLD, KHAKI, LIGHT_RED, LIGHT_YELLOW, PINK, RED, WHITE,
+    BROWN_DARK, CREAM, DARK_GRAY, GOLD, KHAKI, LIGHT_GREEN, LIGHT_RED, LIGHT_YELLOW, PINK, RED,
+    WHITE,
 };
 use crate::fishes::{
     fish::{Direction, Fish},
@@ -15,11 +18,11 @@ use crate::fishes::{
 };
 use crate::loot::{
     CashValue, ConsumableKind, ItemKind, JunkSprite, LootKind, bait_sprite_rows,
-    coffee_sprite_rows, milk_sprite_rows,
+    coffee_sprite_rows, demoncore_sprite_rows, milk_sprite_rows,
 };
 use crate::ui::{
     hints::{HINT_CLOSE, HINT_ENTER_CAPTURE},
-    render_fish_segs, table,
+    render_fish_sprite, table,
     text_input::{TextInput, draw_text_cursor},
 };
 
@@ -27,6 +30,9 @@ const BACKGROUND: Color = Color::Reset;
 const RIGHT_PANEL_WIDTH: u16 = 34;
 const OVERLAY_HEIGHT: u16 = 7;
 const MILK_OVERLAY_HEIGHT: u16 = 9;
+
+const DEMON_CORE_OVERLAY_HEIGHT: u16 = 9;
+const DEMON_CORE_GLISTEN_SPEED: f32 = 3.0;
 
 const NECRO_OVERLAY_HEIGHT: u16 = 8;
 const NECRO_HOOK_COL: u16 = 12;
@@ -54,6 +60,7 @@ pub struct CatchState {
     necro_eye_timers: Vec<f32>,
     blink_timer: f32,
     anim_tick: f32,
+    glisten_phase: f32,
 }
 
 impl CatchState {
@@ -89,6 +96,7 @@ impl CatchState {
             necro_eye_timers,
             blink_timer: 0.0,
             anim_tick: 0.0,
+            glisten_phase: 0.0,
         }
     }
 
@@ -119,6 +127,10 @@ impl CatchState {
                 self.anim_tick = 0.0;
                 self.anim_phase = !self.anim_phase;
             }
+        }
+        if is_demoncore(&self.loot) {
+            self.glisten_phase =
+                (self.glisten_phase + dt * DEMON_CORE_GLISTEN_SPEED).rem_euclid(TAU);
         }
         if is_necronomicon(&self.loot) {
             for i in 0..self.necro_eye_timers.len() {
@@ -157,6 +169,8 @@ impl Widget for CatchOverlay<'_> {
 
         let overlay_h = if is_necronomicon(&state.loot) {
             NECRO_OVERLAY_HEIGHT
+        } else if is_demoncore(&state.loot) {
+            DEMON_CORE_OVERLAY_HEIGHT
         } else if is_milk(&state.loot) {
             MILK_OVERLAY_HEIGHT
         } else {
@@ -243,8 +257,18 @@ fn overlay_title(loot: &LootKind) -> &'static str {
         LootKind::Item(ItemKind::Consumable(ConsumableKind::Necronomicon)) => {
             " Necronomicon to the Fishtank! "
         }
+        LootKind::Item(ItemKind::Consumable(ConsumableKind::DemonCore)) => {
+            " Demon Core to the Fishtank! "
+        }
         LootKind::Item(_) => " Junk to the Fishtank! ",
     }
+}
+
+fn is_demoncore(loot: &LootKind) -> bool {
+    matches!(
+        loot,
+        LootKind::Item(ItemKind::Consumable(ConsumableKind::DemonCore))
+    )
 }
 
 fn loot_border_color(state: &CatchState) -> Color {
@@ -256,6 +280,7 @@ fn loot_border_color(state: &CatchState) -> Color {
             _ => WHITE,
         },
         l if is_necronomicon(l) => LIGHT_RED,
+        l if is_demoncore(l) => LIGHT_GREEN,
         _ => WHITE,
     }
 }
@@ -277,9 +302,7 @@ fn draw_left_panel(buf: &mut Buffer, state: &CatchState, x: u16, y: u16, w: u16,
             ItemKind::Consumable(ConsumableKind::Necronomicon) => {
                 draw_necro_panel(buf, &state.necro_eye_open, x, y, w, h)
             }
-            ItemKind::Consumable(kind) => {
-                draw_consumable_panel(buf, *kind, state.anim_phase, x, y, w, h)
-            }
+            ItemKind::Consumable(kind) => draw_consumable_panel(buf, *kind, state, x, y, w, h),
             ItemKind::GoldBar => draw_goldbar_panel(buf, x, y, w, h),
         },
     }
@@ -459,9 +482,9 @@ fn draw_fish_panel(buf: &mut Buffer, fish: &Fish, x: u16, y: u16, w: u16, h: u16
         }
     }
 
-    let segs = fish.segments();
+    let sprite = fish.line_sprite();
     let max_w = (x + w).saturating_sub(fish_x);
-    render_fish_segs(buf, &segs, fish_x, fish_y, max_w, BACKGROUND);
+    render_fish_sprite(buf, &sprite, fish_x, fish_y, max_w, BACKGROUND);
 
     if hook_x < x + w {
         buf[(hook_x, fish_y)]
@@ -628,16 +651,17 @@ fn draw_food_panel(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
 fn draw_consumable_panel(
     buf: &mut Buffer,
     kind: ConsumableKind,
-    anim_phase: bool,
+    state: &CatchState,
     x: u16,
     y: u16,
     w: u16,
     h: u16,
 ) {
     let rows = match kind {
-        ConsumableKind::Coffee => coffee_sprite_rows(anim_phase),
+        ConsumableKind::Coffee => coffee_sprite_rows(state.anim_phase),
         ConsumableKind::Bait => bait_sprite_rows(),
         ConsumableKind::Milk(v) => milk_sprite_rows(v),
+        ConsumableKind::DemonCore => demoncore_sprite_rows(state.glisten_phase),
         ConsumableKind::Necronomicon => return,
     };
     let sprite_h = rows.len() as u16;

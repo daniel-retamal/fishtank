@@ -7,7 +7,10 @@ use crate::colors::{
 };
 use crate::economy::{Purchasable, Rarity, Sellable};
 use crate::entities::cow::CowVariant;
+use crate::entities::glistening::GlisteningMode;
 use crate::fishes::species::FishSpecies;
+use crate::sprite::apply_glisten;
+use crate::ui::hints::{HINT_ENTER_IRRADIATE, HINT_ENTER_SUMMON};
 
 pub const GOLD_BAR_VALUE: u32 = 5_000;
 pub const FOOD_AMOUNT_MIN: u32 = 20;
@@ -175,6 +178,10 @@ const MILK_SELL_PRICE: u32 = 60;
 pub const NECRONOMICON_SELL_PRICE: u32 = 7_000;
 const NECRONOMICON_PANEL_INNER_W: u16 = 16;
 const NECRONOMICON_DESCRIPTION: &str = "An Image [or Picture] of the Law of the Dead. Image and pre-image. Summons a Gate to Hell, The Helltank. The devil has a lot of cash";
+const DEMON_CORE_PANEL_INNER_W: u16 = 18;
+const DEMON_CORE_HOOK_COL: u16 = 13;
+const DEMON_CORE_HOOK_ROW: u16 = 1;
+const DEMON_CORE_DESCRIPTION: &str = "A heavy metal heart quietly rotting with anger. Your <player_species> <species_main_appendage> yearns for its burn. Bring forth its shimmering nightmare in the Radioactivetank. Unchain your biology";
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ConsumableKind {
@@ -182,6 +189,7 @@ pub enum ConsumableKind {
     Bait,
     Milk(MilkVariant),
     Necronomicon,
+    DemonCore,
 }
 
 impl ConsumableKind {
@@ -191,6 +199,7 @@ impl ConsumableKind {
             v.push(ConsumableKind::Milk(m));
         }
         v.push(ConsumableKind::Necronomicon);
+        v.push(ConsumableKind::DemonCore);
         v
     }
 
@@ -200,6 +209,22 @@ impl ConsumableKind {
             ConsumableKind::Bait => "Bait",
             ConsumableKind::Milk(m) => m.display_name(),
             ConsumableKind::Necronomicon => "Necronomicon",
+            ConsumableKind::DemonCore => "Demon Core",
+        }
+    }
+
+    pub fn summons_tank(self) -> Option<crate::tank::TankKind> {
+        match self {
+            ConsumableKind::Necronomicon => Some(crate::tank::TankKind::Hell),
+            ConsumableKind::DemonCore => Some(crate::tank::TankKind::Rad),
+            _ => None,
+        }
+    }
+
+    pub fn summon_hint(self) -> &'static str {
+        match self {
+            ConsumableKind::DemonCore => HINT_ENTER_IRRADIATE,
+            _ => HINT_ENTER_SUMMON,
         }
     }
 
@@ -213,6 +238,7 @@ impl ConsumableKind {
             ConsumableKind::Bait => 9,
             ConsumableKind::Milk(_) => MILK_PANEL_INNER_W_LOCAL,
             ConsumableKind::Necronomicon => NECRONOMICON_PANEL_INNER_W,
+            ConsumableKind::DemonCore => DEMON_CORE_PANEL_INNER_W,
         }
     }
 
@@ -222,6 +248,7 @@ impl ConsumableKind {
             ConsumableKind::Bait => 3,
             ConsumableKind::Milk(_) => MILK_HOOK_COL,
             ConsumableKind::Necronomicon => 12,
+            ConsumableKind::DemonCore => DEMON_CORE_HOOK_COL,
         }
     }
 
@@ -231,6 +258,7 @@ impl ConsumableKind {
             ConsumableKind::Bait => 0,
             ConsumableKind::Milk(_) => MILK_HOOK_ROW,
             ConsumableKind::Necronomicon => 0,
+            ConsumableKind::DemonCore => DEMON_CORE_HOOK_ROW,
         }
     }
 
@@ -238,7 +266,9 @@ impl ConsumableKind {
         match self {
             ConsumableKind::Coffee => Some("caffeinated"),
             ConsumableKind::Bait => Some("baiting"),
-            ConsumableKind::Milk(_) | ConsumableKind::Necronomicon => None,
+            ConsumableKind::Milk(_) | ConsumableKind::Necronomicon | ConsumableKind::DemonCore => {
+                None
+            }
         }
     }
 
@@ -246,7 +276,9 @@ impl ConsumableKind {
         match self {
             ConsumableKind::Coffee => Some(crate::consumable::COFFEE_DURATION),
             ConsumableKind::Bait => Some(crate::consumable::BAIT_DURATION),
-            ConsumableKind::Milk(_) | ConsumableKind::Necronomicon => None,
+            ConsumableKind::Milk(_) | ConsumableKind::Necronomicon | ConsumableKind::DemonCore => {
+                None
+            }
         }
     }
 
@@ -254,7 +286,7 @@ impl ConsumableKind {
         match self {
             ConsumableKind::Coffee => 10,
             ConsumableKind::Bait => 15,
-            ConsumableKind::Milk(_) | ConsumableKind::Necronomicon => 0,
+            ConsumableKind::Milk(_) | ConsumableKind::Necronomicon | ConsumableKind::DemonCore => 0,
         }
     }
 
@@ -264,6 +296,7 @@ impl ConsumableKind {
             ConsumableKind::Bait => 12,
             ConsumableKind::Milk(_) => MILK_SELL_PRICE,
             ConsumableKind::Necronomicon => NECRONOMICON_SELL_PRICE,
+            ConsumableKind::DemonCore => 0,
         }
     }
 
@@ -281,6 +314,7 @@ impl ConsumableKind {
             }
             ConsumableKind::Milk(m) => m.description(),
             ConsumableKind::Necronomicon => NECRONOMICON_DESCRIPTION,
+            ConsumableKind::DemonCore => DEMON_CORE_DESCRIPTION,
         }
     }
 
@@ -376,6 +410,31 @@ pub fn milk_sprite_rows(variant: MilkVariant) -> Vec<Vec<(char, Color)>> {
         .iter()
         .map(|line| line.chars().map(|c| (c, color)).collect())
         .collect()
+}
+
+const DEMON_CORE_SPRITE_LINES: &[&str] = &[
+    "       ,__,",
+    r#"     _|    |_"#,
+    r#"  .'` \,__,/ ``."#,
+    " :              :",
+    r#"  \`..,____,..'/"#,
+    r#"   `.       _.'"#,
+    r#"     `"----"'"#,
+];
+
+pub fn demoncore_sprite_rows(glisten_phase: f32) -> Vec<Vec<(char, Color)>> {
+    let mut rows: Vec<Vec<(char, Color)>> = DEMON_CORE_SPRITE_LINES
+        .iter()
+        .map(|line| line.chars().map(|c| (c, DARK_GRAY)).collect())
+        .collect();
+    apply_glisten(
+        &mut rows,
+        glisten_phase,
+        GlisteningMode::Wave,
+        DARK_GRAY,
+        WHITE,
+    );
+    rows
 }
 
 pub const MILK_SPRITE_W: u16 = 9;
@@ -501,6 +560,7 @@ impl StockItem {
     pub const COFFEE: StockItem = StockItem::Consumable(ConsumableKind::Coffee);
     pub const BAIT: StockItem = StockItem::Consumable(ConsumableKind::Bait);
     pub const NECRONOMICON: StockItem = StockItem::Consumable(ConsumableKind::Necronomicon);
+    pub const DEMON_CORE: StockItem = StockItem::Consumable(ConsumableKind::DemonCore);
 
     pub fn display_name(self) -> &'static str {
         match self {
@@ -570,6 +630,7 @@ impl LootPool {
             LEGENDARY,
             PoolSlot::Consumable(ConsumableKind::Necronomicon),
         ));
+        slots.push((LEGENDARY, PoolSlot::Consumable(ConsumableKind::DemonCore)));
         slots.push((ULTRA_LEGENDARY, PoolSlot::GoldBar));
         Self {
             slots,
@@ -600,7 +661,9 @@ impl LootPool {
         for (w, slot) in &mut self.slots {
             let boostable = match slot {
                 PoolSlot::Species(s) => s.config().rarity != Rarity::Common,
-                PoolSlot::Consumable(ConsumableKind::Necronomicon) | PoolSlot::GoldBar => true,
+                PoolSlot::Consumable(ConsumableKind::Necronomicon)
+                | PoolSlot::Consumable(ConsumableKind::DemonCore)
+                | PoolSlot::GoldBar => true,
                 _ => false,
             };
             if boostable {

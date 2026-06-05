@@ -44,6 +44,7 @@ pub const GIVE_COFFEE_QTY: u32 = 937;
 pub const GIVE_BAIT_QTY: u32 = 625;
 pub const GIVE_JUNK_QTY: u32 = 1000;
 pub const GIVE_NECRONOMICON_QTY: u32 = 1;
+pub const GIVE_DEMON_CORE_QTY: u32 = 1;
 pub const GIVE_MILK_QTY: u32 = 15;
 pub const GIVE_RESOURCE_AMOUNT: u32 = 5000;
 pub const EXPAND_AMOUNT: u32 = 75;
@@ -225,7 +226,7 @@ pub fn parse_wish(input: &str, ctx: &WishCtx) -> Option<WishAction> {
     None
 }
 
-fn parse_give_target(rest: &str) -> Option<GiveTarget> {
+pub fn parse_give_target(rest: &str) -> Option<GiveTarget> {
     let trimmed = rest.trim();
     if trimmed == "cow" {
         return Some(GiveTarget::Cow(None));
@@ -278,6 +279,7 @@ fn give_qty_for(kind: crate::loot::ConsumableKind) -> u32 {
         CK::Bait => GIVE_BAIT_QTY,
         CK::Milk(_) => GIVE_MILK_QTY,
         CK::Necronomicon => GIVE_NECRONOMICON_QTY,
+        CK::DemonCore => GIVE_DEMON_CORE_QTY,
     }
 }
 

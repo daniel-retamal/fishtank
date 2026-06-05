@@ -44,8 +44,8 @@ impl App {
             self.handle_void_ritual_input(event);
         } else if matches!(self.active_overlay, Some(Overlay::Catch(_))) {
             self.handle_catch_input(event);
-        } else if matches!(self.active_overlay, Some(Overlay::Necronomicon(_))) {
-            self.handle_necro_popup_input(event);
+        } else if matches!(self.active_overlay, Some(Overlay::TankSummon { .. })) {
+            self.handle_tank_summon_input(event);
         } else if matches!(self.active_overlay, Some(Overlay::Fishing(_))) {
             self.handle_fishing_input(event);
         } else if matches!(self.active_overlay, Some(Overlay::Show { .. })) {
@@ -153,9 +153,15 @@ impl App {
                             )
                     })
                     .collect();
-                let entity_flags = self.entity_mut_flags();
-                let entity_flags_slice: Vec<(&str, commands::EntityMutFlags)> =
-                    entity_flags.iter().map(|(n, f)| (n.as_str(), *f)).collect();
+                let entity_mutations = self.entity_mutations();
+                let entity_mutations_slice: Vec<(&str, Vec<crate::fishes::mutations::Mutation>)> =
+                    entity_mutations
+                        .iter()
+                        .map(|(n, m)| (n.as_str(), m.clone()))
+                        .collect();
+                let graveyard_name_strings = self.graveyard_names();
+                let graveyard_names: Vec<&str> =
+                    graveyard_name_strings.iter().map(String::as_str).collect();
                 if let Some(new_input) = commands::tab_complete(
                     &self.editor.text,
                     &commands::CompletionCtx {
@@ -165,7 +171,8 @@ impl App {
                         current_tank: self.tank().name.as_str(),
                         fish_in_tanks: &fish_in_tanks,
                         has_cow_in_current: self.tank().has_cow(),
-                        entity_flags: &entity_flags_slice,
+                        entity_mutations: &entity_mutations_slice,
+                        graveyard_names: &graveyard_names,
                     },
                 ) {
                     self.editor.set(new_input);
@@ -628,9 +635,13 @@ impl App {
         }
     }
 
-    fn handle_necro_popup_input(&mut self, event: Event) {
+    fn handle_tank_summon_input(&mut self, event: Event) {
         let Some(action) = classify(&event) else {
             return;
+        };
+        let kind = match &self.active_overlay {
+            Some(Overlay::TankSummon { kind, .. }) => *kind,
+            _ => return,
         };
         match action {
             InputAction::Quit => {
@@ -640,27 +651,37 @@ impl App {
                 let mut rng = rand::rng();
                 self.close_overlay();
                 if let Some(mut state) = InventoryState::new(&self.inventory, &mut rng) {
-                    if let Some(pos) = state.items.iter().position(|i| i.name == "Necronomicon") {
+                    if let Some(pos) = state
+                        .items
+                        .iter()
+                        .position(|i| i.name == kind.display_name())
+                    {
                         state.selected = pos;
                     }
                     self.set_overlay(Overlay::Inventory(state));
                 }
             }
             InputAction::Confirm => {
-                if self.necronomicon_popup().is_some_and(|i| !i.is_empty()) {
-                    let name = names::title_case(self.necronomicon_popup().unwrap().as_str());
+                let Some(tank_kind) = kind.summons_tank() else {
+                    return;
+                };
+                if self.tank_summon_input().is_some_and(|i| !i.is_empty()) {
+                    let name = names::title_case(self.tank_summon_input().unwrap().as_str());
                     let actual_name = names::unique_name_in(&self.used_tank_names, &name);
-                    let entry = self.inventory.entry(StockItem::NECRONOMICON).or_insert(0);
+                    let entry = self
+                        .inventory
+                        .entry(StockItem::Consumable(kind))
+                        .or_insert(0);
                     *entry = entry.saturating_sub(1);
                     self.inventory.retain(|_, v| *v > 0);
                     self.used_tank_names.insert(actual_name.clone());
-                    self.tanks.push(Tank::new(actual_name, TankKind::Hell, &[]));
+                    self.tanks.push(Tank::new(actual_name, tank_kind, &[]));
                     self.current_tank = self.tanks.len() - 1;
                     self.close_overlay();
                 }
             }
             _ => {
-                if let Some(input) = self.necronomicon_popup_mut() {
+                if let Some(input) = self.tank_summon_input_mut() {
                     input.handle_action(&action);
                 }
             }
@@ -1254,74 +1275,17 @@ impl App {
                 fish_name,
                 mutation,
             } => {
-                let fish_tank_idx = self
-                    .tanks
-                    .iter()
-                    .position(|t| t.fish.iter().any(|f| f.name == fish_name));
-                if let Some(ti) = fish_tank_idx {
-                    self.tanks[ti].miracle_mutate_fish(&fish_name, &mutation);
-                } else if let Some(ti) = self
-                    .tanks
-                    .iter()
-                    .position(|t| t.cows.iter().any(|c| c.name == fish_name))
-                {
-                    self.tanks[ti].apply_named_mutation_to_cow(&fish_name, &mutation);
+                if let Some(ti) = self.tanks.iter().position(|t| {
+                    t.fish.iter().any(|f| f.name == fish_name)
+                        || t.cows.iter().any(|c| c.name == fish_name)
+                }) {
+                    self.tanks[ti].apply_named_mutation(&fish_name, &mutation);
                 }
             }
-            WishAction::Revive { fish_name } => {
-                if let Some(pos) = self.graveyard.iter().position(|f| f.name == fish_name) {
-                    let fish = self.graveyard.remove(pos);
-                    let name = fish.name.clone();
-                    let ct = self.current_tank;
-                    let mut rng = rand::rng();
-                    self.tanks[ct].place_fish(fish, name.clone(), &mut rng);
-                    for tank in &mut self.tanks {
-                        tank.clear_grave_name(&name);
-                    }
-                }
-            }
-            WishAction::Clone { fish_name } => {
-                let original_fish = self
-                    .tanks
-                    .iter()
-                    .flat_map(|t| t.fish.iter())
-                    .find(|f| f.name == fish_name)
-                    .cloned();
-                if let Some(orig) = original_fish {
-                    let clone_name = format!("{}'s Clone", orig.name);
-                    let ct = self.current_tank;
-                    if !self.tanks[ct].is_full() {
-                        let mut rng = rand::rng();
-                        self.tanks[ct].place_fish(orig, clone_name, &mut rng);
-                    }
-                    return;
-                }
-                let original_cow = self
-                    .tanks
-                    .iter()
-                    .flat_map(|t| t.cows.iter())
-                    .find(|c| c.name == fish_name)
-                    .cloned();
-                if let Some(mut orig) = original_cow {
-                    orig.name = format!("{}'s Clone", orig.name);
-                    let ct = self.current_tank;
-                    let mut rng = rand::rng();
-                    self.tanks[ct].place_cow(orig, &mut rng);
-                }
-            }
-            WishAction::Bless { fish_name } => {
-                for tank in &mut self.tanks {
-                    if let Some(fish) = tank.fish.iter_mut().find(|f| f.name == fish_name) {
-                        fish.devil_marked = false;
-                        break;
-                    }
-                }
-            }
-            WishAction::Expand { tank_name } => {
-                if let Some(tank) = self.tanks.iter_mut().find(|t| t.name == tank_name) {
-                    tank.expand(void_ritual::EXPAND_AMOUNT);
-                }
-            }
+            WishAction::Revive { fish_name } => self.revive_fish(&fish_name),
+            WishAction::Clone { fish_name } => self.clone_entity(&fish_name),
+            WishAction::Bless { fish_name } => self.bless_fish(&fish_name),
+            WishAction::Expand { tank_name } => self.expand_tank(&tank_name),
             WishAction::Anything => {
                 let mut rng = rand::rng();
                 for _ in 0..2 {
@@ -1342,18 +1306,99 @@ impl App {
             WishAction::Nothing => {
                 self.nothing_stacks += 1;
             }
-            WishAction::Restore { name } => {
-                use crate::restore::Restorable;
-                for tank in &mut self.tanks {
-                    if let Some(fish) = tank.fish.iter_mut().find(|f| f.name == name) {
-                        fish.restore();
-                        return;
-                    }
-                    if let Some(cow) = tank.cows.iter_mut().find(|c| c.name == name) {
-                        cow.restore();
-                        return;
-                    }
-                }
+            WishAction::Restore { name } => self.restore_entity(&name),
+        }
+    }
+
+    fn revive_fish(&mut self, fish_name: &str) {
+        let Some(pos) = self
+            .graveyard
+            .iter()
+            .position(|f| f.name.eq_ignore_ascii_case(fish_name))
+        else {
+            return;
+        };
+        let fish = self.graveyard.remove(pos);
+        let name = fish.name.clone();
+        let ct = self.current_tank;
+        let mut rng = rand::rng();
+        self.tanks[ct].place_fish(fish, name.clone(), &mut rng);
+        for tank in &mut self.tanks {
+            tank.clear_grave_name(&name);
+        }
+    }
+
+    fn clone_entity(&mut self, name: &str) {
+        let original_fish = self
+            .tanks
+            .iter()
+            .flat_map(|t| t.fish.iter())
+            .find(|f| f.name.eq_ignore_ascii_case(name))
+            .cloned();
+        if let Some(orig) = original_fish {
+            let clone_name = format!("{}'s Clone", orig.name);
+            let ct = self.current_tank;
+            if !self.tanks[ct].is_full() {
+                let mut rng = rand::rng();
+                self.tanks[ct].place_fish(orig, clone_name, &mut rng);
+            }
+            return;
+        }
+        let original_cow = self
+            .tanks
+            .iter()
+            .flat_map(|t| t.cows.iter())
+            .find(|c| c.name.eq_ignore_ascii_case(name))
+            .cloned();
+        if let Some(mut orig) = original_cow {
+            orig.name = format!("{}'s Clone", orig.name);
+            let ct = self.current_tank;
+            let mut rng = rand::rng();
+            self.tanks[ct].place_cow(orig, &mut rng);
+        }
+    }
+
+    fn bless_fish(&mut self, fish_name: &str) {
+        for tank in &mut self.tanks {
+            if let Some(fish) = tank
+                .fish
+                .iter_mut()
+                .find(|f| f.name.eq_ignore_ascii_case(fish_name))
+            {
+                fish.devil_marked = false;
+                return;
+            }
+        }
+    }
+
+    fn expand_tank(&mut self, tank_name: &str) {
+        if let Some(tank) = self
+            .tanks
+            .iter_mut()
+            .find(|t| t.name.eq_ignore_ascii_case(tank_name))
+        {
+            tank.expand(void_ritual::EXPAND_AMOUNT);
+        }
+    }
+
+    fn restore_entity(&mut self, name: &str) {
+        use crate::restore::Restorable;
+        for tank in &mut self.tanks {
+            if let Some(fish) = tank
+                .fish
+                .iter_mut()
+                .find(|f| f.name.eq_ignore_ascii_case(name))
+            {
+                fish.restore();
+                return;
+            }
+            if let Some(cow) = tank
+                .cows
+                .iter_mut()
+                .find(|c| c.name.eq_ignore_ascii_case(name))
+            {
+                cow.restore();
+                return;
             }
         }
     }
@@ -1440,16 +1485,14 @@ impl App {
             }
             commands::Action::Mutate(fish_name, mutation_name) => {
                 let ct = self.current_tank;
-                if self.tanks[ct]
-                    .fish
-                    .iter()
-                    .any(|f| f.name.eq_ignore_ascii_case(&fish_name))
-                {
-                    self.tanks[ct].apply_named_mutation(&fish_name, &mutation_name);
-                } else {
-                    self.tanks[ct].apply_named_mutation_to_cow(&fish_name, &mutation_name);
-                }
+                self.tanks[ct].apply_named_mutation(&fish_name, &mutation_name);
             }
+            commands::Action::Give(target) => self.execute_give(target),
+            commands::Action::Revive(name) => self.revive_fish(&name),
+            commands::Action::Clone(name) => self.clone_entity(&name),
+            commands::Action::Bless(name) => self.bless_fish(&name),
+            commands::Action::Expand(name) => self.expand_tank(&name),
+            commands::Action::Restore(name) => self.restore_entity(&name),
             commands::Action::Index { all, tank_filter } => {
                 if let Some(filter) = tank_filter {
                     let tank_idx = self

@@ -15,7 +15,7 @@ use crate::tank::TankKind;
 use crate::ui::{
     fields::{self, FieldKind},
     hints::{HINT_CLOSE, HINT_RETURN},
-    render_fish_segs, table, tank_view,
+    render_fish_sprite, table, tank_view,
 };
 
 const BACKGROUND: Color = Color::Reset;
@@ -131,7 +131,7 @@ impl ShowState {
         if let Some(ref mr) = fish.mutations {
             if !mr.partners.is_empty() {
                 show_fields.push(ShowField {
-                    label: "Mitosis Partners",
+                    label: "Cytokinesis Partners",
                     value: mr.partners.join(", "),
                     swatch: None,
                 });
@@ -429,8 +429,8 @@ impl Widget for ShowOverlay<'_> {
             );
         } else {
             let fish_art_y = oy + 1 + fish_inner_h / 2;
-            let segs = state.fish.segments();
-            render_fish_segs(buf, &segs, fish_art_x, fish_art_y, fish_art_w, BACKGROUND);
+            let sprite = state.fish.line_sprite();
+            render_fish_sprite(buf, &sprite, fish_art_x, fish_art_y, fish_art_w, BACKGROUND);
         }
 
         let white_bold = Style::default()

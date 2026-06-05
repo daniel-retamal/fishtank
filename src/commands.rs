@@ -1,20 +1,14 @@
+use crate::entities::cow::CowVariant;
+use crate::fishes::mutations::Mutation;
 use crate::fishes::species::{ALL_SPECIES, FishSpecies};
 use crate::loot::ConsumableKind;
 use crate::names::title_case;
+use crate::tank::TankKind;
+use crate::void_ritual::{GiveTarget, parse_give_target};
 
 pub struct Completion {
     pub ghost: String,
     pub tab_result: Option<String>,
-}
-
-#[derive(Clone, Copy, Default)]
-pub struct EntityMutFlags {
-    pub is_double: bool,
-    pub has_glisten: bool,
-    pub allows_tail: bool,
-    pub allows_size: bool,
-    pub allows_body_variant: bool,
-    pub allows_mouth: bool,
 }
 
 #[derive(Default)]
@@ -25,55 +19,51 @@ pub struct CompletionCtx<'a> {
     pub current_tank: &'a str,
     pub fish_in_tanks: &'a [(&'a str, &'a str)],
     pub has_cow_in_current: bool,
-    pub entity_flags: &'a [(&'a str, EntityMutFlags)],
+    pub entity_mutations: &'a [(&'a str, Vec<Mutation>)],
+    pub graveyard_names: &'a [&'a str],
 }
 
-fn allowed_mutations(flags: EntityMutFlags) -> Vec<&'static str> {
-    MUTATION_NAMES
-        .iter()
-        .copied()
-        .filter(|&m| match m {
-            "mitosis" => flags.is_double,
-            "doublefish" => !flags.is_double,
-            "glistenenable" => !flags.has_glisten,
-            "glistendisable" => flags.has_glisten,
-            "tailvariant" => flags.allows_tail,
-            "size+" | "size-" => flags.allows_size,
-            "bodyvariant" => flags.allows_body_variant,
-            "mouthvariant" => flags.allows_mouth,
-            _ => true,
-        })
-        .collect()
+fn all_mutation_tokens() -> Vec<&'static str> {
+    let mut tokens: Vec<&'static str> = Mutation::ALL.iter().map(|m| m.token()).collect();
+    tokens.sort_unstable();
+    tokens
 }
 
-fn entity_allowed_mutations(
+fn entity_mutation_tokens(
     name: &str,
-    entity_flags: &[(&str, EntityMutFlags)],
+    entity_mutations: &[(&str, Vec<Mutation>)],
 ) -> Vec<&'static str> {
-    if let Some((_, flags)) = entity_flags
+    let Some((_, muts)) = entity_mutations
         .iter()
         .find(|(n, _)| n.eq_ignore_ascii_case(name))
-    {
-        allowed_mutations(*flags)
-    } else {
-        MUTATION_NAMES.to_vec()
-    }
+    else {
+        return all_mutation_tokens();
+    };
+    let mut tokens: Vec<&'static str> = muts.iter().map(|m| m.token()).collect();
+    tokens.sort_unstable();
+    tokens
 }
 
 static COMMAND_NAMES: &[&str] = &[
     "add",
+    "bless",
+    "clone",
     "consume",
     "cowsay",
     "exit",
+    "expand",
     "feed",
     "fish",
     "fishtanks",
     "fps",
+    "give",
     "index",
     "inventory",
     "move",
     "mutate",
     "names",
+    "restore",
+    "revive",
     "shop",
     "show",
     "spawn",
@@ -95,27 +85,6 @@ fn resource_names() -> Vec<String> {
     v
 }
 
-static MUTATION_NAMES: &[&str] = &[
-    "bodycolor",
-    "bodyvariant",
-    "colorpatch",
-    "doublefish",
-    "eye+",
-    "eye-",
-    "eyecolor",
-    "glistencolor",
-    "glistendisable",
-    "glistenenable",
-    "glistenfast",
-    "glistenslow",
-    "glistenmode",
-    "mitosis",
-    "mouthvariant",
-    "size+",
-    "size-",
-    "tailvariant",
-];
-
 pub fn autocomplete(input: &str, ctx: &CompletionCtx) -> Option<Completion> {
     if !input.starts_with('/') {
         return None;
@@ -131,11 +100,19 @@ pub fn autocomplete(input: &str, ctx: &CompletionCtx) -> Option<Completion> {
             "fps" => complete_fps(rest),
             "index" => complete_index(rest, ctx.tank_names),
             "move" => complete_move(rest, ctx.fish_names, ctx.tank_names, ctx.fish_in_tanks),
-            "mutate" => complete_mutate(rest, ctx.fish_names, ctx.entity_flags),
+            "mutate" => complete_mutate(rest, ctx.fish_names, ctx.entity_mutations),
             "show" => complete_show(rest, ctx.fish_in_tanks),
             "spawn" => complete_spawn(rest),
             "subtract" => complete_add_subtract("subtract", rest),
             "switch" => complete_switch(rest, ctx.tank_names, ctx.current_tank),
+            "bless" => complete_name_arg("bless", rest, "<name>", &entity_names(ctx.fish_in_tanks)),
+            "clone" => complete_name_arg("clone", rest, "<name>", &entity_names(ctx.fish_in_tanks)),
+            "restore" => {
+                complete_name_arg("restore", rest, "<name>", &entity_names(ctx.fish_in_tanks))
+            }
+            "revive" => complete_name_arg("revive", rest, "<name>", ctx.graveyard_names),
+            "expand" => complete_name_arg("expand", rest, "<tank>", ctx.tank_names),
+            "give" => complete_give(rest),
             _ => None,
         },
     }
@@ -281,7 +258,7 @@ fn complete_add_subtract(cmd: &str, rest: &str) -> Option<Completion> {
 fn complete_mutate(
     rest: &str,
     fish_names: &[&str],
-    entity_flags: &[(&str, EntityMutFlags)],
+    entity_mutations: &[(&str, Vec<Mutation>)],
 ) -> Option<Completion> {
     if rest.is_empty() {
         return Some(Completion {
@@ -306,7 +283,7 @@ fn complete_mutate(
                     tab_result: Some(format!("/mutate \"{}\" ", name)),
                 });
             }
-            return complete_mutation_part(after, name, true, entity_flags);
+            return complete_mutation_part(after, name, true, entity_mutations);
         }
         let inner_lower = inner.to_ascii_lowercase();
         let matches: Vec<&str> = fish_names
@@ -356,7 +333,7 @@ fn complete_mutate(
                 });
             }
             let after = after_words.join(" ");
-            return complete_mutation_part(&after, display, false, entity_flags);
+            return complete_mutation_part(&after, display, false, entity_mutations);
         }
     }
 
@@ -388,10 +365,10 @@ fn complete_mutation_part(
     after: &str,
     name: &str,
     quoted: bool,
-    entity_flags: &[(&str, EntityMutFlags)],
+    entity_mutations: &[(&str, Vec<Mutation>)],
 ) -> Option<Completion> {
     let after_lower = after.to_ascii_lowercase();
-    let allowed = entity_allowed_mutations(name, entity_flags);
+    let allowed = entity_mutation_tokens(name, entity_mutations);
     let matches: Vec<&str> = allowed
         .iter()
         .copied()
@@ -471,13 +448,26 @@ fn complete_species(partial: &str) -> Option<Completion> {
     Some(Completion { ghost, tab_result })
 }
 
-fn complete_consume(rest: &str, consumable_names: &[&str]) -> Option<Completion> {
+fn finish_name_tab(cmd: &str, name: &str, quoted: bool) -> String {
+    if quoted {
+        format!("/{} \"{}\"", cmd, name)
+    } else {
+        format!("/{} {}", cmd, name)
+    }
+}
+
+fn complete_name_arg(
+    cmd: &str,
+    rest: &str,
+    placeholder: &str,
+    candidates: &[&str],
+) -> Option<Completion> {
     if rest.is_empty() {
-        if consumable_names.is_empty() {
+        if candidates.is_empty() {
             return None;
         }
         return Some(Completion {
-            ghost: "<consumable>".to_string(),
+            ghost: placeholder.to_string(),
             tab_result: None,
         });
     }
@@ -490,7 +480,7 @@ fn complete_consume(rest: &str, consumable_names: &[&str]) -> Option<Completion>
         return None;
     }
     let inner_lower = inner.to_ascii_lowercase();
-    let matches: Vec<&str> = consumable_names
+    let matches: Vec<&str> = candidates
         .iter()
         .copied()
         .filter(|&n| n.to_ascii_lowercase().starts_with(inner_lower.as_str()))
@@ -511,26 +501,24 @@ fn complete_consume(rest: &str, consumable_names: &[&str]) -> Option<Completion>
         first[inner.len()..].to_string()
     };
     let tab_result = if matches.len() == 1 {
-        if quoted {
-            Some(format!("/consume \"{}\"", first))
-        } else {
-            Some(format!("/consume {}", first))
-        }
+        Some(finish_name_tab(cmd, first, quoted))
     } else {
         let cp = longest_common_prefix(&matches);
         if cp.len() > inner.len() {
-            if quoted {
-                Some(format!("/consume \"{}", cp))
+            Some(if quoted {
+                format!("/{} \"{}", cmd, cp)
             } else {
-                Some(format!("/consume {}", cp))
-            }
-        } else if quoted {
-            Some(format!("/consume \"{}\"", first))
+                format!("/{} {}", cmd, cp)
+            })
         } else {
-            Some(format!("/consume {}", first))
+            Some(finish_name_tab(cmd, first, quoted))
         }
     };
     Some(Completion { ghost, tab_result })
+}
+
+fn complete_consume(rest: &str, consumable_names: &[&str]) -> Option<Completion> {
+    complete_name_arg("consume", rest, "<consumable>", consumable_names)
 }
 
 fn complete_switch(rest: &str, tank_names: &[&str], current_tank: &str) -> Option<Completion> {
@@ -542,62 +530,35 @@ fn complete_switch(rest: &str, tank_names: &[&str], current_tank: &str) -> Optio
     if available.is_empty() {
         return None;
     }
-    if rest.is_empty() {
-        return Some(Completion {
-            ghost: "<name>".to_string(),
-            tab_result: None,
-        });
+    complete_name_arg("switch", rest, "<name>", &available)
+}
+
+fn entity_names<'a>(fish_in_tanks: &[(&'a str, &'a str)]) -> Vec<&'a str> {
+    fish_in_tanks.iter().map(|(n, _)| *n).collect()
+}
+
+fn give_target_names() -> Vec<String> {
+    let mut v: Vec<String> = vec!["cash".to_string(), "food".to_string(), "junk".to_string()];
+    for kind in ConsumableKind::all() {
+        v.push(kind.lowercase_name());
     }
-    let (quoted, inner) = if let Some(s) = rest.strip_prefix('"') {
-        (true, s)
-    } else {
-        (false, rest)
-    };
-    if quoted && inner.contains('"') {
-        return None;
+    for &species in ALL_SPECIES {
+        v.push(species.config().name.to_ascii_lowercase());
     }
-    let inner_lower = inner.to_ascii_lowercase();
-    let matches: Vec<&str> = available
-        .iter()
-        .copied()
-        .filter(|&n| n.to_ascii_lowercase().starts_with(inner_lower.as_str()))
-        .collect();
-    if matches.is_empty() {
-        if quoted {
-            return Some(Completion {
-                ghost: "\"".to_string(),
-                tab_result: None,
-            });
-        }
-        return None;
+    for &kind in TankKind::all() {
+        v.push(kind.display_name().to_ascii_lowercase());
     }
-    let first = matches[0];
-    let ghost = if quoted {
-        format!("{}\"", &first[inner.len()..])
-    } else {
-        first[inner.len()..].to_string()
-    };
-    let tab_result = if matches.len() == 1 {
-        if quoted {
-            Some(format!("/switch \"{}\"", first))
-        } else {
-            Some(format!("/switch {}", first))
-        }
-    } else {
-        let cp = longest_common_prefix(&matches);
-        if cp.len() > inner.len() {
-            if quoted {
-                Some(format!("/switch \"{}", cp))
-            } else {
-                Some(format!("/switch {}", cp))
-            }
-        } else if quoted {
-            Some(format!("/switch \"{}\"", first))
-        } else {
-            Some(format!("/switch {}", first))
-        }
-    };
-    Some(Completion { ghost, tab_result })
+    v.push("cow".to_string());
+    for variant in CowVariant::ALL {
+        v.push(format!("{} cow", variant.display_name()));
+    }
+    v
+}
+
+fn complete_give(rest: &str) -> Option<Completion> {
+    let names = give_target_names();
+    let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    complete_name_arg("give", rest, "<thing>", &refs)
 }
 
 fn complete_move(
@@ -927,6 +888,9 @@ fn command_args_placeholder(cmd: &str) -> &'static str {
         "feed" => "<amount>",
         "fps" => "<n>",
         "index" | "show" | "switch" => "<name>",
+        "bless" | "clone" | "restore" | "revive" => "<name>",
+        "expand" => "<tank>",
+        "give" => "<thing>",
         "move" => "<entity> <tank>",
         "mutate" => "<name> <mutation>",
         "spawn" => "<species> <name>",
@@ -992,6 +956,12 @@ pub enum Action {
     },
     StartFishAbduction,
     StartCowAbduction,
+    Give(GiveTarget),
+    Revive(String),
+    Clone(String),
+    Bless(String),
+    Expand(String),
+    Restore(String),
     Unknown,
 }
 
@@ -1018,6 +988,15 @@ fn parse_rest_or_quoted(rest: &str) -> String {
         return inner[..end].to_string();
     }
     rest.to_string()
+}
+
+fn name_command(rest: &str, make: fn(String) -> Action) -> Action {
+    let name = parse_rest_or_quoted(rest);
+    if name.trim().is_empty() {
+        Action::Unknown
+    } else {
+        make(name)
+    }
 }
 
 fn parse_raw_arg(rest: &str) -> String {
@@ -1238,6 +1217,15 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
                 None => Action::Unknown,
             }
         }
+        "give" => match parse_give_target(rest) {
+            Some(target) => Action::Give(target),
+            None => Action::Unknown,
+        },
+        "revive" => name_command(rest, Action::Revive),
+        "clone" => name_command(rest, Action::Clone),
+        "bless" => name_command(rest, Action::Bless),
+        "expand" => name_command(rest, Action::Expand),
+        "restore" => name_command(rest, Action::Restore),
         "fish" => {
             let flags: Vec<&str> = rest.split_whitespace().collect();
             Action::Fish {
@@ -1719,6 +1707,69 @@ mod tests {
         assert!(matches!(
             parse("/startvoidwish --skip", fish, tanks),
             Action::StartVoidWish { skip: true }
+        ));
+    }
+
+    #[test]
+    fn parse_revive_takes_unquoted_name() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(parse("/revive Nemo", fish, tanks), Action::Revive(n) if n == "Nemo"));
+    }
+
+    #[test]
+    fn parse_revive_takes_quoted_multiword_name() {
+        let (fish, tanks) = no_names();
+        assert!(
+            matches!(parse("/revive \"Sir Bubbles\"", fish, tanks), Action::Revive(n) if n == "Sir Bubbles")
+        );
+    }
+
+    #[test]
+    fn parse_revive_without_name_is_unknown() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(parse("/revive", fish, tanks), Action::Unknown));
+    }
+
+    #[test]
+    fn parse_clone_bless_restore_capture_the_name() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(parse("/clone Bob", fish, tanks), Action::Clone(n) if n == "Bob"));
+        assert!(matches!(parse("/bless Bob", fish, tanks), Action::Bless(n) if n == "Bob"));
+        assert!(matches!(parse("/restore Bob", fish, tanks), Action::Restore(n) if n == "Bob"));
+    }
+
+    #[test]
+    fn parse_expand_captures_tank_name() {
+        let (fish, tanks) = no_names();
+        assert!(
+            matches!(parse("/expand Helltank", fish, tanks), Action::Expand(n) if n == "Helltank")
+        );
+    }
+
+    #[test]
+    fn parse_give_cash_maps_to_give_target() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(
+            parse("/give cash", fish, tanks),
+            Action::Give(GiveTarget::Cash)
+        ));
+    }
+
+    #[test]
+    fn parse_give_tank_resolves_kind() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(
+            parse("/give alientank", fish, tanks),
+            Action::Give(GiveTarget::Tank(TankKind::Alien))
+        ));
+    }
+
+    #[test]
+    fn parse_give_unknown_thing_is_unknown() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(
+            parse("/give nonsense", fish, tanks),
+            Action::Unknown
         ));
     }
 }

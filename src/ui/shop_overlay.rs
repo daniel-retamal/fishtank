@@ -6,15 +6,15 @@ use ratatui::{
 };
 use std::collections::HashMap;
 
-use crate::colors::{DARK_GRAY, RED, WHITE};
+use crate::colors::{DARK_GRAY, WHITE};
 use crate::{
     fishes::{fish::Fish, species::FishSpecies},
     loot::{ConsumableKind, MilkVariant, StockItem},
     tank::TankKind,
     ui::{
         hints::{
-            HINT_BACK, HINT_CANCEL, HINT_CLOSE, HINT_ENTER_BUY, HINT_ENTER_SELL, HINT_ENTER_SUMMON,
-            HINT_NAV, HINT_SCROLL,
+            HINT_BACK, HINT_CANCEL, HINT_CLOSE, HINT_ENTER_BUY, HINT_ENTER_SELL, HINT_NAV,
+            HINT_SCROLL,
         },
         render_fish_segs, scroll_list, table,
         text_input::{TextInput, draw_text_cursor},
@@ -1410,37 +1410,45 @@ fn draw_buy_tank_name_popup(buf: &mut Buffer, popup: &BuyTankPopup, cursor_vis: 
     }
 }
 
-pub struct NecroPopupWidget<'a> {
+pub struct TankSummonPopupWidget<'a> {
     pub input: &'a TextInput,
+    pub kind: ConsumableKind,
     pub cursor_visible: bool,
 }
 
-impl Widget for NecroPopupWidget<'_> {
+impl Widget for TankSummonPopupWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        draw_necro_tank_name_popup(buf, self.input, self.cursor_visible, area);
+        draw_tank_summon_popup(buf, self.input, self.cursor_visible, self.kind, area);
     }
 }
 
-pub fn draw_necro_tank_name_popup(
+pub fn draw_tank_summon_popup(
     buf: &mut Buffer,
     input: &TextInput,
     cursor_vis: bool,
+    kind: ConsumableKind,
     area: Rect,
 ) {
     const POP_HEIGHT: u16 = 6;
     const LEFT_HINT: &str = "ESC cancel";
-    const RIGHT_HINT: &str = HINT_ENTER_SUMMON;
-    const HEADER: &str = "Name your Helltank";
+    let right_hint = kind.summon_hint();
 
-    let min_hints_w = (LEFT_HINT.len() + RIGHT_HINT.len() + 2) as u16;
-    let inner_w = (HEADER.len() as u16).max(min_hints_w);
+    let Some(tank_kind) = kind.summons_tank() else {
+        return;
+    };
+    let border_color = tank_kind.config().bubble_color;
+    let header = format!("Name your {}", tank_kind.display_name());
+    let title = format!(" {} ", kind.display_name());
+
+    let min_hints_w = (LEFT_HINT.len() + right_hint.len() + 2) as u16;
+    let inner_w = (header.len() as u16).max(min_hints_w);
     let pop_w = inner_w + 4;
 
     let Some(layout) = table::OverlayLayout::centered(area, pop_w, POP_HEIGHT) else {
         return;
     };
     layout.clear_bg(buf, BACKGROUND);
-    layout.draw_border(buf, " Necronomicon ", RED, BACKGROUND);
+    layout.draw_border(buf, &title, border_color, BACKGROUND);
 
     let (ox, oy) = (layout.ox, layout.oy);
     let s_bold = Style::default()
@@ -1451,7 +1459,7 @@ pub fn draw_necro_tank_name_popup(
     let inner_x = ox + 2;
     let inner_w_usize = inner_w as usize;
 
-    buf.set_string(inner_x, oy + 1, HEADER, s_bold);
+    buf.set_string(inner_x, oy + 1, &header, s_bold);
     draw_text_cursor(buf, input, cursor_vis, inner_x, oy + 2, inner_w, BACKGROUND);
 
     buf.set_string(
@@ -1460,12 +1468,12 @@ pub fn draw_necro_tank_name_popup(
         table::truncate_str(LEFT_HINT, inner_w_usize),
         s_dim,
     );
-    let rw = RIGHT_HINT.len() as u16;
+    let rw = right_hint.len() as u16;
     if (LEFT_HINT.len() as u16 + rw + 2) <= inner_w {
         buf.set_string(
             inner_x + inner_w - rw,
             oy + POP_HEIGHT - 2,
-            RIGHT_HINT,
+            right_hint,
             s_dim,
         );
     }

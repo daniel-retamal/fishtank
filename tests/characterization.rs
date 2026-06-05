@@ -2,7 +2,7 @@ use fishtank::colors::{LIGHT_GREEN, PINK};
 use fishtank::consumable::apply_milk_to_fish;
 use fishtank::entities::cow::{Cow, CowVariant};
 use fishtank::fishes::fish::Fish;
-use fishtank::fishes::mutations::{Mutatable, Mutation, apply_mutation};
+use fishtank::fishes::mutations::{MutantBacked, Mutation, apply_mutation};
 use fishtank::fishes::species::{ALL_SPECIES, FishSpecies, SizeCategory};
 use fishtank::loot::MilkVariant;
 use fishtank::tank::TankKind;
@@ -105,11 +105,24 @@ fn chocolate_milk_adds_weight() {
 }
 
 #[test]
+fn chocolate_milk_on_non_mutant_fish_does_not_panic() {
+    let mut rng = rng();
+    let mut fish = Fish::new_for_display(FishSpecies::Merluza, &mut rng);
+    let weight = fish.weight_g;
+    apply_milk_to_fish(MilkVariant::Chocolate, &mut fish, &mut rng);
+    assert_eq!(
+        fish.weight_g,
+        weight + CHOCOLATE_WEIGHT_BONUS_G,
+        "chocolate milk on a mutant-less fish must add weight without panicking"
+    );
+}
+
+#[test]
 fn cow_size_plus_grows_torso_by_one() {
     let mut rng = rng();
     let mut cow = Cow::new("Bessie".to_string(), CowVariant::Brown, 5.0, 5.0, &mut rng);
     let before = cow.body_size();
-    apply_mutation(&mut cow, Mutation::SizeChange(1), &mut rng);
+    apply_mutation(&mut cow, Mutation::SizeIncrease, &mut rng);
     assert_eq!(
         cow.body_size(),
         before + 1,

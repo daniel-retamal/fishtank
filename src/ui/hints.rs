@@ -9,5 +9,6 @@ pub const HINT_ENTER_CAPTURE: &str = "ENTER capture";
 pub const HINT_ENTER_BUY: &str = "ENTER buy";
 pub const HINT_ENTER_SELL: &str = "ENTER sell";
 pub const HINT_ENTER_SUMMON: &str = "ENTER summon";
+pub const HINT_ENTER_IRRADIATE: &str = "ENTER irradiate";
 pub const HINT_NAV: &str = "↑↓ navigate";
 pub const HINT_SCROLL: &str = "↑↓ scroll";

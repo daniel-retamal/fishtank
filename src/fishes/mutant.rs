@@ -4,11 +4,31 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::entities::components::BlinkTimer;
 pub use crate::entities::glistening::GlisteningMode;
+use crate::fishes::fused::FusedComponent;
 use crate::fishes::species::{EYE_CIRCLE, EYE_ROUND, TAIL_EQUAL, TAIL_WAVE_LEFT, TAIL_WAVE_RIGHT};
+use crate::sprite::{BodyExtension, Feet};
 
 const WAVE_THRESHOLD: f32 = 0.8;
 pub const EXTRA_BODY_FOR_DOUBLE: usize = 2;
 pub const MIN_BODY_CHARS: usize = 2;
+
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum Circadian {
+    #[default]
+    Neutral,
+    NightOwl,
+    HelpedByGod,
+}
+
+impl Circadian {
+    pub fn forced_eye_open(self) -> Option<bool> {
+        match self {
+            Circadian::Neutral => None,
+            Circadian::NightOwl => Some(false),
+            Circadian::HelpedByGod => Some(true),
+        }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum MutantTail {
@@ -59,12 +79,14 @@ impl MutantTail {
 #[derive(Clone)]
 pub struct EyeState {
     blink: BlinkTimer,
+    pub color: Option<Color>,
 }
 
 impl EyeState {
     pub fn new(rng: &mut impl RngExt) -> Self {
         Self {
             blink: BlinkTimer::fish_eye(rng),
+            color: None,
         }
     }
 
@@ -83,6 +105,10 @@ impl EyeState {
     pub fn is_open(&self) -> bool {
         self.blink.is_open
     }
+
+    pub fn set_open(&mut self, open: bool) {
+        self.blink.is_open = open;
+    }
 }
 
 #[derive(Clone, Default)]
@@ -90,6 +116,16 @@ pub struct MutationRecord {
     pub count: u32,
     pub history: Vec<String>,
     pub partners: Vec<String>,
+}
+
+impl MutationRecord {
+    pub fn child_of(parent_count: u32, parent_name: &str) -> Self {
+        Self {
+            count: parent_count,
+            history: Vec::new(),
+            partners: vec![parent_name.to_string()],
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -104,7 +140,17 @@ pub struct MutantState {
     pub mouth_inverted: bool,
     pub color_patches: Vec<(usize, Color)>,
     pub is_double: bool,
+    pub backwards: bool,
+    pub fused: Vec<FusedComponent>,
     pub double_head_eyes: Vec<EyeState>,
+    pub hydra_eyes: Vec<EyeState>,
+    pub bubble_color: Option<Color>,
+    pub circadian: Circadian,
+    pub heterochromia: bool,
+    pub ear_count: usize,
+    pub ear_color: Option<Color>,
+    pub feet: Option<Feet>,
+    pub body_extension: Option<BodyExtension>,
 }
 
 impl MutantState {
@@ -120,7 +166,17 @@ impl MutantState {
             mouth_inverted: false,
             color_patches: Vec::new(),
             is_double: false,
+            backwards: false,
+            fused: Vec::new(),
             double_head_eyes: Vec::new(),
+            hydra_eyes: Vec::new(),
+            bubble_color: None,
+            circadian: Circadian::Neutral,
+            heterochromia: false,
+            ear_count: 0,
+            ear_color: None,
+            feet: None,
+            body_extension: None,
         }
     }
 
@@ -142,28 +198,79 @@ impl MutantState {
             mouth_inverted: false,
             color_patches: Vec::new(),
             is_double: false,
+            backwards: false,
+            fused: Vec::new(),
             double_head_eyes: Vec::new(),
+            hydra_eyes: Vec::new(),
+            bubble_color: None,
+            circadian: Circadian::Neutral,
+            heterochromia: false,
+            ear_count: 0,
+            ear_color: None,
+            feet: None,
+            body_extension: None,
         }
     }
 
     pub fn display_width(&self, body_size: usize) -> usize {
         let max_eyes = self.left_eyes.len().max(self.right_eyes.len());
-        if self.is_double {
+        let base = if self.is_double && self.backwards {
+            2 * self.tail_variant.display_width()
+                + body_size
+                + max_eyes
+                + EXTRA_BODY_FOR_DOUBLE
+                + self.double_head_eyes.len()
+        } else if self.is_double {
             1 + max_eyes + body_size + EXTRA_BODY_FOR_DOUBLE + self.double_head_eyes.len() + 1
         } else {
             1 + max_eyes + body_size + self.tail_variant.display_width()
+        };
+        base + self.ear_count + self.hydra_eyes.len()
+    }
+
+    pub fn all_eyes_mut(&mut self) -> impl Iterator<Item = &mut EyeState> {
+        self.left_eyes
+            .iter_mut()
+            .chain(self.right_eyes.iter_mut())
+            .chain(self.double_head_eyes.iter_mut())
+            .chain(self.hydra_eyes.iter_mut())
+    }
+
+    pub fn randomize_all_eye_colors(&mut self, rng: &mut impl RngExt) {
+        for e in self.all_eyes_mut() {
+            e.color = Some(random_rgb(rng));
         }
     }
 
+    pub fn randomize_one_eye_color(&mut self, rng: &mut impl RngExt) {
+        let total = self.left_eyes.len()
+            + self.right_eyes.len()
+            + self.double_head_eyes.len()
+            + self.hydra_eyes.len();
+        if total == 0 {
+            return;
+        }
+        let mut idx = rng.random_range(0..total);
+        for e in self.all_eyes_mut() {
+            if idx == 0 {
+                e.color = Some(random_rgb(rng));
+                return;
+            }
+            idx -= 1;
+        }
+    }
+
+    pub fn eye_render_color(&self, eye: &EyeState, default: Color) -> Color {
+        eye.color.or(self.eye_color).unwrap_or(default)
+    }
+
     pub fn tick_eyes(&mut self, dt: f32) {
-        for e in &mut self.left_eyes {
+        let forced = self.circadian.forced_eye_open();
+        for e in self.all_eyes_mut() {
             e.tick(dt);
-        }
-        for e in &mut self.right_eyes {
-            e.tick(dt);
-        }
-        for e in &mut self.double_head_eyes {
-            e.tick(dt);
+            if let Some(open) = forced {
+                e.set_open(open);
+            }
         }
     }
 }
