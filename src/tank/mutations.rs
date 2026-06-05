@@ -6,7 +6,7 @@ use crate::fishes::mutant::{
     random_rgb,
 };
 use crate::fishes::mutations::{
-    MUTATION_PATCH_COUNT_MAX, MUTATION_PATCH_COUNT_MIN, MUTATION_PATCH_MAX, Mutation,
+    MUTATION_PATCH_COUNT_MAX, MUTATION_PATCH_COUNT_MIN, MUTATION_PATCH_MAX, Mutatable, Mutation,
     apply_mutation_to_fish, pick_random_miracle_mutation, pick_random_mutation,
     tail_kind_to_mutant_tail,
 };
@@ -24,11 +24,7 @@ use super::{
 
 impl Tank {
     pub(super) fn tick_mutations(&mut self, dt: f32) {
-        let mutant_count = self
-            .fish
-            .iter()
-            .filter(|f| f.species.config().auto_mutate)
-            .count();
+        let mutant_count = self.fish.iter().filter(|f| f.auto_mutates()).count();
         if mutant_count == 0 {
             return;
         }
@@ -48,13 +44,7 @@ impl Tank {
             .fish
             .iter()
             .enumerate()
-            .filter_map(|(i, f)| {
-                if f.species.config().auto_mutate {
-                    Some(i)
-                } else {
-                    None
-                }
-            })
+            .filter_map(|(i, f)| if f.auto_mutates() { Some(i) } else { None })
             .collect();
         if mutant_indices.is_empty() {
             return;
@@ -725,7 +715,6 @@ impl Tank {
 
     fn apply_cow_mitosis(&mut self, idx: usize) -> bool {
         use crate::entities::cow::Cow;
-        use crate::fishes::mutations::Mutatable;
         if !self.cows[idx].mutant.is_double {
             return false;
         }

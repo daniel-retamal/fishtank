@@ -99,6 +99,9 @@ pub trait Mutatable {
     fn has_mutant(&self) -> bool {
         true
     }
+    fn auto_mutates(&self) -> bool {
+        false
+    }
     fn ensure_mutant<R: RngExt>(&mut self, _rng: &mut R) {}
     fn mutant(&self) -> &MutantState;
     fn mutant_mut(&mut self) -> &mut MutantState;
@@ -139,6 +142,9 @@ impl Mutatable for Fish {
     }
     fn has_mutant(&self) -> bool {
         self.mutant.is_some()
+    }
+    fn auto_mutates(&self) -> bool {
+        self.species.config().auto_mutate
     }
     fn ensure_mutant<R: RngExt>(&mut self, rng: &mut R) {
         if self.mutant.is_none() {
