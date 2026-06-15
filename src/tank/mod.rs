@@ -236,6 +236,7 @@ const RAD_MUTATION_MEAN_SECS: f32 = 30.0;
 const RAD_AUTO_MUTANT_MEAN_SECS: f32 = 5.0;
 const RAD_WEIGHT_INTERVAL_SECS: f32 = 5.0;
 const RAD_WEIGHT_GAIN_G: u32 = 1;
+const RAD_MILK_MUTATION_TICK_INTERVAL: u32 = 10;
 const MIN_SPLIT_BODY_SIZE: usize = 2;
 pub const UFO_MEAN_SECS: f32 = 60.0 * 60.0;
 const UFO_DESERT_FREQUENCY_MULT: f32 = 2.0;
@@ -458,6 +459,7 @@ impl Tank {
 
         self.assign_food_to_idle_fish();
         self.tick_mutations(dt);
+        self.tick_irradiated_milk_mutations();
         self.tick_dopplegangers();
         self.tick_cows(dt);
         self.tick_engulfment();

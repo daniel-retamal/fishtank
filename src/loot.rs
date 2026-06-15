@@ -110,6 +110,7 @@ pub enum MilkVariant {
     Strawberry,
     Vanilla,
     Alien,
+    Irradiated,
 }
 
 impl MilkVariant {
@@ -119,6 +120,7 @@ impl MilkVariant {
         MilkVariant::Strawberry,
         MilkVariant::Vanilla,
         MilkVariant::Alien,
+        MilkVariant::Irradiated,
     ];
 
     pub fn display_name(self) -> &'static str {
@@ -128,6 +130,7 @@ impl MilkVariant {
             MilkVariant::Strawberry => "Strawberry Milk",
             MilkVariant::Vanilla => "Vanilla Milk",
             MilkVariant::Alien => "Alien Milk",
+            MilkVariant::Irradiated => "Irradiated Milk",
         }
     }
 
@@ -138,6 +141,7 @@ impl MilkVariant {
             MilkVariant::Strawberry => PINK,
             MilkVariant::Vanilla => LIGHT_YELLOW,
             MilkVariant::Alien => LIGHT_GREEN,
+            MilkVariant::Irradiated => GREEN,
         }
     }
 
@@ -156,7 +160,10 @@ impl MilkVariant {
                 "Corporate-mandated structural amnesia? The prosaic absolute bleaches the sins in the flesh? What has it lost? Cleanses all fish mutations?"
             }
             MilkVariant::Alien => {
-                "Cellular-restructuring xeno-pathway enabled by the fluid. The flesh rejects terrestrial biology, embracing the emerald hue. The sky opens up. Alien transformation"
+                "Cellular-restructuring xeno-pathway fluid enabler. The flesh rejects terrestrial biology, embracing the emerald hue. The sky opens up. Alien transformation"
+            }
+            MilkVariant::Irradiated => {
+                "Rage against the carcase. Entfesselt Sein Fleisch. Let the self dissolve, for a brief moment, in the unnverving experience of letting go. Random mutations"
             }
         }
     }
@@ -168,6 +175,7 @@ impl MilkVariant {
             MilkVariant::Strawberry => CowVariant::Pink,
             MilkVariant::Vanilla => CowVariant::LightYellow,
             MilkVariant::Alien => CowVariant::LightGreen,
+            MilkVariant::Irradiated => CowVariant::LightGreen,
         }
     }
 }
@@ -403,11 +411,33 @@ const MILK_SPRITE_LINES: &[&str] = &[
 ];
 
 pub fn milk_sprite_rows(variant: MilkVariant) -> Vec<Vec<(char, Color)>> {
+    if variant == MilkVariant::Irradiated {
+        return irradiated_milk_sprite();
+    }
     let color = variant.body_color();
     MILK_SPRITE_LINES
         .iter()
         .map(|line| line.chars().map(|c| (c, color)).collect())
         .collect()
+}
+
+fn irradiated_milk_sprite() -> Vec<Vec<(char, Color)>> {
+    let mut rows: Vec<Vec<(char, Color)>> = MILK_SPRITE_LINES
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
+            let color = if i % 2 == 0 { GREEN } else { LIGHT_GREEN };
+            line.chars().map(|c| (c, color)).collect()
+        })
+        .collect();
+    apply_glisten(
+        &mut rows,
+        std::f32::consts::FRAC_PI_4,
+        GlisteningMode::Wave,
+        GREEN,
+        PURPLE_LIGHT,
+    );
+    rows
 }
 
 const DEMON_CORE_SPRITE_LINES: &[&str] = &[
@@ -791,6 +821,7 @@ pub struct CowCounts {
     pub strawberry: u32,
     pub vanilla: u32,
     pub alien: u32,
+    pub irradiated: u32,
 }
 
 impl CowCounts {
@@ -801,11 +832,13 @@ impl CowCounts {
             MilkVariant::Strawberry => self.strawberry,
             MilkVariant::Vanilla => self.vanilla,
             MilkVariant::Alien => self.alien,
+            MilkVariant::Irradiated => self.irradiated,
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.plain + self.chocolate + self.strawberry + self.vanilla + self.alien == 0
+        self.plain + self.chocolate + self.strawberry + self.vanilla + self.alien + self.irradiated
+            == 0
     }
 }
 

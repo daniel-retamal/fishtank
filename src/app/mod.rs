@@ -354,15 +354,21 @@ impl App {
             strawberry: 0,
             vanilla: 0,
             alien: 0,
+            irradiated: 0,
         };
+        let is_rad = self.tank().kind == TankKind::Rad;
         for cow in &self.tank().cows {
-            for variant in cow.milk_components() {
-                match variant {
-                    CowVariant::Brown => c.chocolate += 1,
-                    CowVariant::WhiteBlack => c.plain += 1,
-                    CowVariant::Pink => c.strawberry += 1,
-                    CowVariant::LightYellow => c.vanilla += 1,
-                    CowVariant::LightGreen => c.alien += 1,
+            if is_rad {
+                c.irradiated += cow.milk_yield();
+            } else {
+                for variant in cow.milk_components() {
+                    match variant {
+                        CowVariant::Brown => c.chocolate += 1,
+                        CowVariant::WhiteBlack => c.plain += 1,
+                        CowVariant::Pink => c.strawberry += 1,
+                        CowVariant::LightYellow => c.vanilla += 1,
+                        CowVariant::LightGreen => c.alien += 1,
+                    }
                 }
             }
         }

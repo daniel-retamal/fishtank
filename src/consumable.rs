@@ -74,5 +74,8 @@ pub fn apply_milk_to_fish(variant: MilkVariant, fish: &mut Fish, rng: &mut impl 
         MilkVariant::Alien => {
             apply_mutation_to_fish(fish, Mutation::Alienation, rng);
         }
+        MilkVariant::Irradiated => {
+            fish.pending_rad_mutations += rng.random_range(10..=15);
+        }
     }
 }

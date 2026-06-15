@@ -121,6 +121,7 @@ pub struct Fish {
     pub engulf_timer: f32,
     pub blessing_timer: f32,
     pub blessing_glow: f32,
+    pub pending_rad_mutations: u32,
     pub field_cache: Vec<Option<(String, Option<Color>)>>,
     direction_timer: u32,
     zoomie_timer: f32,
@@ -242,6 +243,7 @@ impl Fish {
             engulf_timer: 0.0,
             blessing_timer: BLESSING_INTERVAL_SECS,
             blessing_glow: 0.0,
+            pending_rad_mutations: 0,
             field_cache: Vec::new(),
         }
     }
@@ -281,6 +283,7 @@ impl Fish {
             engulf_timer: 0.0,
             blessing_timer: BLESSING_INTERVAL_SECS,
             blessing_glow: 0.0,
+            pending_rad_mutations: 0,
             field_cache: Vec::new(),
         }
     }
@@ -337,6 +340,7 @@ impl Fish {
             engulf_timer: 0.0,
             blessing_timer: BLESSING_INTERVAL_SECS,
             blessing_glow: 0.0,
+            pending_rad_mutations: 0,
             field_cache: Vec::new(),
         }
     }

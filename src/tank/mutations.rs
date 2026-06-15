@@ -15,7 +15,8 @@ use crate::util::{exponential_event, hyperbolic_scale, sample_exponential};
 use super::Tank;
 use super::{
     MIN_SPLIT_BODY_SIZE, MUTATION_ALPHA, MUTATION_INTERVAL_BASE, MUTATION_MEAN_FLOOR_SECS,
-    RAD_AUTO_MUTANT_MEAN_SECS, RAD_MUTATION_MEAN_SECS, RAD_WEIGHT_GAIN_G, RAD_WEIGHT_INTERVAL_SECS,
+    RAD_AUTO_MUTANT_MEAN_SECS, RAD_MILK_MUTATION_TICK_INTERVAL, RAD_MUTATION_MEAN_SECS,
+    RAD_WEIGHT_GAIN_G, RAD_WEIGHT_INTERVAL_SECS,
 };
 
 fn mutation_affects_both_halves(mutation: Mutation) -> bool {
@@ -141,6 +142,24 @@ impl Tank {
         let mut rng = rand::rng();
         let fish_idx = mutant_indices[rng.random_range(0..mutant_indices.len())];
         self.mutate_fish(fish_idx, "");
+    }
+
+    pub(super) fn tick_irradiated_milk_mutations(&mut self) {
+        if !self.candy_tick.is_multiple_of(RAD_MILK_MUTATION_TICK_INTERVAL) {
+            return;
+        }
+        let pending: Vec<String> = self
+            .fish
+            .iter()
+            .filter(|f| f.pending_rad_mutations > 0)
+            .map(|f| f.name.clone())
+            .collect();
+        for name in pending {
+            if let Some(fish) = self.fish.iter_mut().find(|f| f.name == name) {
+                fish.pending_rad_mutations -= 1;
+            }
+            self.apply_named_mutation(&name, "");
+        }
     }
 
     pub fn apply_named_mutation(&mut self, name: &str, token: &str) -> bool {
