@@ -40,6 +40,7 @@ pub enum TankBackground {
         plants: Vec<Plant>,
     },
     Coral {
+        plants: Vec<Plant>,
         corals: Vec<CoralStructure>,
         floor_algae: Vec<FloorAlgae>,
     },
@@ -81,8 +82,14 @@ impl TankBackground {
                 TankBackground::Plain { plants }
             }
             TankKind::CoralReef => {
+                let mut plants = Vec::new();
                 let mut corals = Vec::new();
                 let mut floor_algae = Vec::new();
+                extend_plants(
+                    &mut plants,
+                    INITIAL_WIDTH as i32 + PLANT_SPAWN_LOOKAHEAD,
+                    rng,
+                );
                 extend_coral_reef(
                     &mut corals,
                     &mut floor_algae,
@@ -90,6 +97,7 @@ impl TankBackground {
                     rng,
                 );
                 TankBackground::Coral {
+                    plants,
                     corals,
                     floor_algae,
                 }
@@ -175,9 +183,13 @@ impl TankBackground {
                 }
             }
             TankBackground::Coral {
+                plants,
                 corals,
                 floor_algae,
             } => {
+                for plant in plants {
+                    plant.tick(dt);
+                }
                 for coral in corals {
                     coral.tick(dt, rng);
                 }
@@ -210,9 +222,11 @@ impl TankBackground {
                 extend_plants(plants, width as i32 + PLANT_SPAWN_LOOKAHEAD, rng);
             }
             TankBackground::Coral {
+                plants,
                 corals,
                 floor_algae,
             } => {
+                extend_plants(plants, width as i32 + PLANT_SPAWN_LOOKAHEAD, rng);
                 extend_coral_reef(
                     corals,
                     floor_algae,
