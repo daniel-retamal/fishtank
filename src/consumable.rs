@@ -21,6 +21,7 @@ pub const MILK_STATUS_STACK_BONUS: f32 = 30.0;
 pub const VISUAL_CALCULUS_ALPHA: f32 = 0.175;
 pub const VOLITION_ALPHA: f32 = 0.9;
 pub const PHYSICAL_INSTRUMENT_ALPHA: f32 = 0.9;
+pub const REACTION_SPEED_ALPHA: f32 = 0.9;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MilkStatus {

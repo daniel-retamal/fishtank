@@ -335,16 +335,31 @@ impl App {
                     self.close_overlay();
                     return;
                 }
+                let mut catch_failed = false;
                 if let Some(s) = self.fishing_state_mut()
                     && !s.game_over
                     && !s.captured
                 {
-                    match key.code {
-                        KeyCode::Left => s.is_pushing_left = true,
-                        KeyCode::Right => s.is_pushing_right = true,
-                        KeyCode::Down => s.is_reeling = true,
-                        _ => {}
+                    if s.is_catching() {
+                        if key.code == KeyCode::Down {
+                            if s.is_biting() {
+                                s.start_reeling();
+                                s.is_reeling = true;
+                            } else {
+                                catch_failed = true;
+                            }
+                        }
+                    } else {
+                        match key.code {
+                            KeyCode::Left => s.is_pushing_left = true,
+                            KeyCode::Right => s.is_pushing_right = true,
+                            KeyCode::Down => s.is_reeling = true,
+                            _ => {}
+                        }
                     }
+                }
+                if catch_failed {
+                    self.close_overlay();
                 }
             }
             KeyEventKind::Release => {
@@ -1581,9 +1596,13 @@ impl App {
                 }
             }
             commands::Action::Fish { no_death, no_fish } => {
-                let mut state = FishingState::new();
+                let milk = self.milk_buffs();
+                let mut state = FishingState::new(milk, &mut rand::rng());
                 state.no_death = no_death;
                 state.no_fish = no_fish;
+                if no_fish {
+                    state.start_reeling();
+                }
                 self.set_overlay(Overlay::Fishing(state));
             }
             commands::Action::Switch(tank_name) => {

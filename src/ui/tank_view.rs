@@ -331,7 +331,12 @@ fn render_coral_line(
         let effective_x = start_x + canvas_w - line_w;
         let pairs: Vec<(char, i32)> = line
             .chars()
-            .map(|c| (mirror_char(c), UnicodeWidthChar::width(c).unwrap_or(1) as i32))
+            .map(|c| {
+                (
+                    mirror_char(c),
+                    UnicodeWidthChar::width(c).unwrap_or(1) as i32,
+                )
+            })
             .rev()
             .collect();
         let span = coral_painted_span(&pairs);
@@ -340,9 +345,13 @@ fn render_coral_line(
             let sx = effective_x + col;
             if sx >= area.x as i32 && sx < area.right() as i32 {
                 if ch != ' ' && ch != 'X' {
-                    buf[(sx as u16, screen_y as u16)].set_char(ch).set_style(style);
+                    buf[(sx as u16, screen_y as u16)]
+                        .set_char(ch)
+                        .set_style(style);
                 } else if span.map_or(false, |(lo, hi)| col >= lo && col <= hi) {
-                    buf[(sx as u16, screen_y as u16)].set_char(' ').set_style(Style::reset());
+                    buf[(sx as u16, screen_y as u16)]
+                        .set_char(' ')
+                        .set_style(Style::reset());
                 }
             }
             col += w;
@@ -358,9 +367,13 @@ fn render_coral_line(
             let sx = start_x + col;
             if sx >= area.x as i32 && sx < area.right() as i32 {
                 if ch != ' ' && ch != 'X' {
-                    buf[(sx as u16, screen_y as u16)].set_char(ch).set_style(style);
+                    buf[(sx as u16, screen_y as u16)]
+                        .set_char(ch)
+                        .set_style(style);
                 } else if span.map_or(false, |(lo, hi)| col >= lo && col <= hi) {
-                    buf[(sx as u16, screen_y as u16)].set_char(' ').set_style(Style::reset());
+                    buf[(sx as u16, screen_y as u16)]
+                        .set_char(' ')
+                        .set_style(Style::reset());
                 }
             }
             col += w;
