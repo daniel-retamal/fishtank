@@ -123,7 +123,7 @@ impl Tank {
                             fish.position.y,
                             BubblePhase::rising(&mut rng),
                             fish.color,
-                            Some('X'),
+                            None,
                             &mut rng,
                         ),
                         FishSpecies::Candyfish => Bubble::new(

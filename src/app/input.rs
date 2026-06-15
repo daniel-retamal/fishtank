@@ -1882,10 +1882,27 @@ impl App {
             commands::Action::Cowsay(text) => {
                 let mut rng = rand::rng();
                 let tank = &mut self.tanks[self.current_tank];
-                if !tank.cows.is_empty() {
-                    let idx = rng.random_range(0..tank.cows.len());
-                    tank.cows[idx].say(text);
+                for cow in &mut tank.cows {
+                    cow.speech = None;
                 }
+                let candidates: Vec<usize> = tank
+                    .cows
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, c)| !c.mutant.backwards)
+                    .map(|(i, _)| i)
+                    .collect();
+                if candidates.is_empty() {
+                    return;
+                }
+                let idx = candidates[rng.random_range(0..candidates.len())];
+                let cow = &mut tank.cows[idx];
+                let speech = if cow.is_alienated() {
+                    "GLORP VLERP!".to_string()
+                } else {
+                    text
+                };
+                cow.say(speech);
             }
             commands::Action::VoidSpawn => {
                 if self.tanks[self.current_tank].kind == TankKind::Void {

@@ -518,25 +518,29 @@ impl FishSpecies {
                 config.zoomie_vertical = true;
                 config
             }
-            Turbofish => standard_config(
-                "Turbofish",
-                BodyChars {
-                    mouth_left: '<',
-                    mouth_right: '>',
-                    eye_left: '>',
-                    eye_right: '<',
-                    body_left: ':',
-                    wave_left: '~',
-                    body_right: ':',
-                    wave_right: '~',
-                    tail: TailKind::None,
-                },
-                &TURBOFISH_PALETTE,
-                Striped,
-                0.18,
-                (6.0, 9.0),
-                Rare,
-            ),
+            Turbofish => {
+                let mut config = standard_config(
+                    "Turbofish",
+                    BodyChars {
+                        mouth_left: '<',
+                        mouth_right: '>',
+                        eye_left: '>',
+                        eye_right: '<',
+                        body_left: ':',
+                        wave_left: '~',
+                        body_right: ':',
+                        wave_right: '~',
+                        tail: TailKind::None,
+                    },
+                    &TURBOFISH_PALETTE,
+                    Striped,
+                    0.18,
+                    (6.0, 9.0),
+                    Rare,
+                );
+                config.sizes = [2, 2, 2, 2];
+                config
+            }
             Koi => standard_config(
                 "Koi",
                 BodyChars {

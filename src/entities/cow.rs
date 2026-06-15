@@ -206,9 +206,11 @@ impl Cow {
     }
 
     pub fn is_alienated(&self) -> bool {
-        self.mutations
-            .as_ref()
-            .is_some_and(|m| m.history.iter().any(|h| h == ALIENATION_TAG))
+        self.variant == CowVariant::LightGreen
+            || self
+                .mutations
+                .as_ref()
+                .is_some_and(|m| m.history.iter().any(|h| h == ALIENATION_TAG))
     }
 
     pub fn sprite_top_offset(&self) -> u16 {
