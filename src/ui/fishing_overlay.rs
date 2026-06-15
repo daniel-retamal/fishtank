@@ -7,8 +7,10 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthChar;
 
-use crate::colors::{DARK_GRAY, LIGHT_GREEN, LIGHT_RED, LIGHT_YELLOW, RED, WHITE};
-use crate::consumable::{PHYSICAL_INSTRUMENT_ALPHA, VISUAL_CALCULUS_ALPHA, VOLITION_ALPHA};
+use crate::colors::{CYAN, DARK_GRAY, LIGHT_GREEN, LIGHT_RED, LIGHT_YELLOW, RED, WHITE};
+use crate::consumable::{
+    PHYSICAL_INSTRUMENT_ALPHA, REACTION_SPEED_ALPHA, VISUAL_CALCULUS_ALPHA, VOLITION_ALPHA,
+};
 use crate::ui::{hints::HINT_CLOSE, table};
 use crate::util::hyperbolic_scale;
 
@@ -27,16 +29,38 @@ pub const COMPLETION_START: f32 = 0.2;
 const REEL_PENALTY_THRESHOLD: f32 = 0.45;
 const BASE_GRACE_SECS: f32 = 1.0;
 const MAX_GRACE_SECS: f32 = 11.0;
-const INDICATOR_WARNING_ZONE: f32 = 0.4;
-const INDICATOR_DANGER_ZONE: f32 = 0.75;
 const COMPLETION_WARN: f32 = 0.5;
 const OVERLAY_FILL: f32 = 0.75;
 const COMP_WIDTH: u16 = 3;
 const INDICATOR_FRACTION: f32 = 0.15;
 const ART_CONTENT_WIDTH: u16 = 16;
 const ART_LINES: u16 = 6;
+const CENTER_FRAME_IDX: usize = 2;
 const REEL_HANDLE_FREQ: u32 = 6;
 const BACKGROUND: Color = Color::Reset;
+
+const FLASH_PERIOD: u32 = 6;
+
+const BITE_MIN_WAIT_SECS: f32 = 2.0;
+const BITE_MEAN_WAIT_SECS: f32 = 5.0;
+const BITE_MEAN_WAIT_BUFFED_SECS: f32 = 3.0;
+const BITE_DURATION_BASE_SECS: f32 = 0.5;
+const BITE_DURATION_BUFFED_SECS: f32 = 10.0;
+const REACTION_SPEED_REF_STACKS: u32 = 10;
+const BITE_DIP_COUNT: u32 = 2;
+
+const HOOK_IDLE_PERIOD_SECS: f32 = 1.6;
+
+const WAVE_GLYPH: &str = "~~~";
+const WAVE_WIDTH: u16 = 3;
+const WAVE_SPEED_CPS: f32 = 12.0;
+const WAVE_SPAWN_MEAN_SECS: f32 = 0.4;
+const WAVE_SPAWN_MIN_SECS: f32 = 0.08;
+const WAVE_COLOR: Color = CYAN;
+const INITIAL_WAVE_COUNT: u32 = 6;
+
+const REEL_FOOTER_LEFT: &str = " ←→ control the fish  ↓ reel";
+const CATCH_FOOTER_LEFT: &str = " ↓ catch once fish bites";
 
 const ART_FRAMES: [[&str; 6]; 5] = [
     [
@@ -81,7 +105,50 @@ const ART_FRAMES: [[&str; 6]; 5] = [
     ],
 ];
 
+const CATCH_BITE_FRAME: [&str; 6] = [
+    "                ",
+    "        ﾄ⟍      ",
+    "       j   ⟍    ",
+    "   (⊂ l ⊃)  ╲   ",
+    "             @  ",
+    "             ⎹  ",
+];
+
+struct OceanWave {
+    x: f32,
+    row: u16,
+}
+
+struct CatchPhase {
+    wait_remaining: f32,
+    biting: bool,
+    bite_elapsed: f32,
+    bite_duration: f32,
+}
+
+impl CatchPhase {
+    fn new(milk: MilkBuffs, rng: &mut impl RngExt) -> Self {
+        Self {
+            wait_remaining: sample_exp(milk.bite_mean_wait_secs(), BITE_MIN_WAIT_SECS, rng),
+            biting: false,
+            bite_elapsed: 0.0,
+            bite_duration: milk.bite_duration_secs(),
+        }
+    }
+}
+
+enum FishPhase {
+    Catch(CatchPhase),
+    Reel,
+}
+
 pub struct FishingState {
+    phase: FishPhase,
+    safe_zone: f32,
+    waves: Vec<OceanWave>,
+    waves_seeded: bool,
+    wave_spawn_timer: f32,
+    idle_timer: f32,
     pub fish_pos: f32,
     pub completion: f32,
     pub fish_velocity: f32,
@@ -101,13 +168,19 @@ pub struct FishingState {
 
 impl Default for FishingState {
     fn default() -> Self {
-        Self::new()
+        Self::new(MilkBuffs::default(), &mut rand::rng())
     }
 }
 
 impl FishingState {
-    pub fn new() -> Self {
+    pub fn new(milk: MilkBuffs, rng: &mut impl RngExt) -> Self {
         Self {
+            phase: FishPhase::Catch(CatchPhase::new(milk, rng)),
+            safe_zone: milk.safe_zone(),
+            waves: Vec::new(),
+            waves_seeded: false,
+            wave_spawn_timer: sample_exp(WAVE_SPAWN_MEAN_SECS, WAVE_SPAWN_MIN_SECS, rng),
+            idle_timer: 0.0,
             fish_pos: 0.5,
             completion: COMPLETION_START,
             fish_velocity: 0.0,
@@ -126,11 +199,97 @@ impl FishingState {
         }
     }
 
-    pub fn tick(&mut self, fps: f32, coffee_stacks: u32, milk: MilkBuffs) {
+    pub fn is_catching(&self) -> bool {
+        matches!(self.phase, FishPhase::Catch(_))
+    }
+
+    pub fn is_biting(&self) -> bool {
+        matches!(&self.phase, FishPhase::Catch(c) if c.biting)
+    }
+
+    pub fn start_reeling(&mut self) {
+        self.phase = FishPhase::Reel;
+    }
+
+    pub fn tick(
+        &mut self,
+        fps: f32,
+        coffee_stacks: u32,
+        milk: MilkBuffs,
+        geom: Option<FishingGeometry>,
+    ) {
         if self.game_over || self.captured {
             return;
         }
+        self.safe_zone = milk.safe_zone();
+        let dt = 1.0 / fps;
+        self.idle_timer = (self.idle_timer + dt).rem_euclid(HOOK_IDLE_PERIOD_SECS);
+        self.tick_waves(dt, geom.as_ref());
 
+        if matches!(self.phase, FishPhase::Reel) {
+            self.tick_reel(fps, coffee_stacks, milk);
+        } else {
+            self.tick_catch(dt);
+        }
+    }
+
+    fn tick_catch(&mut self, dt: f32) {
+        let FishPhase::Catch(c) = &mut self.phase else {
+            return;
+        };
+        if c.biting {
+            c.bite_elapsed += dt;
+            if c.bite_elapsed >= c.bite_duration {
+                self.game_over = true;
+            }
+        } else {
+            c.wait_remaining -= dt;
+            if c.wait_remaining <= 0.0 {
+                c.biting = true;
+                c.bite_elapsed = 0.0;
+            }
+        }
+    }
+
+    fn tick_waves(&mut self, dt: f32, geom: Option<&FishingGeometry>) {
+        let Some(geom) = geom else {
+            self.waves.clear();
+            return;
+        };
+
+        if !self.waves_seeded {
+            self.waves_seeded = true;
+            let mut rng = rand::rng();
+            for _ in 0..INITIAL_WAVE_COUNT {
+                if let Some(row) = random_free_row(geom, &mut rng) {
+                    self.waves.push(OceanWave {
+                        x: rng.random_range(0.0..geom.art_w as f32),
+                        row,
+                    });
+                }
+            }
+        }
+
+        for w in &mut self.waves {
+            w.x += WAVE_SPEED_CPS * dt;
+        }
+        self.waves
+            .retain(|w| w.x < geom.art_w as f32 && w.row < geom.art_h && !geom.is_rod_row(w.row));
+
+        self.wave_spawn_timer -= dt;
+        if self.wave_spawn_timer <= 0.0 {
+            let mut rng = rand::rng();
+            self.wave_spawn_timer = sample_exp(WAVE_SPAWN_MEAN_SECS, WAVE_SPAWN_MIN_SECS, &mut rng);
+            if let Some(row) = random_free_row(geom, &mut rng) {
+                self.waves.push(OceanWave {
+                    x: -(WAVE_WIDTH as f32),
+                    row,
+                });
+            }
+        }
+    }
+
+    fn tick_reel(&mut self, fps: f32, coffee_stacks: u32, milk: MilkBuffs) {
         let safe_zone = milk.safe_zone();
         let grace_secs = milk.grace_secs();
         let fish_force = FISH_FORCE * milk.fish_force_mult();
@@ -213,6 +372,19 @@ impl FishingState {
     }
 }
 
+fn sample_exp(mean: f32, min: f32, rng: &mut impl RngExt) -> f32 {
+    let u = rng.random::<f32>();
+    (-mean * (1.0 - u).ln()).max(min)
+}
+
+fn random_free_row(geom: &FishingGeometry, rng: &mut impl RngExt) -> Option<u16> {
+    let free: Vec<u16> = (0..geom.art_h).filter(|&r| !geom.is_rod_row(r)).collect();
+    if free.is_empty() {
+        return None;
+    }
+    Some(free[rng.random_range(0..free.len())])
+}
+
 #[derive(Clone, Copy, Default)]
 pub struct MilkBuffs {
     pub visual_calculus: u32,
@@ -248,6 +420,115 @@ impl MilkBuffs {
         }
         1.0 - hyperbolic_ramp(self.physical_instrument, PHYSICAL_INSTRUMENT_ALPHA)
     }
+
+    fn reaction_ramp(&self) -> f32 {
+        if self.reaction_speed == 0 {
+            return 0.0;
+        }
+        hyperbolic_ramp(self.reaction_speed, REACTION_SPEED_ALPHA)
+            / hyperbolic_ramp(REACTION_SPEED_REF_STACKS, REACTION_SPEED_ALPHA)
+    }
+
+    fn bite_duration_secs(&self) -> f32 {
+        BITE_DURATION_BASE_SECS
+            + (BITE_DURATION_BUFFED_SECS - BITE_DURATION_BASE_SECS) * self.reaction_ramp()
+    }
+
+    fn bite_mean_wait_secs(&self) -> f32 {
+        BITE_MEAN_WAIT_SECS
+            + (BITE_MEAN_WAIT_BUFFED_SECS - BITE_MEAN_WAIT_SECS) * self.reaction_ramp()
+    }
+}
+
+pub struct FishingGeometry {
+    ox: u16,
+    oy: u16,
+    overlay_w: u16,
+    overlay_h: u16,
+    inner_x: u16,
+    inner_w: u16,
+    art_x: u16,
+    art_y: u16,
+    art_w: u16,
+    art_h: u16,
+    art_vert_pad: u16,
+    sep_x: u16,
+    comp_x: u16,
+}
+
+impl FishingGeometry {
+    pub fn from_area(area: Rect) -> Option<Self> {
+        if area.width < 6 || area.height < 6 {
+            return None;
+        }
+        let max_w = ((area.width as f32 * OVERLAY_FILL) as u16)
+            .max(6)
+            .min(area.width);
+        let max_h = ((area.height as f32 * OVERLAY_FILL) as u16)
+            .max(6)
+            .min(area.height);
+        let side = (max_w / 2).min(max_h);
+        let overlay_w = (side * 2).max(6);
+        let overlay_h = side.max(6);
+        let layout = table::OverlayLayout::centered(area, overlay_w, overlay_h)?;
+
+        let inner_w = overlay_w.saturating_sub(2);
+        let art_w = inner_w.saturating_sub(1 + COMP_WIDTH);
+        let art_h = overlay_h.saturating_sub(6);
+        let art_vert_pad = art_h.saturating_sub(ART_LINES) / 2;
+        let art_x_offset = art_w.saturating_sub(ART_CONTENT_WIDTH) / 2;
+        let inner_x = layout.ox + 1;
+        let sep_x = inner_x + art_w;
+
+        Some(Self {
+            ox: layout.ox,
+            oy: layout.oy,
+            overlay_w,
+            overlay_h,
+            inner_x,
+            inner_w,
+            art_x: inner_x + art_x_offset,
+            art_y: layout.oy + 1,
+            art_w,
+            art_h,
+            art_vert_pad,
+            sep_x,
+            comp_x: sep_x + 1,
+        })
+    }
+
+    pub fn catch_layout(area: Rect) -> Option<Self> {
+        let dims = Self::from_area(area)?;
+        let art_w = dims.art_w;
+        let art_h = dims.art_h;
+        let box_w = art_w + 2;
+        let box_h = art_h + 4;
+        let layout = table::OverlayLayout::centered(area, box_w, box_h)?;
+
+        let art_x_offset = art_w.saturating_sub(ART_CONTENT_WIDTH) / 2;
+        let inner_x = layout.ox + 1;
+        let sep_x = inner_x + art_w;
+
+        Some(Self {
+            ox: layout.ox,
+            oy: layout.oy,
+            overlay_w: box_w,
+            overlay_h: box_h,
+            inner_x,
+            inner_w: art_w,
+            art_x: inner_x + art_x_offset,
+            art_y: layout.oy + 1,
+            art_w,
+            art_h,
+            art_vert_pad: dims.art_vert_pad,
+            sep_x,
+            comp_x: sep_x + 1,
+        })
+    }
+
+    fn is_rod_row(&self, row: u16) -> bool {
+        row >= self.art_vert_pad && row < self.art_vert_pad + ART_LINES
+    }
 }
 
 pub struct FishingOverlay<'a> {
@@ -263,106 +544,86 @@ impl<'a> FishingOverlay<'a> {
 impl Widget for FishingOverlay<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let state = self.state;
-        if area.width < 6 || area.height < 6 {
+        let reeling = matches!(state.phase, FishPhase::Reel);
+        let geom = if reeling {
+            FishingGeometry::from_area(area)
+        } else {
+            FishingGeometry::catch_layout(area)
+        };
+        let Some(geom) = geom else {
             return;
-        }
+        };
 
-        let max_w = ((area.width as f32 * OVERLAY_FILL) as u16)
-            .max(6)
-            .min(area.width);
-        let max_h = ((area.height as f32 * OVERLAY_FILL) as u16)
-            .max(6)
-            .min(area.height);
-        let side = (max_w / 2).min(max_h);
-        let overlay_w = (side * 2).max(6);
-        let overlay_h = side.max(6);
-        let Some(layout) = table::OverlayLayout::centered(area, overlay_w, overlay_h) else {
-            return;
+        let layout = table::OverlayLayout {
+            ox: geom.ox,
+            oy: geom.oy,
+            w: geom.overlay_w,
+            h: geom.overlay_h,
         };
         layout.clear_bg(buf, BACKGROUND);
 
-        let ox = layout.ox;
-        let oy = layout.oy;
-        let inner_w = overlay_w.saturating_sub(2);
-        let art_w = inner_w.saturating_sub(1 + COMP_WIDTH);
-        let art_h = overlay_h.saturating_sub(6);
-        let art_vert_pad = art_h.saturating_sub(ART_LINES) / 2;
-        let art_x_offset = art_w.saturating_sub(ART_CONTENT_WIDTH) / 2;
-
-        let handle_char = if state.is_reeling && (state.reel_anim_tick / REEL_HANDLE_FREQ) % 2 == 1
-        {
-            'Ə'
-        } else {
-            '@'
-        };
-
         let bcolor = state_border_color(state);
-        draw_border(buf, ox, oy, overlay_w, overlay_h, bcolor);
+        draw_border(
+            buf,
+            geom.ox,
+            geom.oy,
+            geom.overlay_w,
+            geom.overlay_h,
+            bcolor,
+        );
 
-        let inner_x = ox + 1;
-        let art_y = oy + 1;
-        let sep_x = inner_x + art_w;
-        let comp_x = sep_x + 1;
-        let frame = &ART_FRAMES[art_frame_idx(state.fish_pos)];
-        let art_style = Style::default().fg(WHITE).bg(BACKGROUND);
+        let alt_handle =
+            reeling && state.is_reeling && (state.reel_anim_tick / REEL_HANDLE_FREQ) % 2 == 1;
+        draw_art_block(
+            buf,
+            &geom,
+            current_frame(state),
+            alt_handle,
+            hook_spread(state),
+        );
+        draw_waves(buf, &geom, &state.waves);
 
-        for row in 0..art_h {
-            let y = art_y + row;
-
-            let art_line = row.checked_sub(art_vert_pad).and_then(|r| {
-                if r < ART_LINES {
-                    Some(frame[r as usize])
-                } else {
-                    None
-                }
-            });
-
-            for dx in 0..art_w {
-                buf[(inner_x + dx, y)].set_char(' ').set_style(art_style);
-            }
-            if let Some(line) = art_line {
-                let content_w = ART_CONTENT_WIDTH.min(art_w.saturating_sub(art_x_offset));
-                let line_with_handle: String;
-                let line_final = if handle_char != '@' && line.contains('@') {
-                    line_with_handle = line.replace('@', "Ə");
-                    &line_with_handle
-                } else {
-                    line
-                };
-                draw_art_content(
+        match &state.phase {
+            FishPhase::Reel => draw_reel_panels(buf, &geom, state, bcolor),
+            FishPhase::Catch(_) => {
+                let sep_y = geom.art_y + geom.art_h;
+                draw_inner_separator(buf, geom.ox, sep_y, geom.overlay_w, bcolor);
+                draw_footer(
                     buf,
-                    inner_x + art_x_offset,
-                    y,
-                    line_final,
-                    content_w,
-                    art_style,
+                    geom.inner_x,
+                    sep_y + 1,
+                    geom.inner_w,
+                    CATCH_FOOTER_LEFT,
                 );
             }
-
-            if sep_x < ox + overlay_w {
-                buf[(sep_x, y)]
-                    .set_char('│')
-                    .set_fg(DARK_GRAY)
-                    .set_bg(BACKGROUND);
-            }
-
-            if comp_x < ox + overlay_w {
-                draw_comp_row(buf, comp_x, y, row, art_h, state);
-            }
         }
-
-        let sep_y = art_y + art_h;
-        draw_inner_separator(buf, ox, sep_y, overlay_w, bcolor);
-
-        let ctrl_y = sep_y + 1;
-        draw_control_bar(buf, inner_x, ctrl_y, inner_w, state);
-
-        let sep2_y = ctrl_y + 1;
-        draw_inner_separator(buf, ox, sep2_y, overlay_w, bcolor);
-
-        let footer_y = sep2_y + 1;
-        draw_footer(buf, inner_x, footer_y, inner_w);
     }
+}
+
+fn current_frame(state: &FishingState) -> &'static [&'static str; 6] {
+    match &state.phase {
+        FishPhase::Reel => &ART_FRAMES[art_frame_idx(state.fish_pos)],
+        FishPhase::Catch(c) => catch_frame(c),
+    }
+}
+
+fn catch_frame(c: &CatchPhase) -> &'static [&'static str; 6] {
+    if c.biting {
+        let seg = (c.bite_elapsed / c.bite_duration * (BITE_DIP_COUNT * 2) as f32) as u32;
+        if seg.is_multiple_of(2) {
+            return &CATCH_BITE_FRAME;
+        }
+    }
+    &ART_FRAMES[CENTER_FRAME_IDX]
+}
+
+fn hook_spread(state: &FishingState) -> bool {
+    if let FishPhase::Catch(c) = &state.phase
+        && c.biting
+    {
+        return false;
+    }
+    state.idle_timer >= HOOK_IDLE_PERIOD_SECS / 2.0
 }
 
 fn art_frame_idx(fish_pos: f32) -> usize {
@@ -379,15 +640,22 @@ fn art_frame_idx(fish_pos: f32) -> usize {
     }
 }
 
+fn flash_on(tick: u32) -> bool {
+    tick % FLASH_PERIOD < FLASH_PERIOD / 2
+}
+
 fn state_border_color(state: &FishingState) -> Color {
+    if matches!(state.phase, FishPhase::Catch(_)) {
+        return WHITE;
+    }
     if state.danger_timer > 0.0 {
-        if (state.danger_timer as u32) % 6 < 3 {
+        if flash_on(state.danger_timer as u32) {
             LIGHT_RED
         } else {
             WHITE
         }
     } else if state.reel_punish_timer > 0 {
-        if state.reel_punish_timer % 6 < 3 {
+        if flash_on(state.reel_punish_timer) {
             LIGHT_RED
         } else {
             WHITE
@@ -441,6 +709,121 @@ fn draw_inner_separator(buf: &mut Buffer, ox: u16, y: u16, w: u16, color: Color)
     }
 }
 
+fn draw_art_block(
+    buf: &mut Buffer,
+    geom: &FishingGeometry,
+    frame: &[&str; 6],
+    alt_handle: bool,
+    spread: bool,
+) {
+    let art_style = Style::default().fg(WHITE).bg(BACKGROUND);
+    for row in 0..geom.art_h {
+        let y = geom.art_y + row;
+        for dx in 0..geom.art_w {
+            buf[(geom.inner_x + dx, y)]
+                .set_char(' ')
+                .set_style(art_style);
+        }
+
+        let art_line = row
+            .checked_sub(geom.art_vert_pad)
+            .and_then(|r| (r < ART_LINES).then(|| frame[r as usize]));
+        let Some(line) = art_line else {
+            continue;
+        };
+
+        let content_w = ART_CONTENT_WIDTH.min(geom.art_w.saturating_sub(geom.art_x - geom.inner_x));
+        let swapped;
+        let line = if alt_handle && line.contains('@') {
+            swapped = line.replace('@', "Ə");
+            swapped.as_str()
+        } else {
+            line
+        };
+        draw_art_content(buf, geom.art_x, y, line, content_w, art_style);
+
+        if spread && line.contains('(') {
+            apply_hook_spread(buf, geom, y, line, art_style);
+        }
+    }
+}
+
+fn apply_hook_spread(buf: &mut Buffer, geom: &FishingGeometry, y: u16, line: &str, style: Style) {
+    let mut left = None;
+    let mut right = None;
+    let mut col = 0u16;
+    for ch in line.chars() {
+        if ch == '(' && left.is_none() {
+            left = Some(col);
+        }
+        if ch == ')' {
+            right = Some(col);
+        }
+        col += UnicodeWidthChar::width(ch).unwrap_or(1) as u16;
+    }
+    let (Some(left), Some(right)) = (left, right) else {
+        return;
+    };
+
+    if geom.art_x + left > geom.inner_x {
+        buf[(geom.art_x + left, y)].set_char(' ').set_style(style);
+        buf[(geom.art_x + left - 1, y)]
+            .set_char('(')
+            .set_style(style);
+    }
+    if geom.art_x + right + 1 < geom.inner_x + geom.art_w {
+        buf[(geom.art_x + right, y)].set_char(' ').set_style(style);
+        buf[(geom.art_x + right + 1, y)]
+            .set_char(')')
+            .set_style(style);
+    }
+}
+
+fn draw_waves(buf: &mut Buffer, geom: &FishingGeometry, waves: &[OceanWave]) {
+    let style = Style::default().fg(WAVE_COLOR).bg(BACKGROUND);
+    for wave in waves {
+        let y = geom.art_y + wave.row;
+        let base = wave.x.floor() as i32;
+        for (i, ch) in WAVE_GLYPH.chars().enumerate() {
+            let col = base + i as i32;
+            if col < 0 || col >= geom.art_w as i32 {
+                continue;
+            }
+            buf[(geom.inner_x + col as u16, y)]
+                .set_char(ch)
+                .set_style(style);
+        }
+    }
+}
+
+fn draw_reel_panels(buf: &mut Buffer, geom: &FishingGeometry, state: &FishingState, bcolor: Color) {
+    for row in 0..geom.art_h {
+        let y = geom.art_y + row;
+        buf[(geom.sep_x, y)]
+            .set_char('│')
+            .set_fg(DARK_GRAY)
+            .set_bg(BACKGROUND);
+        draw_comp_row(buf, geom.comp_x, y, row, geom.art_h, state);
+    }
+
+    let sep_y = geom.art_y + geom.art_h;
+    draw_inner_separator(buf, geom.ox, sep_y, geom.overlay_w, bcolor);
+
+    let ctrl_y = sep_y + 1;
+    draw_control_bar(buf, geom.inner_x, ctrl_y, geom.inner_w, state);
+
+    let sep2_y = ctrl_y + 1;
+    draw_inner_separator(buf, geom.ox, sep2_y, geom.overlay_w, bcolor);
+
+    draw_footer(
+        buf,
+        geom.inner_x,
+        sep2_y + 1,
+        geom.inner_w,
+        REEL_FOOTER_LEFT,
+    );
+}
+
 fn draw_art_content(buf: &mut Buffer, x: u16, y: u16, line: &str, max_w: u16, style: Style) {
     let mut col = 0u16;
     for ch in line.chars() {
@@ -458,7 +841,7 @@ fn draw_art_content(buf: &mut Buffer, x: u16, y: u16, line: &str, max_w: u16, st
 
 fn draw_comp_row(buf: &mut Buffer, x: u16, y: u16, row: u16, art_h: u16, state: &FishingState) {
     let in_danger = state.danger_timer > 0.0;
-    let danger_flash = (state.danger_timer as u32) % 6 < 3;
+    let danger_flash = flash_on(state.danger_timer as u32);
 
     let empty_rows = (art_h as f32 * (1.0 - state.completion)) as u16;
     let filled = row >= empty_rows;
@@ -496,10 +879,8 @@ fn draw_control_bar(buf: &mut Buffer, x: u16, y: u16, inner_w: u16, state: &Fish
     let offset = (state.fish_pos - 0.5).abs() * 2.0;
     let indicator_color = if state.captured {
         LIGHT_YELLOW
-    } else if offset > INDICATOR_DANGER_ZONE {
+    } else if offset > state.safe_zone {
         LIGHT_RED
-    } else if offset > INDICATOR_WARNING_ZONE {
-        LIGHT_YELLOW
     } else {
         LIGHT_GREEN
     };
@@ -527,9 +908,8 @@ fn draw_control_bar(buf: &mut Buffer, x: u16, y: u16, inner_w: u16, state: &Fish
     }
 }
 
-fn draw_footer(buf: &mut Buffer, x: u16, y: u16, inner_w: u16) {
+fn draw_footer(buf: &mut Buffer, x: u16, y: u16, inner_w: u16, left: &str) {
     let style = Style::default().fg(DARK_GRAY).bg(BACKGROUND);
-    let left = " ←→ control the fish  ↓ reel";
     let right = HINT_CLOSE;
     let total = inner_w as usize;
     buf.set_string(x, y, truncate_to_width(left, total), style);
@@ -596,15 +976,35 @@ mod milk_buff_spec_tests {
     }
 
     #[test]
+    fn reaction_speed_hits_10_second_bite_at_10_stacks() {
+        let buffs = MilkBuffs {
+            reaction_speed: 10,
+            ..Default::default()
+        };
+        assert!(approx(buffs.bite_duration_secs(), 10.0, 0.005));
+    }
+
+    #[test]
+    fn reaction_speed_hits_3_second_mean_wait_at_10_stacks() {
+        let buffs = MilkBuffs {
+            reaction_speed: 10,
+            ..Default::default()
+        };
+        assert!(approx(buffs.bite_mean_wait_secs(), 3.0, 0.005));
+    }
+
+    #[test]
     fn zero_stacks_returns_base_values() {
         let buffs = MilkBuffs::default();
         assert_eq!(buffs.safe_zone(), REEL_PENALTY_THRESHOLD);
         assert_eq!(buffs.grace_secs(), BASE_GRACE_SECS);
         assert_eq!(buffs.fish_force_mult(), 1.0);
+        assert_eq!(buffs.bite_duration_secs(), BITE_DURATION_BASE_SECS);
+        assert_eq!(buffs.bite_mean_wait_secs(), BITE_MEAN_WAIT_SECS);
     }
 
     #[test]
-    fn reaction_speed_is_tracked_but_has_no_effect_on_other_buffs() {
+    fn reaction_speed_does_not_affect_reel_buffs() {
         let buffs = MilkBuffs {
             reaction_speed: 99,
             ..Default::default()

@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use rand::RngExt;
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout},
+    layout::{Constraint, Layout, Rect},
 };
 
 use crate::{
@@ -23,7 +23,7 @@ use crate::{
         catch_overlay::{CatchOverlay, CatchState},
         command_bar::{self, CommandBar},
         consume_picker::{ConsumePickerOverlay, ConsumePickerState},
-        fishing_overlay::{FishingOverlay, FishingState},
+        fishing_overlay::{FishingGeometry, FishingOverlay, FishingState},
         fishtanks_overlay::{FishtanksOverlay, FishtanksState},
         index_overlay::{IndexOverlay, IndexState},
         inventory_overlay::{InventoryOverlay, InventoryState},
@@ -432,8 +432,10 @@ impl App {
         let fps = self.settings.fps;
         let coffee = self.coffee_stacks();
         let milk = self.milk_buffs();
+        let area = Rect::new(0, 0, self.terminal_width, self.tank_height());
+        let geom = FishingGeometry::from_area(area);
         if let Some(s) = self.fishing_state_mut() {
-            s.tick(fps, coffee, milk);
+            s.tick(fps, coffee, milk, geom);
         }
         let (game_over, captured) = match self.fishing_state() {
             Some(s) => (s.game_over, s.captured),

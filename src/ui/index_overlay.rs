@@ -102,8 +102,9 @@ impl IndexState {
                                 swatch: None,
                             }
                         } else {
-                            fields::cached_field_value(fish, kind)
-                                .unwrap_or_else(|| fields::gen_field_value(kind, fish, &fish_names, &mut rng))
+                            fields::cached_field_value(fish, kind).unwrap_or_else(|| {
+                                fields::gen_field_value(kind, fish, &fish_names, &mut rng)
+                            })
                         }
                     })
                     .collect();
