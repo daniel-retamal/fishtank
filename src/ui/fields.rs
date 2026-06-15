@@ -282,10 +282,10 @@ pub fn gen_field_value(
                 ORANGE,
                 TEAL,
             ];
-            let c = if fish.species == FishSpecies::Goldenfish {
-                GOLD
-            } else {
-                COLORS[rng.random_range(0..COLORS.len())]
+            let c = match fish.species {
+                FishSpecies::Cashfish => GOLD,
+                FishSpecies::Holyfish => LIGHT_YELLOW,
+                _ => COLORS[rng.random_range(0..COLORS.len())],
             };
             FieldValue {
                 text: "      ".to_string(),
@@ -352,7 +352,7 @@ pub fn gen_field_value(
                 FishSpecies::Mutantfish => {
                     plain(MUTANT_SPREADS[rng.random_range(0..MUTANT_SPREADS.len())])
                 }
-                FishSpecies::Goldenfish => {
+                FishSpecies::Cashfish | FishSpecies::Holyfish => {
                     plain(GOLDEN_SPREADS[rng.random_range(0..GOLDEN_SPREADS.len())])
                 }
                 _ => {
@@ -373,7 +373,8 @@ pub fn gen_field_value(
 
         FieldKind::FavoriteQuote => match fish.species {
             FishSpecies::Mutantfish => plain("OOGHHHHHHH"),
-            FishSpecies::Goldenfish => plain("Gonna be, gonna be golden"),
+            FishSpecies::Cashfish => plain("Gonna be, gonna be golden"),
+            FishSpecies::Holyfish => plain("Blessed be the deep, glub"),
             _ => {
                 let count = rng.random_range(2..=8u32);
                 plain((0..count).map(|_| "glub").collect::<Vec<_>>().join(" "))
@@ -455,16 +456,19 @@ pub fn gen_field_value(
             ];
             match fish.species {
                 FishSpecies::Mutantfish => plain("Wrath"),
-                FishSpecies::Goldenfish => plain("Greed"),
+                FishSpecies::Cashfish => plain("Greed"),
+                FishSpecies::Holyfish => plain("Pride"),
                 _ => plain(SINS[rng.random_range(0..SINS.len())]),
             }
         }
 
-        FieldKind::HasSeenTheSky => plain(if fish.species == FishSpecies::Goldenfish {
-            "Yes"
-        } else {
-            "No"
-        }),
+        FieldKind::HasSeenTheSky => plain(
+            if matches!(fish.species, FishSpecies::Cashfish | FishSpecies::Holyfish) {
+                "Yes"
+            } else {
+                "No"
+            },
+        ),
 
         FieldKind::Temperature => {
             let t = 25.0f32 + rng.random_range(-14.0f32..14.0);
@@ -473,7 +477,8 @@ pub fn gen_field_value(
 
         FieldKind::Delicious => match fish.species {
             FishSpecies::Mutantfish => plain("NOOOOOOOOOO"),
-            FishSpecies::Goldenfish => plain("Yes."),
+            FishSpecies::Cashfish => plain("Yes."),
+            FishSpecies::Holyfish => plain("Forbidden"),
             _ => plain(match rng.random_range(0..3u32) {
                 0 => "Yes",
                 1 => "No",

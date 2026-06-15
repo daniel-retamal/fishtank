@@ -6,7 +6,7 @@ use crate::{
     entities::food,
     fishes::fish::Fish,
     fishes::species::FishSpecies,
-    loot::{ConsumableKind, ItemKind, LootKind, MilkVariant, StockItem},
+    loot::{ConsumableKind, LootKind, MilkVariant, StockItem},
     names,
     settings::{FPS_MAX, FPS_MIN},
     tank::{Tank, TankKind},
@@ -29,6 +29,39 @@ use crate::{
 };
 
 use super::{App, Overlay};
+
+const BLESSING_CASH: u32 = 333;
+const BLESSING_FEED_AMOUNT: u32 = 33;
+const BLESSING_FEED_TIMES: u32 = 10;
+
+#[derive(Clone, Copy)]
+enum Blessing {
+    Restore,
+    Clone,
+    Cash,
+    FeedBurst,
+    SellBonus,
+    TurnHoly,
+    Revive,
+    Grace,
+    Gift,
+    Expand,
+}
+
+impl Blessing {
+    const ALL: &'static [Blessing] = &[
+        Blessing::Restore,
+        Blessing::Clone,
+        Blessing::Cash,
+        Blessing::FeedBurst,
+        Blessing::SellBonus,
+        Blessing::TurnHoly,
+        Blessing::Revive,
+        Blessing::Grace,
+        Blessing::Gift,
+        Blessing::Expand,
+    ];
+}
 
 impl App {
     pub fn handle_input(&mut self, event: Event) {
@@ -432,9 +465,6 @@ impl App {
             }
             LootKind::Food(amount) => {
                 self.food_supply += amount;
-            }
-            LootKind::Item(ItemKind::GoldBar) => {
-                self.cash += crate::loot::GOLD_BAR_VALUE;
             }
             LootKind::Item(item) => {
                 if let Some(stock) = StockItem::from_item(&item) {
@@ -1300,7 +1330,7 @@ impl App {
 
     fn execute_wish(&mut self, action: WishAction) {
         match action {
-            WishAction::Give(target) => self.execute_give(target),
+            WishAction::Give(target) => self.execute_give(target, self.current_tank),
             WishAction::Mutate {
                 fish_name,
                 mutation,
@@ -1314,7 +1344,7 @@ impl App {
             }
             WishAction::Revive { fish_name } => self.revive_fish(&fish_name),
             WishAction::Clone { fish_name } => self.clone_entity(&fish_name),
-            WishAction::Bless { fish_name } => self.bless_fish(&fish_name),
+            WishAction::Bless => self.perform_blessing(self.current_tank),
             WishAction::Expand { tank_name } => self.expand_tank(&tank_name),
             WishAction::Anything => {
                 let mut rng = rand::rng();
@@ -1388,16 +1418,123 @@ impl App {
         }
     }
 
-    fn bless_fish(&mut self, fish_name: &str) {
-        for tank in &mut self.tanks {
-            if let Some(fish) = tank
-                .fish
-                .iter_mut()
-                .find(|f| f.name.eq_ignore_ascii_case(fish_name))
-            {
-                fish.devil_marked = false;
-                return;
+    pub(super) fn perform_blessing(&mut self, tank_idx: usize) {
+        let mut rng = rand::rng();
+        let blessing = Blessing::ALL[rng.random_range(0..Blessing::ALL.len())];
+        self.apply_blessing(tank_idx, blessing, &mut rng);
+    }
+
+    fn apply_blessing(&mut self, tank_idx: usize, blessing: Blessing, rng: &mut impl RngExt) {
+        match blessing {
+            Blessing::Restore => self.bless_restore(tank_idx, rng),
+            Blessing::Clone => self.bless_clone(tank_idx, rng),
+            Blessing::Cash => self.cash += BLESSING_CASH,
+            Blessing::FeedBurst => self.bless_feed(tank_idx),
+            Blessing::SellBonus => self.bless_sell_bonus(tank_idx, rng),
+            Blessing::TurnHoly => self.bless_turn_holy(tank_idx, rng),
+            Blessing::Revive => self.bless_revive(tank_idx, rng),
+            Blessing::Grace => {
+                self.cajetans_grace.stacks += 1;
+                self.cajetans_grace.time_remaining = super::CAJETANS_GRACE_SECS;
             }
+            Blessing::Gift => {
+                let target = void_ritual::random_give_target(rng);
+                self.execute_give(target, tank_idx);
+            }
+            Blessing::Expand => self.tanks[tank_idx].expand(void_ritual::EXPAND_AMOUNT),
+        }
+    }
+
+    fn bless_restore(&mut self, tank_idx: usize, rng: &mut impl RngExt) {
+        use crate::restore::Restorable;
+        let tank = &mut self.tanks[tank_idx];
+        if tank.fish.is_empty() {
+            return;
+        }
+        let idx = rng.random_range(0..tank.fish.len());
+        tank.fish[idx].restore();
+    }
+
+    fn bless_clone(&mut self, tank_idx: usize, rng: &mut impl RngExt) {
+        if self.tanks[tank_idx].is_full() {
+            return;
+        }
+        let fish_count = self.tanks[tank_idx].fish.len();
+        let total = fish_count + self.tanks[tank_idx].cows.len();
+        if total == 0 {
+            return;
+        }
+        let pick = rng.random_range(0..total);
+        if pick < fish_count {
+            let orig = self.tanks[tank_idx].fish[pick].clone();
+            let clone_name = format!("{}'s Clone", orig.name);
+            self.tanks[tank_idx].place_fish(orig, clone_name, rng);
+        } else {
+            let mut orig = self.tanks[tank_idx].cows[pick - fish_count].clone();
+            orig.name = format!("{}'s Clone", orig.name);
+            self.tanks[tank_idx].place_cow(orig, rng);
+        }
+    }
+
+    fn bless_feed(&mut self, tank_idx: usize) {
+        let mut free = BLESSING_FEED_AMOUNT * BLESSING_FEED_TIMES;
+        for _ in 0..BLESSING_FEED_TIMES {
+            self.tanks[tank_idx].feed(BLESSING_FEED_AMOUNT as usize, &mut free);
+        }
+    }
+
+    fn bless_sell_bonus(&mut self, tank_idx: usize, rng: &mut impl RngExt) {
+        let tank = &mut self.tanks[tank_idx];
+        if tank.fish.is_empty() {
+            return;
+        }
+        let idx = rng.random_range(0..tank.fish.len());
+        let fish = &mut tank.fish[idx];
+        fish.sell_price_bonus_pct = fish
+            .sell_price_bonus_pct
+            .saturating_add(crate::fishes::mutations::STRAWBERRY_SELL_BONUS_PCT);
+    }
+
+    fn bless_turn_holy(&mut self, tank_idx: usize, rng: &mut impl RngExt) {
+        let candidates: Vec<usize> = self.tanks[tank_idx]
+            .fish
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| {
+                f.unfish_state.is_none() && f.ability_stacks(FishSpecies::Holyfish) == 0
+            })
+            .map(|(i, _)| i)
+            .collect();
+        if candidates.is_empty() {
+            return;
+        }
+        let idx = candidates[rng.random_range(0..candidates.len())];
+        let fish = &self.tanks[tank_idx].fish[idx];
+        let name = fish.name.clone();
+        let (x, y) = (fish.position.x, fish.position.y);
+        self.tanks[tank_idx].fish[idx] = Fish::new(FishSpecies::Holyfish, name, x, y, rng);
+    }
+
+    fn bless_revive(&mut self, tank_idx: usize, rng: &mut impl RngExt) {
+        if self.tanks[tank_idx].is_full() {
+            return;
+        }
+        let candidates: Vec<usize> = self
+            .graveyard
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| !f.devil_marked)
+            .map(|(i, _)| i)
+            .collect();
+        if candidates.is_empty() {
+            return;
+        }
+        let pos = candidates[rng.random_range(0..candidates.len())];
+        let fish = self.graveyard.remove(pos);
+        let name = fish.name.clone();
+        self.tanks[tank_idx].place_fish(fish, name.clone(), rng);
+        for tank in &mut self.tanks {
+            tank.clear_grave_name(&name);
         }
     }
 
@@ -1433,7 +1570,7 @@ impl App {
         }
     }
 
-    fn execute_give(&mut self, target: GiveTarget) {
+    fn execute_give(&mut self, target: GiveTarget, tank_idx: usize) {
         match target {
             GiveTarget::Cash => self.cash += void_ritual::GIVE_RESOURCE_AMOUNT,
             GiveTarget::Food => self.food_supply += void_ritual::GIVE_RESOURCE_AMOUNT,
@@ -1441,11 +1578,10 @@ impl App {
                 *self.inventory.entry(stock).or_insert(0) += qty;
             }
             GiveTarget::Fish(species) => {
-                let ct = self.current_tank;
-                if !self.tanks[ct].is_full() {
+                if !self.tanks[tank_idx].is_full() {
                     let un_name = format!("Un{}", species.config().name);
                     let mut rng = rand::rng();
-                    self.tanks[ct].spawn_fish(species, un_name, &mut rng);
+                    self.tanks[tank_idx].spawn_fish(species, un_name, &mut rng);
                 }
             }
             GiveTarget::Tank(kind) => {
@@ -1459,8 +1595,7 @@ impl App {
                 let mut rng = rand::rng();
                 let variant =
                     variant_opt.unwrap_or_else(|| crate::entities::cow::random_cow_color(&mut rng));
-                let ct = self.current_tank;
-                self.tanks[ct].spawn_cow(variant, &mut rng);
+                self.tanks[tank_idx].spawn_cow(variant, &mut rng);
             }
         }
     }
@@ -1517,10 +1652,10 @@ impl App {
                 let ct = self.current_tank;
                 self.tanks[ct].apply_named_mutation(&fish_name, &mutation_name);
             }
-            commands::Action::Give(target) => self.execute_give(target),
+            commands::Action::Give(target) => self.execute_give(target, self.current_tank),
             commands::Action::Revive(name) => self.revive_fish(&name),
             commands::Action::Clone(name) => self.clone_entity(&name),
-            commands::Action::Bless(name) => self.bless_fish(&name),
+            commands::Action::Bless => self.perform_blessing(self.current_tank),
             commands::Action::Expand(name) => self.expand_tank(&name),
             commands::Action::Restore(name) => self.restore_entity(&name),
             commands::Action::Index { all, tank_filter } => {

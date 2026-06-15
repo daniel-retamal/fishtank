@@ -7,7 +7,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthChar;
 
-use crate::colors::{LIGHT_YELLOW, WHITE};
+use crate::colors::{LIGHT_RED, LIGHT_YELLOW, WHITE};
 use crate::fishes::fish::{Direction, Fish};
 use crate::fishes::species::FishSpecies;
 use crate::fishes::unfish::{BALL_HEIGHT, SKULL_HEIGHT, UnfishKind, is_multi_row};
@@ -364,7 +364,8 @@ impl Widget for ShowOverlay<'_> {
         }
 
         let border_color = match state.fish.species {
-            FishSpecies::Goldenfish => LIGHT_YELLOW,
+            FishSpecies::Cashfish => LIGHT_RED,
+            FishSpecies::Holyfish => LIGHT_YELLOW,
             FishSpecies::Mutantfish => state.fish.color,
             _ => WHITE,
         };

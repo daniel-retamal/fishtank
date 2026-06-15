@@ -12,14 +12,12 @@ use crate::fishes::species::FishSpecies;
 use crate::sprite::apply_glisten;
 use crate::ui::hints::{HINT_ENTER_IRRADIATE, HINT_ENTER_SUMMON};
 
-pub const GOLD_BAR_VALUE: u32 = 5_000;
 pub const FOOD_AMOUNT_MIN: u32 = 20;
 pub const FOOD_AMOUNT_MAX: u32 = 80;
 const DEVILS_LUCK_CASH_BONUS: u32 = 30;
 const CASH_TIER_SHIFT: u32 = 12;
 const CASH_CENTER_IDX: usize = 3;
 
-const ULTRA_LEGENDARY: u32 = 2;
 const LEGENDARY: u32 = 4;
 const COMMON: u32 = 62;
 
@@ -535,7 +533,6 @@ impl CashValue {
 }
 
 pub enum ItemKind {
-    GoldBar,
     Junk(JunkSprite),
     Consumable(ConsumableKind),
 }
@@ -543,7 +540,6 @@ pub enum ItemKind {
 impl ItemKind {
     pub fn display_name(&self) -> &str {
         match self {
-            ItemKind::GoldBar => "Gold Bar",
             ItemKind::Junk(_) => "Junk",
             ItemKind::Consumable(kind) => ConsumableKind::display_name(*kind),
         }
@@ -586,7 +582,6 @@ impl StockItem {
 
     pub fn from_item(item: &ItemKind) -> Option<StockItem> {
         match item {
-            ItemKind::GoldBar => None,
             ItemKind::Junk(_) => Some(StockItem::Junk),
             ItemKind::Consumable(kind) => Some(StockItem::Consumable(*kind)),
         }
@@ -607,7 +602,6 @@ enum PoolSlot {
     Food,
     Junk,
     Consumable(ConsumableKind),
-    GoldBar,
 }
 
 pub struct LootPool {
@@ -617,7 +611,7 @@ pub struct LootPool {
 
 impl LootPool {
     pub fn default_pool() -> Self {
-        let mut slots: Vec<(u32, PoolSlot)> = FishSpecies::all_buyable()
+        let mut slots: Vec<(u32, PoolSlot)> = FishSpecies::all_wild()
             .iter()
             .map(|&s| (s.config().rarity.catch_weight(), PoolSlot::Species(s)))
             .collect();
@@ -631,7 +625,6 @@ impl LootPool {
             PoolSlot::Consumable(ConsumableKind::Necronomicon),
         ));
         slots.push((LEGENDARY, PoolSlot::Consumable(ConsumableKind::DemonCore)));
-        slots.push((ULTRA_LEGENDARY, PoolSlot::GoldBar));
         Self {
             slots,
             devils_luck: 0,
@@ -643,6 +636,33 @@ impl LootPool {
             FishSpecies::Candyfish.config().rarity.catch_weight(),
             PoolSlot::Species(FishSpecies::Candyfish),
         ));
+        self
+    }
+
+    pub fn with_cashfish(mut self) -> Self {
+        self.slots.push((
+            FishSpecies::Cashfish.config().rarity.catch_weight(),
+            PoolSlot::Species(FishSpecies::Cashfish),
+        ));
+        self
+    }
+
+    pub fn with_grace(mut self, stacks: u32) -> Self {
+        if stacks == 0 {
+            return self;
+        }
+        let mult = 1u32 + stacks;
+        for (w, slot) in &mut self.slots {
+            let legendary = match slot {
+                PoolSlot::Species(s) => s.config().rarity == Rarity::Legendary,
+                PoolSlot::Consumable(ConsumableKind::Necronomicon)
+                | PoolSlot::Consumable(ConsumableKind::DemonCore) => true,
+                _ => false,
+            };
+            if legendary {
+                *w *= mult;
+            }
+        }
         self
     }
 
@@ -662,8 +682,7 @@ impl LootPool {
             let boostable = match slot {
                 PoolSlot::Species(s) => s.config().rarity != Rarity::Common,
                 PoolSlot::Consumable(ConsumableKind::Necronomicon)
-                | PoolSlot::Consumable(ConsumableKind::DemonCore)
-                | PoolSlot::GoldBar => true,
+                | PoolSlot::Consumable(ConsumableKind::DemonCore) => true,
                 _ => false,
             };
             if boostable {
@@ -712,7 +731,6 @@ impl LootPool {
                     }
                     PoolSlot::Junk => LootKind::Item(ItemKind::Junk(JunkSprite::new(rng))),
                     PoolSlot::Consumable(kind) => LootKind::Item(ItemKind::Consumable(*kind)),
-                    PoolSlot::GoldBar => LootKind::Item(ItemKind::GoldBar),
                 };
             }
             v -= w;
@@ -795,11 +813,13 @@ pub fn roll_loot(
     rng: &mut impl RngExt,
     bait_stacks: u32,
     devils_luck: u32,
+    grace_stacks: u32,
     cow_counts: &CowCounts,
 ) -> LootKind {
     LootPool::default_pool()
         .with_bait(bait_stacks)
         .with_devils_luck(devils_luck)
+        .with_grace(grace_stacks)
         .with_cows(cow_counts)
         .roll(rng)
 }
@@ -807,10 +827,12 @@ pub fn roll_loot(
 pub fn roll_loot_no_fish(
     rng: &mut impl RngExt,
     devils_luck: u32,
+    grace_stacks: u32,
     cow_counts: &CowCounts,
 ) -> LootKind {
     LootPool::fish_excluded()
         .with_devils_luck(devils_luck)
+        .with_grace(grace_stacks)
         .with_cows(cow_counts)
         .roll(rng)
 }

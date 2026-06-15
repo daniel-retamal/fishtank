@@ -15,6 +15,7 @@ pub struct StatsBar<'a> {
     pub fish_capacity: usize,
     pub tank_name: &'a str,
     pub devils_luck: u32,
+    pub cajetans_grace: u32,
 }
 
 pub fn height(show_stats: bool, width: u16, stats: &StatsBar) -> u16 {
@@ -23,7 +24,8 @@ pub fn height(show_stats: bool, width: u16, stats: &StatsBar) -> u16 {
     }
     let has_statuses = !stats.active_consumables.is_empty()
         || !stats.active_statuses.is_empty()
-        || stats.devils_luck > 0;
+        || stats.devils_luck > 0
+        || stats.cajetans_grace > 0;
     if has_statuses && !inline_fits(width, stats) {
         5
     } else {
@@ -45,6 +47,7 @@ pub struct CommandBar<'a> {
     pub active_statuses: &'a [ActiveMilkStatus],
     pub tank_name: &'a str,
     pub devils_luck: u32,
+    pub cajetans_grace: u32,
 }
 
 fn format_metric(n: u32) -> String {
@@ -72,6 +75,7 @@ fn consumables_total_len(
     active_consumables: &[ActiveConsumable],
     active_statuses: &[ActiveMilkStatus],
     devils_luck: u32,
+    cajetans_grace: u32,
 ) -> usize {
     let mut total = 0;
     let mut items_seen = 0usize;
@@ -97,6 +101,13 @@ fn consumables_total_len(
             total += 2;
         }
         total += "devil's luck ".len() + crate::names::to_roman(devils_luck).len();
+        items_seen += 1;
+    }
+    if cajetans_grace > 0 {
+        if items_seen > 0 {
+            total += 2;
+        }
+        total += "cajetan's grace ".len() + crate::names::to_roman(cajetans_grace).len();
     }
     total
 }
@@ -114,7 +125,8 @@ fn stats_str(cash: u32, food_supply: u32, fish_count: usize, fish_capacity: usiz
 fn inline_fits(width: u16, stats: &StatsBar) -> bool {
     let has_statuses = !stats.active_consumables.is_empty()
         || !stats.active_statuses.is_empty()
-        || stats.devils_luck > 0;
+        || stats.devils_luck > 0
+        || stats.cajetans_grace > 0;
     if !has_statuses {
         return true;
     }
@@ -123,6 +135,7 @@ fn inline_fits(width: u16, stats: &StatsBar) -> bool {
         stats.active_consumables,
         stats.active_statuses,
         stats.devils_luck,
+        stats.cajetans_grace,
     );
     let s_len = stats_str(
         stats.cash,
@@ -232,7 +245,8 @@ impl Widget for CommandBar<'_> {
 
             let has_statuses = !self.active_consumables.is_empty()
                 || !self.active_statuses.is_empty()
-                || self.devils_luck > 0;
+                || self.devils_luck > 0
+                || self.cajetans_grace > 0;
             if has_statuses {
                 let fits_inline = inline_fits(
                     area.width,
@@ -245,6 +259,7 @@ impl Widget for CommandBar<'_> {
                         fish_capacity: self.fish_capacity,
                         tank_name: self.tank_name,
                         devils_luck: self.devils_luck,
+                        cajetans_grace: self.cajetans_grace,
                     },
                 );
                 let cons_row = if fits_inline { stats_row } else { area.y + 4 };
@@ -252,6 +267,7 @@ impl Widget for CommandBar<'_> {
                     self.active_consumables,
                     self.active_statuses,
                     self.devils_luck,
+                    self.cajetans_grace,
                 ) as u16;
                 let start_x = if fits_inline {
                     stats_x.saturating_sub(cons_total + 2)
@@ -306,6 +322,21 @@ impl Widget for CommandBar<'_> {
                     let dl_w = dl_text.chars().count() as u16;
                     if x + dl_w <= area.right() {
                         buf.set_string(x, cons_row, &dl_text, white);
+                        x += dl_w;
+                    }
+                    items_drawn += 1;
+                }
+                if self.cajetans_grace > 0 {
+                    if items_drawn > 0 {
+                        x += 2;
+                    }
+                    let cg_text = format!(
+                        "cajetan's grace {}",
+                        crate::names::to_roman(self.cajetans_grace)
+                    );
+                    let cg_w = cg_text.chars().count() as u16;
+                    if x + cg_w <= area.right() {
+                        buf.set_string(x, cons_row, &cg_text, white);
                     }
                 }
             }

@@ -13,7 +13,7 @@ use crate::{
     fishes::fish::Fish,
     fishes::species::FishSpecies,
     loot::{
-        ConsumableKind, CowCounts, ItemKind, LootKind, LootPool, StockItem, roll_loot,
+        ConsumableKind, CowCounts, LootKind, LootPool, StockItem, roll_loot,
         roll_loot_no_fish,
     },
     names,
@@ -60,6 +60,14 @@ enum Overlay {
     },
 }
 
+pub const CAJETANS_GRACE_SECS: f32 = 3.0 * 60.0 + 33.0;
+
+#[derive(Default)]
+pub struct GraceBuff {
+    pub stacks: u32,
+    pub time_remaining: f32,
+}
+
 pub struct App {
     pub settings: Settings,
     pub tanks: Vec<Tank>,
@@ -70,6 +78,7 @@ pub struct App {
     pub inventory: HashMap<StockItem, u32>,
     pub active_consumables: Vec<ActiveConsumable>,
     pub active_statuses: Vec<ActiveMilkStatus>,
+    pub cajetans_grace: GraceBuff,
     pub editor: LineEditor,
     pub running: bool,
     history: CommandHistory,
@@ -128,6 +137,7 @@ impl App {
             },
             active_consumables: Vec::new(),
             active_statuses: Vec::new(),
+            cajetans_grace: GraceBuff::default(),
             editor: LineEditor::new(),
             running: true,
             history: CommandHistory::new(),
@@ -367,6 +377,10 @@ impl App {
         }
     }
 
+    fn grace_stacks(&self) -> u32 {
+        self.cajetans_grace.stacks
+    }
+
     fn consume_item(&mut self, kind: ConsumableKind) {
         let Some(duration) = kind.active_duration_secs() else {
             return;
@@ -453,21 +467,31 @@ impl App {
         let all_tanks_full = self.tanks.iter().all(|t| t.is_full());
         let devils_luck = self.devils_luck();
         let cow_counts = self.tank_cow_counts();
+        let grace = self.grace_stacks();
         let in_candy_tank = self.tank().kind == TankKind::Candy;
+        let in_hell_tank = self.tank().kind == TankKind::Hell;
         let loot = if all_tanks_full {
-            roll_loot_no_fish(&mut rng, devils_luck, &cow_counts)
+            roll_loot_no_fish(&mut rng, devils_luck, grace, &cow_counts)
         } else if in_candy_tank {
             LootPool::default_pool()
                 .with_candyfish()
                 .with_bait(bait)
                 .with_devils_luck(devils_luck)
+                .with_grace(grace)
+                .with_cows(&cow_counts)
+                .roll(&mut rng)
+        } else if in_hell_tank {
+            LootPool::default_pool()
+                .with_cashfish()
+                .with_bait(bait)
+                .with_devils_luck(devils_luck)
+                .with_grace(grace)
                 .with_cows(&cow_counts)
                 .roll(&mut rng)
         } else {
-            roll_loot(&mut rng, bait, devils_luck, &cow_counts)
+            roll_loot(&mut rng, bait, devils_luck, grace, &cow_counts)
         };
         let item_qty = match &loot {
-            LootKind::Item(ItemKind::GoldBar) => 0,
             LootKind::Item(item) => {
                 StockItem::from_item(item)
                     .and_then(|stock| self.inventory.get(&stock).copied())
@@ -528,13 +552,27 @@ impl App {
         }
         self.active_statuses.retain(|s| s.time_remaining > 0.0);
 
+        if self.cajetans_grace.stacks > 0 {
+            self.cajetans_grace.time_remaining -= dt;
+            if self.cajetans_grace.time_remaining <= 0.0 {
+                self.cajetans_grace = GraceBuff::default();
+            }
+        }
+
         let coffee = self.coffee_stacks();
         for i in 0..self.tanks.len() {
             let events = self.tanks[i].tick(&self.settings, coffee);
             self.cash += self.tanks[i].pending_star_cash;
             self.tanks[i].pending_star_cash = 0;
+            if !self.tanks[i].pending_graveyard.is_empty() {
+                let lost = std::mem::take(&mut self.tanks[i].pending_graveyard);
+                self.graveyard.extend(lost);
+            }
             for event in events {
                 match event {
+                    TankEvent::Blessing => {
+                        self.perform_blessing(i);
+                    }
                     TankEvent::PhantomCrossTank { fish_name } => {
                         self.handle_phantom_cross_tank(i, &fish_name);
                     }
@@ -581,6 +619,7 @@ impl App {
                 fish_capacity: self.tank().capacity(),
                 tank_name: &self.tank().name,
                 devils_luck: self.devils_luck(),
+                cajetans_grace: self.grace_stacks(),
             },
         )
     }
@@ -709,6 +748,7 @@ impl App {
                 active_statuses: &self.active_statuses,
                 tank_name: &self.tank().name,
                 devils_luck,
+                cajetans_grace: self.cajetans_grace.stacks,
             },
             command_area,
         );

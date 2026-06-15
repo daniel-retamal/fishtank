@@ -14,7 +14,7 @@ use super::unfish::{
     BLINKER_PEAK_COLOR, SKULL_WIDTH, UNFISH_BODY_COLOR, UNFISH_EYE_COLOR, UnfishKind, UnfishState,
     WORM_DEFAULT_SEGMENTS, WormShape, build_worm, is_multi_row, worm_display_width, worm_eye_cols,
 };
-use crate::colors::{DARK_GRAY, PINK, WHITE};
+use crate::colors::{PINK, WHITE};
 use crate::consumable::{COFFEE_SPEED_MULT, COFFEE_SWAY_MULT, COFFEE_ZOOMIE_DT_MULT};
 use crate::entities::components::{Position, SwayState, Velocity, tick_sway};
 use crate::entities::glistening::{GlisteningMode, color_for_glisten, derive_glistening_palette};
@@ -119,10 +119,16 @@ pub struct Fish {
     pub sell_price_bonus_pct: u8,
     pub abduction_lock: bool,
     pub engulf_timer: f32,
+    pub blessing_timer: f32,
+    pub blessing_glow: f32,
     pub field_cache: Vec<Option<(String, Option<Color>)>>,
     direction_timer: u32,
     zoomie_timer: f32,
 }
+
+pub const BLESSING_INTERVAL_SECS: f32 = 33.0 * 60.0;
+pub const BLESSING_GLOW_SECS: f32 = 3.0;
+const BLESSING_GLOW_SPEED: f32 = 14.0;
 
 fn roll_size_category(rng: &mut impl RngExt) -> SizeCategory {
     const WEIGHTS: [(u32, SizeCategory); 4] = [
@@ -234,6 +240,8 @@ impl Fish {
             sell_price_bonus_pct: 0,
             abduction_lock: false,
             engulf_timer: 0.0,
+            blessing_timer: BLESSING_INTERVAL_SECS,
+            blessing_glow: 0.0,
             field_cache: Vec::new(),
         }
     }
@@ -271,6 +279,8 @@ impl Fish {
             sell_price_bonus_pct: 0,
             abduction_lock: false,
             engulf_timer: 0.0,
+            blessing_timer: BLESSING_INTERVAL_SECS,
+            blessing_glow: 0.0,
             field_cache: Vec::new(),
         }
     }
@@ -325,6 +335,8 @@ impl Fish {
             sell_price_bonus_pct: 0,
             abduction_lock: false,
             engulf_timer: 0.0,
+            blessing_timer: BLESSING_INTERVAL_SECS,
+            blessing_glow: 0.0,
             field_cache: Vec::new(),
         }
     }
@@ -517,16 +529,19 @@ impl Fish {
         {
             segs.reverse();
         }
-        if !matches!(config.body, BodyTemplate::Fixed { .. })
+        if let Some(eye_color) = config.eye_color
+            && !matches!(config.body, BodyTemplate::Fixed { .. })
             && segs.len() >= 2
-            && self.unfish_state.is_some()
         {
             let eye_idx = if matches!(self.facing, Direction::Right) {
                 segs.len() - 2
             } else {
                 1
             };
-            segs[eye_idx].1 = DARK_GRAY;
+            segs[eye_idx].1 = eye_color;
+        }
+        if self.blessing_glow > 0.0 {
+            apply_blessing_glow(&mut segs, self.color, self.blessing_glow);
         }
         segs
     }
@@ -1388,6 +1403,9 @@ impl Fish {
         if self.engulf_timer > 0.0 {
             self.engulf_timer = (self.engulf_timer - dt).max(0.0);
         }
+        if self.blessing_glow > 0.0 {
+            self.blessing_glow = (self.blessing_glow - dt).max(0.0);
+        }
 
         if self.abduction_lock {
             tick_sway(&mut self.sway, self.sway_speed);
@@ -2075,6 +2093,14 @@ fn body_chars_for_variant(
         _ => (';', ':'),
     };
     (mouth, body, wave)
+}
+
+fn apply_blessing_glow(segs: &mut [(char, Color)], base: Color, glow_remaining: f32) {
+    let phase = (BLESSING_GLOW_SECS - glow_remaining) * BLESSING_GLOW_SPEED;
+    let n = segs.len();
+    for (i, seg) in segs.iter_mut().enumerate() {
+        seg.1 = color_for_glisten(GlisteningMode::FullGlow, phase, i, n, base, base, WHITE);
+    }
 }
 
 fn apply_patches_and_eyes(

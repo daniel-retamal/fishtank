@@ -110,7 +110,7 @@ pub enum WishAction {
     Mutate { fish_name: String, mutation: String },
     Revive { fish_name: String },
     Clone { fish_name: String },
-    Bless { fish_name: String },
+    Bless,
     Expand { tank_name: String },
     Restore { name: String },
     Anything,
@@ -191,12 +191,7 @@ pub fn parse_wish(input: &str, ctx: &WishCtx) -> Option<WishAction> {
     }
 
     if words.first().copied() == Some("bless") {
-        let rest_words = &words[1..];
-        if rest_words.is_empty() {
-            return None;
-        }
-        let fish_name = greedy_find_name(rest_words, ctx.fish_names)?;
-        return Some(WishAction::Bless { fish_name });
+        return Some(WishAction::Bless);
     }
 
     if words.first().copied() == Some("expand") {
@@ -270,6 +265,27 @@ pub fn parse_give_target(rest: &str) -> Option<GiveTarget> {
     }
 
     None
+}
+
+pub fn random_give_target(rng: &mut impl rand::RngExt) -> GiveTarget {
+    use crate::loot::{ConsumableKind, StockItem};
+    match rng.random_range(0..6u32) {
+        0 => GiveTarget::Cash,
+        1 => GiveTarget::Food,
+        2 => GiveTarget::Item {
+            stock: StockItem::Consumable(ConsumableKind::Coffee),
+            qty: GIVE_COFFEE_QTY,
+        },
+        3 => GiveTarget::Item {
+            stock: StockItem::Consumable(ConsumableKind::Bait),
+            qty: GIVE_BAIT_QTY,
+        },
+        4 => {
+            let buyable = FishSpecies::all_buyable();
+            GiveTarget::Fish(buyable[rng.random_range(0..buyable.len())])
+        }
+        _ => GiveTarget::Cow(None),
+    }
 }
 
 fn give_qty_for(kind: crate::loot::ConsumableKind) -> u32 {

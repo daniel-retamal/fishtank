@@ -1,9 +1,11 @@
 use rand::RngExt;
 
-use crate::colors::{LIGHT_YELLOW, PINK};
+use crate::colors::{LIGHT_YELLOW, PINK, WHITE};
 use crate::entities::bubble::{Bubble, BubblePhase};
 use crate::entities::cow::Cow;
-use crate::fishes::fish::{Direction, EATING_DURATION, Fish, FishState};
+use crate::fishes::fish::{
+    BLESSING_GLOW_SECS, BLESSING_INTERVAL_SECS, Direction, EATING_DURATION, Fish, FishState,
+};
 use crate::fishes::mutations::{MutantBacked, Mutatable, Mutation, apply_mutation};
 use crate::fishes::species::FishSpecies;
 use crate::fishes::unfish::{
@@ -26,7 +28,7 @@ fn sq(x: f32) -> f32 {
 }
 
 const CANDYFISH_SCAN_INTERVAL_TICKS: u32 = 100;
-const GOLDENFISH_ZOOMIE_CASH: u32 = 5;
+const CASHFISH_ZOOMIE_CASH: u32 = 100;
 const CANDYFISH_TOUCH_WEIGHT_G: u32 = 1;
 const ENGULF_REACH: f32 = 3.0;
 const ENGULF_FISH_Y_TOLERANCE: f32 = 2.0;
@@ -93,18 +95,27 @@ impl Tank {
                     Direction::Left => fish.position.x + fish.display_width as f32 - 1.0,
                     Direction::Right => fish.position.x,
                 };
-                let golden_stacks = fish.ability_stacks(FishSpecies::Goldenfish);
-                let mut bubble = if golden_stacks > 0 {
+                let cash_stacks = fish.ability_stacks(FishSpecies::Cashfish);
+                let mut bubble = if cash_stacks > 0 {
                     let mut b = Bubble::new(
                         tail_x,
                         fish.position.y,
                         BubblePhase::rising(&mut rng),
                         LIGHT_YELLOW,
-                        Some('☆'),
+                        Some('$'),
                         &mut rng,
                     );
-                    b.cash_value = Some(GOLDENFISH_ZOOMIE_CASH * golden_stacks);
+                    b.cash_value = Some(CASHFISH_ZOOMIE_CASH * cash_stacks);
                     b
+                } else if fish.ability_stacks(FishSpecies::Holyfish) > 0 {
+                    Bubble::new(
+                        tail_x,
+                        fish.position.y,
+                        BubblePhase::rising(&mut rng),
+                        WHITE,
+                        None,
+                        &mut rng,
+                    )
                 } else {
                     match fish.species {
                         FishSpecies::Mutantfish => Bubble::new(
@@ -526,6 +537,22 @@ impl Tank {
         }
     }
 
+    pub(super) fn tick_blessings(&mut self, dt: f32) -> Vec<TankEvent> {
+        let mut events = Vec::new();
+        for fish in &mut self.fish {
+            if fish.ability_stacks(FishSpecies::Holyfish) == 0 {
+                continue;
+            }
+            fish.blessing_timer -= dt;
+            if fish.blessing_timer <= 0.0 {
+                fish.blessing_timer = BLESSING_INTERVAL_SECS;
+                fish.blessing_glow = BLESSING_GLOW_SECS;
+                events.push(TankEvent::Blessing);
+            }
+        }
+        events
+    }
+
     pub(super) fn tick_phantoms(&mut self, dt: f32, rng: &mut impl RngExt) -> Vec<TankEvent> {
         let mut events = Vec::new();
         for fish in &mut self.fish {
@@ -629,13 +656,7 @@ mod engulfment_tests {
     fn engulfment_fuses_across_species_and_stacks_both_abilities() {
         let mut tank = Tank::new("T".to_string(), TankKind::Base, &[]);
         let mut rng = rand::rng();
-        let mut gold = Fish::new(
-            FishSpecies::Goldenfish,
-            "Au".to_string(),
-            10.0,
-            5.0,
-            &mut rng,
-        );
+        let mut gold = Fish::new(FishSpecies::Cashfish, "Au".to_string(), 10.0, 5.0, &mut rng);
         let mutant = Fish::new(
             FishSpecies::Mutantfish,
             "Goo".to_string(),
@@ -650,7 +671,7 @@ mod engulfment_tests {
         assert_eq!(tank.fish.len(), 1, "different species fuse");
         let s = &tank.fish[0];
         assert_eq!(
-            s.ability_stacks(FishSpecies::Goldenfish),
+            s.ability_stacks(FishSpecies::Cashfish),
             1,
             "keeps the money zoomies"
         );
@@ -661,13 +682,7 @@ mod engulfment_tests {
     fn endocytosis_after_cross_fusion_keeps_both_abilities_on_one_body() {
         let mut tank = Tank::new("T".to_string(), TankKind::Base, &[]);
         let mut rng = rand::rng();
-        let mut gold = Fish::new(
-            FishSpecies::Goldenfish,
-            "Au".to_string(),
-            10.0,
-            5.0,
-            &mut rng,
-        );
+        let mut gold = Fish::new(FishSpecies::Cashfish, "Au".to_string(), 10.0, 5.0, &mut rng);
         let mutant = Fish::new(
             FishSpecies::Mutantfish,
             "Goo".to_string(),
@@ -683,7 +698,7 @@ mod engulfment_tests {
         assert_eq!(tank.fish.len(), 1, "one body remains");
         let s = &tank.fish[0];
         assert!(!s.is_double(), "collapsed to a single body");
-        assert_eq!(s.ability_stacks(FishSpecies::Goldenfish), 1);
+        assert_eq!(s.ability_stacks(FishSpecies::Cashfish), 1);
         assert_eq!(s.auto_mutate_stacks(), 1, "both abilities live on one fish");
     }
 
@@ -691,13 +706,7 @@ mod engulfment_tests {
     fn cross_species_resplit_restores_each_species() {
         let mut tank = Tank::new("T".to_string(), TankKind::Base, &[]);
         let mut rng = rand::rng();
-        let mut gold = Fish::new(
-            FishSpecies::Goldenfish,
-            "Au".to_string(),
-            10.0,
-            5.0,
-            &mut rng,
-        );
+        let mut gold = Fish::new(FishSpecies::Cashfish, "Au".to_string(), 10.0, 5.0, &mut rng);
         let mutant = Fish::new(
             FishSpecies::Mutantfish,
             "Goo".to_string(),
@@ -712,7 +721,7 @@ mod engulfment_tests {
         assert!(tank.apply_named_mutation("Au / Goo", "cytokinesis"));
         assert_eq!(tank.fish.len(), 2);
         let species: Vec<FishSpecies> = tank.fish.iter().map(|f| f.species).collect();
-        assert!(species.contains(&FishSpecies::Goldenfish));
+        assert!(species.contains(&FishSpecies::Cashfish));
         assert!(species.contains(&FishSpecies::Mutantfish));
     }
 
@@ -1060,5 +1069,60 @@ mod engulfment_tests {
                 "each separated cow keeps the eye it grew while fused"
             );
         }
+    }
+
+    #[test]
+    fn endocytosis_sends_the_lost_identity_to_the_graveyard() {
+        let mut tank = Tank::new("T".to_string(), TankKind::Base, &[]);
+        let mut rng = rand::rng();
+        let mut a = Fish::new(FishSpecies::Merluza, "Ann".to_string(), 10.0, 5.0, &mut rng);
+        a.weight_g = 10;
+        let mut b = Fish::new(FishSpecies::Salmon, "Bob".to_string(), 12.0, 5.0, &mut rng);
+        b.weight_g = 40;
+        a.engulf_timer = 5.0;
+        tank.fish.push(a);
+        tank.fish.push(b);
+        tank.tick_engulfment();
+        assert!(tank.apply_named_mutation("Ann / Bob", "endocytosis"));
+        assert_eq!(tank.fish.len(), 1, "the merged body remains");
+        assert_eq!(
+            tank.pending_graveyard.len(),
+            1,
+            "the absorbed identity becomes revivable"
+        );
+        assert_eq!(
+            tank.pending_graveyard[0].name, "Ann",
+            "the lighter half is the lost identity"
+        );
+        assert!(!tank.pending_graveyard[0].is_double());
+    }
+
+    #[test]
+    fn a_holyfish_emits_a_blessing_when_its_timer_elapses() {
+        let mut tank = Tank::new("T".to_string(), TankKind::Base, &[]);
+        let mut rng = rand::rng();
+        let mut holy = Fish::new(FishSpecies::Holyfish, "Saint".to_string(), 10.0, 5.0, &mut rng);
+        holy.blessing_timer = 0.0001;
+        tank.fish.push(holy);
+        let events = tank.tick_blessings(1.0);
+        assert!(events.iter().any(|e| matches!(e, TankEvent::Blessing)));
+        assert!(
+            tank.fish[0].blessing_glow > 0.0,
+            "the holyfish glistens while it blesses"
+        );
+        assert!(
+            tank.fish[0].blessing_timer > 1.0,
+            "the timer rearms for the next blessing"
+        );
+    }
+
+    #[test]
+    fn a_plain_fish_never_blesses() {
+        let mut tank = Tank::new("T".to_string(), TankKind::Base, &[]);
+        let mut rng = rand::rng();
+        let mut merluza = Fish::new(FishSpecies::Merluza, "Mer".to_string(), 10.0, 5.0, &mut rng);
+        merluza.blessing_timer = 0.0001;
+        tank.fish.push(merluza);
+        assert!(tank.tick_blessings(1.0).is_empty());
     }
 }

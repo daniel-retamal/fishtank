@@ -196,21 +196,38 @@ impl Tank {
     }
 
     fn collapse_endocytosis(&mut self, idx: usize, rng: &mut impl RngExt) {
-        let fish = &self.fish[idx];
-        let components = fish.fused_components().to_vec();
+        let components = self.fish[idx].fused_components().to_vec();
         if components.len() != 2 {
             return;
         }
+        let host_name = self.fish[idx].name.clone();
+        let host_position = self.fish[idx].position.clone();
+        let host_weight = self.fish[idx].weight_g;
+        let host_mutations = self.fish[idx].mutations.clone();
+        let host_devil_marked = self.fish[idx].devil_marked;
+
         let heavier_idx = usize::from(components[1].weight_g > components[0].weight_g);
+        let lost = &components[1 - heavier_idx];
+        if let Some(lost_snapshot) = lost.fish_snapshot() {
+            let mut grave_fish = restore_from_snapshot(
+                lost_snapshot,
+                host_position.x,
+                host_position.y,
+                lost.weight_g,
+            );
+            grave_fish.name = lost.name.clone();
+            self.pending_graveyard.push(grave_fish);
+        }
+
         let Some(heavier) = components[heavier_idx].fish_snapshot() else {
             return;
         };
         let mut merged = heavier.clone();
-        merged.name = fish.name.clone();
-        merged.position = fish.position.clone();
-        merged.weight_g = fish.weight_g;
-        merged.mutations = fish.mutations.clone();
-        merged.devil_marked = fish.devil_marked;
+        merged.name = host_name;
+        merged.position = host_position;
+        merged.weight_g = host_weight;
+        merged.mutations = host_mutations;
+        merged.devil_marked = host_devil_marked;
         merged.engulf_timer = 0.0;
         let mut ledger = components;
         for component in &mut ledger {

@@ -355,33 +355,24 @@ fn clone_without_name_returns_none() {
 }
 
 #[test]
-fn bless_valid_fish_parses() {
+fn bless_parses_without_a_target() {
+    let fish = names(&[]);
+    let tanks = names(&[]);
+    let grav = names(&[]);
+    let c = ctx(&fish, &tanks, &grav);
+    assert!(matches!(parse_wish("bless", &c), Some(WishAction::Bless)));
+}
+
+#[test]
+fn bless_ignores_any_trailing_words() {
     let fish = names(&["Nemo"]);
     let tanks = names(&[]);
     let grav = names(&[]);
     let c = ctx(&fish, &tanks, &grav);
     assert!(matches!(
         parse_wish("bless nemo", &c),
-        Some(WishAction::Bless { fish_name }) if fish_name == "Nemo"
+        Some(WishAction::Bless)
     ));
-}
-
-#[test]
-fn bless_nonexistent_fish_returns_none() {
-    let fish = names(&["Nemo"]);
-    let tanks = names(&[]);
-    let grav = names(&[]);
-    let c = ctx(&fish, &tanks, &grav);
-    assert!(parse_wish("bless ghost", &c).is_none());
-}
-
-#[test]
-fn bless_without_name_returns_none() {
-    let fish = names(&[]);
-    let tanks = names(&[]);
-    let grav = names(&[]);
-    let c = ctx(&fish, &tanks, &grav);
-    assert!(parse_wish("bless", &c).is_none());
 }
 
 #[test]
@@ -649,29 +640,10 @@ fn execute_clone_fish_clone_has_expected_name_suffix() {
 }
 
 #[test]
-fn execute_bless_removes_devil_mark() {
+fn execute_bless_is_accepted_and_ends_the_ritual() {
     let mut app = App::new();
-    app.tanks[0].fish[0].devil_marked = true;
-    let fish_name = app.tanks[0].fish[0].name.clone();
-    let wish = format!("bless {}", fish_name);
-    submit_wish(&mut app, &wish);
-    let fish = app.tanks[0]
-        .fish
-        .iter()
-        .find(|f| f.name == fish_name)
-        .unwrap();
-    assert!(!fish.devil_marked);
-}
-
-#[test]
-fn execute_bless_nonexistent_fish_decrements_retry() {
-    let mut app = App::new();
-    app.void_ritual = VoidRitualState::Wish {
-        retries_left: MAX_WISH_RETRIES,
-    };
-    app.editor.set("bless ghost".to_string());
-    app.submit_ritual_input();
-    assert_eq!(retries_left(&app), MAX_WISH_RETRIES - 1);
+    submit_wish(&mut app, "bless");
+    assert!(is_idle(&app), "a target-less bless is a valid wish");
 }
 
 #[test]
@@ -1047,12 +1019,10 @@ fn command_give_cash_matches_wish_outcome() {
 }
 
 #[test]
-fn command_bless_removes_devil_mark() {
+fn command_bless_runs_without_a_target() {
     let mut app = App::new();
-    app.tanks[0].fish[0].devil_marked = true;
-    let fish_name = app.tanks[0].fish[0].name.clone();
-    submit_command(&mut app, &format!("/bless {}", fish_name));
-    assert!(!app.tanks[0].fish[0].devil_marked);
+    submit_command(&mut app, "/bless");
+    assert!(app.tanks[0].fish.iter().all(|f| !f.name.is_empty()));
 }
 
 #[test]

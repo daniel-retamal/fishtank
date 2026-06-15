@@ -11,10 +11,10 @@ pub const TAIL_WAVE_LEFT: char = '彡';
 pub const TAIL_WAVE_RIGHT: char = 'ミ';
 pub const TAIL_EQUAL: char = '≡';
 use crate::colors::{
-    AMBER, AMBER_DARK, AMBER_LIGHT, BLUE, CYAN, DARK_GRAY, FOREST, GOLD, GOLD_BRIGHT, GOLD_PALE,
-    GRAY, GREEN_BRIGHT, GREEN_LIGHT, LIGHT_BLUE, LIGHT_CYAN, LIGHT_MAGENTA, LIGHT_RED,
-    LIGHT_YELLOW, MAGENTA, NAVY, NAVY_DARK, NAVY_LIGHT, ORANGE, ORANGE_DARK, ORANGE_LIGHT, PINK,
-    PURPLE, PURPLE_LIGHT, RED, RED_DARK, SILVER, VIOLET, WHITE, YELLOW,
+    AMBER, AMBER_DARK, AMBER_LIGHT, BLUE, CYAN, DARK_GRAY, FOREST, GRAY, GREEN_BRIGHT, GREEN_LIGHT,
+    LIGHT_BLUE, LIGHT_CYAN, LIGHT_MAGENTA, LIGHT_RED, LIGHT_YELLOW, MAGENTA, NAVY, NAVY_DARK,
+    NAVY_LIGHT, ORANGE, ORANGE_DARK, ORANGE_LIGHT, PINK, PURPLE, PURPLE_LIGHT, RED, RED_DARK,
+    SILVER, VIOLET, WHITE, YELLOW,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -38,7 +38,7 @@ pub enum FishSpecies {
     Deadfish,
     Anchoveta,
     Jellyfish,
-    Goldenfish,
+    Cashfish,
     Goldfish,
     Snapper,
     Mutantfish,
@@ -46,6 +46,7 @@ pub enum FishSpecies {
     Aka,
     Kuro,
     Candyfish,
+    Holyfish,
     Unfish,
 }
 
@@ -56,6 +57,10 @@ impl FishSpecies {
 
     pub fn all_buyable() -> &'static [FishSpecies] {
         &BUYABLE_SPECIES
+    }
+
+    pub fn all_wild() -> &'static [FishSpecies] {
+        &WILD_SPECIES
     }
 
     pub fn buy_price(self) -> u32 {
@@ -73,11 +78,15 @@ pub struct SpeciesConfig {
     pub speed_range: (f32, f32),
     pub rarity: Rarity,
     pub buyable: bool,
+    pub wild_loot: bool,
     pub abductable: bool,
+    pub mutatable: bool,
+    pub markable: bool,
     pub auto_glisten: bool,
     pub auto_mutate: bool,
     pub can_zoomie: bool,
     pub zoomie_vertical: bool,
+    pub eye_color: Option<Color>,
     pub sizes: [usize; 4],
     pub weight_base: [u32; 4],
     pub weight_cap: [u32; 4],
@@ -115,7 +124,7 @@ pub const ALL_SPECIES: &[FishSpecies] = &[
     FishSpecies::Deadfish,
     FishSpecies::Anchoveta,
     FishSpecies::Jellyfish,
-    FishSpecies::Goldenfish,
+    FishSpecies::Cashfish,
     FishSpecies::Goldfish,
     FishSpecies::Snapper,
     FishSpecies::Mutantfish,
@@ -123,6 +132,7 @@ pub const ALL_SPECIES: &[FishSpecies] = &[
     FishSpecies::Aka,
     FishSpecies::Kuro,
     FishSpecies::Candyfish,
+    FishSpecies::Holyfish,
 ];
 
 static BUYABLE_SPECIES: LazyLock<Vec<FishSpecies>> = LazyLock::new(|| {
@@ -130,6 +140,14 @@ static BUYABLE_SPECIES: LazyLock<Vec<FishSpecies>> = LazyLock::new(|| {
         .iter()
         .copied()
         .filter(|species| species.config().buyable)
+        .collect()
+});
+
+static WILD_SPECIES: LazyLock<Vec<FishSpecies>> = LazyLock::new(|| {
+    ALL_SPECIES
+        .iter()
+        .copied()
+        .filter(|species| species.config().wild_loot)
         .collect()
 });
 
@@ -228,7 +246,8 @@ static GOLDFISH_PALETTE: [Color; 3] = [ORANGE, AMBER, AMBER_LIGHT];
 static SNAPPER_PALETTE: [Color; 3] = [RED_DARK, RED, LIGHT_RED];
 static TURBOFISH_PALETTE: [Color; 2] = [YELLOW, ORANGE];
 
-static GOLDENFISH_PALETTE: [Color; 3] = [GOLD, GOLD_PALE, GOLD_BRIGHT];
+static CASHFISH_PALETTE: [Color; 1] = [LIGHT_RED];
+static HOLYFISH_PALETTE: [Color; 1] = [GRAY];
 
 static AKA_PALETTE: [Color; 1] = [RED];
 static KURO_PALETTE: [Color; 1] = [DARK_GRAY];
@@ -301,11 +320,15 @@ fn standard_config(
         speed_range,
         rarity,
         buyable: true,
+        wild_loot: true,
         abductable: true,
+        mutatable: true,
+        markable: true,
         auto_glisten: false,
         auto_mutate: false,
         can_zoomie: true,
         zoomie_vertical: false,
+        eye_color: None,
         sizes,
         weight_base: STD_WEIGHT_BASE,
         weight_cap: STD_WEIGHT_CAP,
@@ -333,11 +356,15 @@ fn fixed_config(
         speed_range,
         rarity,
         buyable: true,
+        wild_loot: true,
         abductable: true,
+        mutatable: true,
+        markable: true,
         auto_glisten: false,
         auto_mutate: false,
         can_zoomie: true,
         zoomie_vertical: false,
+        eye_color: None,
         sizes,
         weight_base: STD_WEIGHT_BASE,
         weight_cap: STD_WEIGHT_CAP,
@@ -453,11 +480,15 @@ impl FishSpecies {
                     speed_range: (1.0, 2.5),
                     rarity: Rare,
                     buyable: true,
+                    wild_loot: true,
                     abductable: true,
+                    mutatable: true,
+                    markable: true,
                     auto_glisten: false,
                     auto_mutate: false,
                     can_zoomie: true,
                     zoomie_vertical: false,
+                    eye_color: None,
                     sizes,
                     weight_base: STD_WEIGHT_BASE,
                     weight_cap: STD_WEIGHT_CAP,
@@ -545,25 +576,36 @@ impl FishSpecies {
                 (2.0, 3.5),
                 Common,
             ),
-            Goldenfish => standard_config(
-                "Goldenfish",
-                BodyChars {
-                    mouth_left: '<',
-                    mouth_right: '>',
-                    eye_left: EYE_ROUND,
-                    eye_right: EYE_ROUND,
-                    body_left: '(',
-                    wave_left: '(',
-                    body_right: ')',
-                    wave_right: ')',
-                    tail: TailKind::Wide,
-                },
-                &GOLDENFISH_PALETTE,
-                Glistening,
-                0.20,
-                (2.0, 3.5),
-                Legendary,
-            ),
+            Cashfish => {
+                let mut config = standard_config(
+                    "Cashfish",
+                    standard(EYE_ROUND, TailKind::WideCurly),
+                    &CASHFISH_PALETTE,
+                    Solid,
+                    0.20,
+                    (2.0, 3.5),
+                    Legendary,
+                );
+                config.wild_loot = false;
+                config.eye_color = Some(LIGHT_YELLOW);
+                config
+            }
+            Holyfish => {
+                let mut config = standard_config(
+                    "Holyfish",
+                    standard(EYE_ROUND, TailKind::Wide),
+                    &HOLYFISH_PALETTE,
+                    Solid,
+                    0.12,
+                    (1.5, 3.0),
+                    Legendary,
+                );
+                config.buyable = false;
+                config.mutatable = false;
+                config.markable = false;
+                config.eye_color = Some(LIGHT_YELLOW);
+                config
+            }
             Mutantfish => SpeciesConfig {
                 name: "Mutantfish",
                 body: BodyTemplate::Standard(standard(EYE_CIRCLE, TailKind::Wide)),
@@ -573,11 +615,15 @@ impl FishSpecies {
                 speed_range: (2.0, 5.0),
                 rarity: Legendary,
                 buyable: true,
+                wild_loot: true,
                 abductable: true,
+                mutatable: true,
+                markable: true,
                 auto_glisten: true,
                 auto_mutate: true,
                 can_zoomie: true,
                 zoomie_vertical: false,
+                eye_color: None,
                 sizes: LEGENDARY_SIZES,
                 weight_base: [0, 250, 0, 0],
                 weight_cap: [0; 4],
@@ -595,6 +641,7 @@ impl FishSpecies {
                     Legendary,
                 );
                 config.buyable = false;
+                config.wild_loot = false;
                 config
             }
             Unfish => SpeciesConfig {
@@ -606,11 +653,15 @@ impl FishSpecies {
                 speed_range: (2.0, 4.0),
                 rarity: Common,
                 buyable: false,
+                wild_loot: false,
                 abductable: true,
+                mutatable: true,
+                markable: true,
                 auto_glisten: false,
                 auto_mutate: false,
                 can_zoomie: false,
                 zoomie_vertical: false,
+                eye_color: None,
                 sizes: COMMON_SIZES,
                 weight_base: [1; 4],
                 weight_cap: [0; 4],

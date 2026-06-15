@@ -17,6 +17,28 @@ fn rng() -> impl rand::RngExt {
 }
 
 #[test]
+fn holyfish_cannot_mutate() {
+    let mut tank = make_tank();
+    let mut rng = rng();
+    tank.spawn_fish(FishSpecies::Holyfish, "Saint".to_string(), &mut rng);
+    assert!(!tank.apply_named_mutation("Saint", "telophase"));
+    assert!(!tank.apply_named_mutation("Saint", "eyeincrease"));
+    assert!(!tank.apply_named_mutation("Saint", "engulfment"));
+}
+
+#[test]
+fn holyfish_is_never_devil_marked_in_the_helltank() {
+    let mut tank = Tank::new("Hell".to_string(), TankKind::Hell, &[]);
+    let mut rng = rng();
+    tank.spawn_fish(FishSpecies::Holyfish, "Saint".to_string(), &mut rng);
+    tank.spawn_fish(FishSpecies::Merluza, "Sinner".to_string(), &mut rng);
+    let saint = tank.fish.iter().find(|f| f.name == "Saint").unwrap();
+    let sinner = tank.fish.iter().find(|f| f.name == "Sinner").unwrap();
+    assert!(!saint.devil_marked, "the holy fish resists the devil's mark");
+    assert!(sinner.devil_marked, "ordinary fish are still marked in hell");
+}
+
+#[test]
 fn anchoveta_eye_plus_sets_display_width_and_left_eye() {
     let mut tank = make_tank();
     let mut rng = rng();
@@ -1969,12 +1991,12 @@ fn cow_backwardstelophase_routes_and_doubles_milk() {
 fn telophase_seeds_two_same_species_components() {
     let mut tank = make_tank();
     let mut rng = rng();
-    tank.spawn_fish(FishSpecies::Goldenfish, "Midas".to_string(), &mut rng);
+    tank.spawn_fish(FishSpecies::Cashfish, "Midas".to_string(), &mut rng);
     tank.apply_named_mutation("Midas", "telophase");
     let fish = &tank.fish[0];
     assert_eq!(fish.fused_components().len(), 2);
     assert_eq!(
-        fish.ability_stacks(FishSpecies::Goldenfish),
+        fish.ability_stacks(FishSpecies::Cashfish),
         2,
         "a plain telophase stacks its own species' passive twice"
     );
@@ -1984,17 +2006,17 @@ fn telophase_seeds_two_same_species_components() {
 fn single_fish_has_one_ability_stack() {
     let mut tank = make_tank();
     let mut rng = rng();
-    tank.spawn_fish(FishSpecies::Goldenfish, "Midas".to_string(), &mut rng);
+    tank.spawn_fish(FishSpecies::Cashfish, "Midas".to_string(), &mut rng);
     let fish = &tank.fish[0];
     assert!(fish.fused_components().is_empty());
-    assert_eq!(fish.ability_stacks(FishSpecies::Goldenfish), 1);
+    assert_eq!(fish.ability_stacks(FishSpecies::Cashfish), 1);
 }
 
 #[test]
 fn endocytosis_collapses_to_single_but_keeps_stacks() {
     let mut tank = make_tank();
     let mut rng = rng();
-    tank.spawn_fish(FishSpecies::Goldenfish, "Midas".to_string(), &mut rng);
+    tank.spawn_fish(FishSpecies::Cashfish, "Midas".to_string(), &mut rng);
     tank.apply_named_mutation("Midas", "telophase");
     assert!(tank.fish[0].mutant.as_ref().unwrap().is_double);
     assert!(tank.apply_named_mutation("Midas", "endocytosis"));
@@ -2005,7 +2027,7 @@ fn endocytosis_collapses_to_single_but_keeps_stacks() {
     );
     assert_eq!(tank.fish.len(), 1, "no second body spawns");
     assert_eq!(
-        fish.ability_stacks(FishSpecies::Goldenfish),
+        fish.ability_stacks(FishSpecies::Cashfish),
         2,
         "the absorbed half's ability stays stacked"
     );
@@ -2015,7 +2037,7 @@ fn endocytosis_collapses_to_single_but_keeps_stacks() {
 fn endocytosis_unavailable_on_single_entity() {
     let mut tank = make_tank();
     let mut rng = rng();
-    tank.spawn_fish(FishSpecies::Goldenfish, "Midas".to_string(), &mut rng);
+    tank.spawn_fish(FishSpecies::Cashfish, "Midas".to_string(), &mut rng);
     assert!(
         !tank.apply_named_mutation("Midas", "endocytosis"),
         "a single entity cannot endocytose"
@@ -2065,7 +2087,7 @@ fn telophase_candyfish_doubles_touch_stacks() {
 fn cytokinesis_clears_fused_components() {
     let mut tank = make_tank();
     let mut rng = rng();
-    tank.spawn_fish(FishSpecies::Goldenfish, "Midas".to_string(), &mut rng);
+    tank.spawn_fish(FishSpecies::Cashfish, "Midas".to_string(), &mut rng);
     tank.apply_named_mutation("Midas", "telophase");
     tank.apply_named_mutation("Midas", "cytokinesis");
     assert_eq!(tank.fish.len(), 2);

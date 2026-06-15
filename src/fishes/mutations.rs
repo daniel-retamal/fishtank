@@ -23,7 +23,7 @@ const GLISTEN_SPEED_SLOW_MULT: f32 = 0.25;
 const SWAY_SPEED_CLAMP_MAX: f32 = 2.5;
 const SWAY_SPEED_GLISTEN_FLOOR: f32 = 0.08;
 const SWAY_SPEED_CLAMP_MIN: f32 = 0.01;
-const STRAWBERRY_SELL_BONUS_PCT: u8 = 25;
+pub const STRAWBERRY_SELL_BONUS_PCT: u8 = 25;
 const WORM_MAX_SEGMENTS: usize = 12;
 const WORM_MIN_SEGMENTS: usize = 1;
 const WORM_MAX_EXTRA_EYES: usize = 4;
@@ -823,6 +823,9 @@ impl Mutatable for Fish {
                 UnfishMutationStyle::Slime => SLIME_CAPS,
                 UnfishMutationStyle::Worm => WORM_CAPS,
             };
+        }
+        if !self.species.config().mutatable {
+            return &[];
         }
         match self.species.config().body {
             BodyTemplate::Standard(_) | BodyTemplate::Alternating(_, _) => MUTANT_FULL_CAPS,

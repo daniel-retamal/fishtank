@@ -959,7 +959,7 @@ pub enum Action {
     Give(GiveTarget),
     Revive(String),
     Clone(String),
-    Bless(String),
+    Bless,
     Expand(String),
     Restore(String),
     Unknown,
@@ -1223,7 +1223,7 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
         },
         "revive" => name_command(rest, Action::Revive),
         "clone" => name_command(rest, Action::Clone),
-        "bless" => name_command(rest, Action::Bless),
+        "bless" => Action::Bless,
         "expand" => name_command(rest, Action::Expand),
         "restore" => name_command(rest, Action::Restore),
         "fish" => {
@@ -1734,7 +1734,7 @@ mod tests {
     fn parse_clone_bless_restore_capture_the_name() {
         let (fish, tanks) = no_names();
         assert!(matches!(parse("/clone Bob", fish, tanks), Action::Clone(n) if n == "Bob"));
-        assert!(matches!(parse("/bless Bob", fish, tanks), Action::Bless(n) if n == "Bob"));
+        assert!(matches!(parse("/bless", fish, tanks), Action::Bless));
         assert!(matches!(parse("/restore Bob", fish, tanks), Action::Restore(n) if n == "Bob"));
     }
 

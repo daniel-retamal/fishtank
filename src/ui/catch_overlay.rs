@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use crate::colors::{
-    BROWN_DARK, CREAM, DARK_GRAY, GOLD, KHAKI, LIGHT_GREEN, LIGHT_RED, LIGHT_YELLOW, PINK, RED,
+    BROWN_DARK, CREAM, DARK_GRAY, KHAKI, LIGHT_GREEN, LIGHT_RED, LIGHT_YELLOW, PINK, RED,
     WHITE,
 };
 use crate::fishes::{
@@ -240,7 +240,6 @@ fn left_panel_inner_w(loot: &LootKind, fish: Option<&Fish>) -> u16 {
             ItemKind::Junk(_) => JunkSprite::hook_col() + 3,
             ItemKind::Consumable(ConsumableKind::Necronomicon) => NECRO_LEFT_PANEL_WIDTH,
             ItemKind::Consumable(kind) => kind.panel_inner_w(),
-            ItemKind::GoldBar => 5 + 3,
         },
     }
 }
@@ -250,7 +249,6 @@ fn overlay_title(loot: &LootKind) -> &'static str {
         LootKind::Fish(_) => " Fish to the Fishtank! ",
         LootKind::Cash(_) => " Cash to the Fishtank! ",
         LootKind::Food(_) => " Food to the Fishtank! ",
-        LootKind::Item(ItemKind::GoldBar) => " Cash to the Fishtank! ",
         LootKind::Item(ItemKind::Consumable(ConsumableKind::Coffee)) => " Coffee to the Fishtank! ",
         LootKind::Item(ItemKind::Consumable(ConsumableKind::Bait)) => " Bait to the Fishtank! ",
         LootKind::Item(ItemKind::Consumable(ConsumableKind::Milk(_))) => " Milk to the Fishtank! ",
@@ -274,7 +272,8 @@ fn is_demoncore(loot: &LootKind) -> bool {
 fn loot_border_color(state: &CatchState) -> Color {
     match &state.loot {
         LootKind::Fish(species) => match species {
-            FishSpecies::Goldenfish => LIGHT_YELLOW,
+            FishSpecies::Cashfish => LIGHT_RED,
+            FishSpecies::Holyfish => LIGHT_YELLOW,
             FishSpecies::Mutantfish => state.fish.as_ref().map_or(WHITE, |f| f.color),
             FishSpecies::Candyfish => PINK,
             _ => WHITE,
@@ -303,7 +302,6 @@ fn draw_left_panel(buf: &mut Buffer, state: &CatchState, x: u16, y: u16, w: u16,
                 draw_necro_panel(buf, &state.necro_eye_open, x, y, w, h)
             }
             ItemKind::Consumable(kind) => draw_consumable_panel(buf, *kind, state, x, y, w, h),
-            ItemKind::GoldBar => draw_goldbar_panel(buf, x, y, w, h),
         },
     }
 }
@@ -316,7 +314,6 @@ fn draw_right_panel(buf: &mut Buffer, state: &CatchState, x: u16, y: u16, w: u16
         LootKind::Fish(species) => draw_fish_right_panel(buf, state, *species, x, y, w, h),
         LootKind::Cash(cv) => draw_cash_right_panel(buf, *cv, x, y, w, h),
         LootKind::Food(amount) => draw_food_right_panel(buf, *amount, x, y, w, h),
-        LootKind::Item(ItemKind::GoldBar) => draw_goldbar_right_panel(buf, x, y, w, h),
         LootKind::Item(item) => {
             draw_consumable_item_right_panel(buf, item.display_name(), state.item_qty, x, y, w, h)
         }
@@ -894,71 +891,3 @@ fn draw_consumable_item_right_panel(
     }
 }
 
-fn draw_goldbar_panel(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
-    let gold = GOLD;
-    let sprite = "[≡$≡]";
-    let sprite_x = x + 1;
-    let hook_x = sprite_x + 5;
-    let vert_pad = (h.saturating_sub(1)) / 2;
-    let sprite_y = y + vert_pad;
-
-    for i in 0..vert_pad {
-        if hook_x < x + w {
-            buf[(hook_x, y + i)]
-                .set_char('⎹')
-                .set_fg(DARK_GRAY)
-                .set_bg(BACKGROUND);
-        }
-    }
-
-    if sprite_y < y + h {
-        for (i, ch) in sprite.chars().enumerate() {
-            let col = sprite_x + i as u16;
-            if col >= x + w {
-                break;
-            }
-            buf[(col, sprite_y)]
-                .set_char(ch)
-                .set_fg(gold)
-                .set_bg(BACKGROUND);
-        }
-        if hook_x < x + w {
-            buf[(hook_x, sprite_y)]
-                .set_char('J')
-                .set_fg(DARK_GRAY)
-                .set_bg(BACKGROUND);
-        }
-    }
-}
-
-fn draw_goldbar_right_panel(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
-    let gold = GOLD;
-    let s_gold = Style::default()
-        .fg(gold)
-        .add_modifier(Modifier::BOLD)
-        .bg(BACKGROUND);
-    let s_white = Style::default().fg(WHITE).bg(BACKGROUND);
-    let s_dim = Style::default().fg(DARK_GRAY).bg(BACKGROUND);
-
-    if h < 2 {
-        return;
-    }
-    buf.set_string(x, y, table::truncate_str("Gold Bar!", w as usize), s_gold);
-    buf.set_string(
-        x,
-        y + 1,
-        table::truncate_str(
-            &format!("Worth ${}", crate::loot::GOLD_BAR_VALUE),
-            w as usize,
-        ),
-        s_white,
-    );
-    if h >= 5 {
-        buf.set_string(
-            x,
-            y + h - 1,
-            table::truncate_str("ENTER/ESC collect", w as usize),
-            s_dim,
-        );
-    }
-}

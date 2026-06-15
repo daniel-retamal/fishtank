@@ -28,6 +28,7 @@ pub use background::TankBackground;
 
 pub enum TankEvent {
     PhantomCrossTank { fish_name: String },
+    Blessing,
     UfoTimerFired,
     UfoLockFish { fish_name: String },
     UfoTakeFish { fish_name: String },
@@ -267,6 +268,7 @@ pub struct Tank {
     pub used_names: HashSet<String>,
     pub used_cow_names: HashSet<String>,
     pub pending_star_cash: u32,
+    pub pending_graveyard: Vec<Fish>,
     pub extra_capacity: u32,
     pub cow_abduction_count: u32,
     bubble_spawner: BubbleSpawner,
@@ -295,6 +297,7 @@ impl Tank {
             used_names: HashSet::new(),
             used_cow_names: HashSet::new(),
             pending_star_cash: 0,
+            pending_graveyard: Vec::new(),
             extra_capacity: 0,
             cow_abduction_count: 0,
             bubble_spawner: BubbleSpawner::new(&mut rng),
@@ -361,7 +364,7 @@ impl Tank {
     }
 
     pub(super) fn mark_if_hell(&self, fish: &mut Fish) {
-        if self.kind == TankKind::Hell {
+        if self.kind == TankKind::Hell && fish.species.config().markable {
             fish.devil_marked = true;
         }
     }
@@ -462,6 +465,7 @@ impl Tank {
             self.tick_void_spawn(dt, &mut rng);
         }
         let mut events = self.tick_phantoms(dt, &mut rng);
+        events.extend(self.tick_blessings(dt));
         self.tick_ufo_timer(dt, &mut rng, &mut events);
         self.tick_ufo_animation(dt, &mut events);
         events
