@@ -6,134 +6,16 @@ use ratatui::{
     widgets::Widget,
 };
 
-use crate::colors::{
-    BLACK, BLUE, CYAN, DARK_GRAY, GOLD, GREEN, LIGHT_BLUE, LIGHT_CYAN, LIGHT_GREEN, LIGHT_MAGENTA,
-    LIGHT_RED, LIGHT_YELLOW, MAGENTA, ORANGE, RED, STEEL, TEAL, WHITE, YELLOW,
-};
+use crate::colors::{BLACK, DARK_GRAY, STEEL, WHITE};
 use crate::fishes::fish::{Direction, Fish};
-use crate::fishes::species::FishSpecies;
 use crate::fishes::unfish::{BALL_HEIGHT, SKULL_HEIGHT, UnfishKind};
+use crate::ui::fields::{self, FieldKind, FieldValue};
 use crate::ui::hints::{HINT_CLOSE, HINT_ENTER_SHOW, HINT_NAV};
-use crate::ui::{fields, render_fish_segs, scroll_list, table, tank_view};
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum FantasyKind {
-    Iq,
-    ZodiacSign,
-    ChineseZodiac,
-    Tanganana,
-    HappinessLevel,
-    Claustrophobic,
-    AttrText,
-    AttrEnumBar,
-    AttrBoolean,
-    PickACard,
-    FavoriteColor,
-    FavoriteLetter,
-    FavoriteNumber,
-    TarotPrediction,
-    FavoriteQuote,
-    FavoriteTime,
-    Lonely,
-    Gmi,
-    ElOLaPr,
-    TheOrThePr,
-    Crush,
-    MarriedTo,
-    Hates,
-    Status,
-    Sin,
-    HasSeenTheSky,
-    Temperature,
-    Delicious,
-    Region,
-    Dni,
-    FavoriteSeason,
-}
-
-impl FantasyKind {
-    fn all() -> &'static [FantasyKind] {
-        use FantasyKind::*;
-        &[
-            Iq,
-            ZodiacSign,
-            ChineseZodiac,
-            Tanganana,
-            HappinessLevel,
-            Claustrophobic,
-            AttrText,
-            AttrEnumBar,
-            AttrBoolean,
-            PickACard,
-            FavoriteColor,
-            FavoriteLetter,
-            FavoriteNumber,
-            TarotPrediction,
-            FavoriteQuote,
-            FavoriteTime,
-            Lonely,
-            Gmi,
-            ElOLaPr,
-            TheOrThePr,
-            Crush,
-            MarriedTo,
-            Hates,
-            Status,
-            Sin,
-            HasSeenTheSky,
-            Temperature,
-            Delicious,
-            Region,
-            Dni,
-            FavoriteSeason,
-        ]
-    }
-
-    fn header(self) -> &'static str {
-        match self {
-            FantasyKind::Iq => "IQ",
-            FantasyKind::ZodiacSign => "Zodiac Sign",
-            FantasyKind::ChineseZodiac => "Chinese Zodiac Sign",
-            FantasyKind::Tanganana => "Tangananica or Tanganana?",
-            FantasyKind::HappinessLevel => "Happiness Level",
-            FantasyKind::Claustrophobic => "Claustrophobic?",
-            FantasyKind::AttrText => "Attr text",
-            FantasyKind::AttrEnumBar => "Attr enum Bar",
-            FantasyKind::AttrBoolean => "Attr boolean",
-            FantasyKind::PickACard => "Pick a card",
-            FantasyKind::FavoriteColor => "Favorite Color",
-            FantasyKind::FavoriteLetter => "Favorite Letter",
-            FantasyKind::FavoriteNumber => "Favorite Number",
-            FantasyKind::TarotPrediction => "Tarot Prediction",
-            FantasyKind::FavoriteQuote => "Favorite Quote",
-            FantasyKind::FavoriteTime => "Favorite Hour",
-            FantasyKind::Lonely => "Lonely?",
-            FantasyKind::Gmi => "gmi?",
-            FantasyKind::ElOLaPr => "El o La PR?",
-            FantasyKind::TheOrThePr => "The or The PR?",
-            FantasyKind::Crush => "Crush",
-            FantasyKind::MarriedTo => "Married to",
-            FantasyKind::Hates => "Hates",
-            FantasyKind::Status => "Status",
-            FantasyKind::Sin => "Sin",
-            FantasyKind::HasSeenTheSky => "Has seen the sky?",
-            FantasyKind::Temperature => "Temperature (ºC)",
-            FantasyKind::Delicious => "Delicious?",
-            FantasyKind::Region => "Region",
-            FantasyKind::Dni => "DNI",
-            FantasyKind::FavoriteSeason => "Favorite Season",
-        }
-    }
-}
-
-struct FantasyCell {
-    text: String,
-    swatch: Option<Color>,
-}
+use crate::ui::{render_fish_segs, scroll_list, table, tank_view};
 
 struct FantasyColumn {
-    kind: FantasyKind,
-    cells: Vec<FantasyCell>,
+    kind: FieldKind,
+    cells: Vec<FieldValue>,
     col_width: usize,
 }
 
@@ -193,12 +75,13 @@ impl IndexState {
             .collect();
 
         let fish_clones: Vec<Fish> = filtered.iter().map(|(_, f)| (*f).clone()).collect();
+        let fish_names: Vec<String> = filtered.iter().map(|(_, f)| f.name.clone()).collect();
 
-        let chosen_kinds: Vec<FantasyKind> = if all {
-            FantasyKind::all().to_vec()
+        let chosen_kinds: Vec<FieldKind> = if all {
+            FieldKind::all().to_vec()
         } else {
             let count = rng.random_range(0..=3usize);
-            let mut avail: Vec<FantasyKind> = FantasyKind::all().to_vec();
+            let mut avail: Vec<FieldKind> = FieldKind::all().to_vec();
             let mut chosen = Vec::new();
             for _ in 0..count.min(avail.len()) {
                 let idx = rng.random_range(0..avail.len());
@@ -207,22 +90,23 @@ impl IndexState {
             chosen
         };
 
-        let fish_names: Vec<String> = filtered.iter().map(|(_, f)| f.name.clone()).collect();
-        let species_list: Vec<FishSpecies> = filtered.iter().map(|(_, f)| f.species).collect();
-        let is_unfish_flags: Vec<bool> = filtered
-            .iter()
-            .map(|(_, f)| f.unfish_state.is_some())
-            .collect();
-
         let fantasy_cols = chosen_kinds
             .into_iter()
             .map(|kind| {
-                let mut cells = gen_fantasy(kind, &fish_names, &species_list, &mut rng);
-                for (i, &is_uf) in is_unfish_flags.iter().enumerate() {
-                    if is_uf && i < cells.len() {
-                        cells[i] = plain("");
-                    }
-                }
+                let cells: Vec<FieldValue> = fish_clones
+                    .iter()
+                    .map(|fish| {
+                        if fish.unfish_state.is_some() {
+                            FieldValue {
+                                text: String::new(),
+                                swatch: None,
+                            }
+                        } else {
+                            fields::cached_field_value(fish, kind)
+                                .unwrap_or_else(|| fields::gen_field_value(kind, fish, &fish_names, &mut rng))
+                        }
+                    })
+                    .collect();
                 let max_cell_w = cells
                     .iter()
                     .map(|c| table::visual_width(&c.text))
@@ -776,7 +660,7 @@ fn draw_data_row(
                 if fc_idx < state.fantasy_cols.len() {
                     let col = &state.fantasy_cols[fc_idx];
                     let cell = &col.cells[fish_idx];
-                    if col.kind == FantasyKind::FavoriteColor {
+                    if col.kind == FieldKind::FavoriteColor {
                         let swatch_bg = cell.swatch.unwrap_or(BLACK);
                         for dx in 0..w.min(avail) as u16 {
                             if x + dx < right_x {
@@ -824,396 +708,7 @@ fn put_text(buf: &mut Buffer, text: &str, x: u16, y: u16, width: usize, fg: Colo
     buf.set_string(x, y, &s, style);
 }
 
-fn generate_rut(rng: &mut impl RngExt) -> String {
-    let body: u32 = rng.random_range(1_000_000..25_000_001);
-    let s = body.to_string();
-    let digits: Vec<u32> = s.chars().rev().map(|c| c as u32 - '0' as u32).collect();
-    let multipliers = [2u32, 3, 4, 5, 6, 7];
-    let sum: u32 = digits
-        .iter()
-        .enumerate()
-        .map(|(i, &d)| d * multipliers[i % multipliers.len()])
-        .sum();
-    let rem = 11 - (sum % 11);
-    let v = match rem {
-        11 => '0',
-        10 => 'K',
-        n => char::from_digit(n, 10).unwrap_or('0'),
-    };
-    match s.len() {
-        8 => format!("{}.{}.{}-{}", &s[..2], &s[2..5], &s[5..], v),
-        _ => format!("{}.{}.{}-{}", &s[..1], &s[1..4], &s[4..], v),
-    }
-}
-
-fn gen_fantasy(
-    kind: FantasyKind,
-    fish_names: &[String],
-    species: &[FishSpecies],
-    rng: &mut impl RngExt,
-) -> Vec<FantasyCell> {
-    let n = fish_names.len();
-    match kind {
-        FantasyKind::Iq => (0..n)
-            .map(|_| {
-                let v: i32 = match rng.random_range(0..100u32) {
-                    0 => -30,
-                    1 => 3000,
-                    _ => rng.random_range(55..=145i32),
-                };
-                plain(v.to_string())
-            })
-            .collect(),
-
-        FantasyKind::ZodiacSign => {
-            const S: &[&str] = &[
-                "Aries",
-                "Taurus",
-                "Gemini",
-                "Cancer",
-                "Leo",
-                "Virgo",
-                "Libra",
-                "Scorpio",
-                "Sagittarius",
-                "Capricorn",
-                "Aquarius",
-                "Pisces",
-            ];
-            (0..n)
-                .map(|_| plain(S[rng.random_range(0..S.len())]))
-                .collect()
-        }
-
-        FantasyKind::ChineseZodiac => {
-            const S: &[&str] = &[
-                "鼠", "牛", "虎", "兔", "龍", "蛇", "馬", "羊", "猴", "雞", "狗", "豬",
-            ];
-            (0..n)
-                .map(|_| plain(S[rng.random_range(0..S.len())]))
-                .collect()
-        }
-
-        FantasyKind::Tanganana => (0..n)
-            .map(|_| {
-                plain(if rng.random::<bool>() {
-                    "Tangananica"
-                } else {
-                    "Tanganana"
-                })
-            })
-            .collect(),
-
-        FantasyKind::HappinessLevel => (0..n)
-            .map(|_| plain(format!("{}%", rng.random_range(0..=100u32))))
-            .collect(),
-
-        FantasyKind::Claustrophobic => (0..n)
-            .map(|_| {
-                plain(if rng.random_range(0..10u32) == 0 {
-                    "Yes"
-                } else {
-                    "No"
-                })
-            })
-            .collect(),
-
-        FantasyKind::AttrText => (0..n).map(|_| plain("corge")).collect(),
-
-        FantasyKind::AttrEnumBar => (0..n).map(|_| plain("")).collect(),
-
-        FantasyKind::AttrBoolean => (0..n)
-            .map(|i| plain(if i % 2 == 0 { "Sí" } else { "No" }))
-            .collect(),
-
-        FantasyKind::PickACard => {
-            const RANKS: &[&str] = &[
-                "Ace", "2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King",
-            ];
-            const SUITS: &[&str] = &["Spades", "Hearts", "Diamonds", "Clubs"];
-            (0..n)
-                .map(|_| {
-                    let roll = rng.random_range(0..54u32);
-                    if roll >= 52 {
-                        plain("Joker")
-                    } else {
-                        let rank = RANKS[(roll % 13) as usize];
-                        let suit = SUITS[(roll / 13) as usize];
-                        plain(format!("{} of {}", rank, suit))
-                    }
-                })
-                .collect()
-        }
-
-        FantasyKind::FavoriteColor => {
-            const COLORS: &[Color] = &[
-                RED,
-                GREEN,
-                BLUE,
-                YELLOW,
-                MAGENTA,
-                CYAN,
-                LIGHT_RED,
-                LIGHT_GREEN,
-                LIGHT_BLUE,
-                LIGHT_YELLOW,
-                LIGHT_MAGENTA,
-                LIGHT_CYAN,
-                ORANGE,
-                TEAL,
-            ];
-            (0..n)
-                .map(|i| {
-                    let c = if species[i] == FishSpecies::Goldenfish {
-                        GOLD
-                    } else {
-                        COLORS[rng.random_range(0..COLORS.len())]
-                    };
-                    FantasyCell {
-                        text: "      ".to_string(),
-                        swatch: Some(c),
-                    }
-                })
-                .collect()
-        }
-
-        FantasyKind::FavoriteLetter => (0..n)
-            .map(|_| plain(char::from(b'A' + rng.random_range(0..26u8)).to_string()))
-            .collect(),
-
-        FantasyKind::FavoriteNumber => (0..n)
-            .map(|_| plain(rng.random::<i64>().to_string()))
-            .collect(),
-
-        FantasyKind::TarotPrediction => {
-            const MUTANT_SPREADS: &[&str] = &[
-                "The Tower + Death + Ten of Swords",
-                "Three of Swords + The Devil + Nine of Swords",
-                "Five of Pentacles + Ten of Wands + The Moon",
-                "The Tower Reversed + Eight of Swords + The Hanged Man",
-                "Death Reversed + Four of Pentacles + Judgement Reversed",
-                "The Devil Reversed + Seven of Swords + Wheel of Fortune Reversed",
-                "Ten of Swords Reversed + The Moon Reversed + Five of Cups",
-                "Five of Cups + Hermit Reversed + Lovers Reversed",
-                "Justice Reversed + The Tower + King of Pentacles Reversed",
-                "Sun Reversed + Star Reversed + Nine of Wands",
-            ];
-            const GOLDEN_SPREADS: &[&str] = &[
-                "The Sun + Ten of Cups + Ace of Pentacles",
-                "The Star + Lovers + The World",
-                "Wheel of Fortune + Six of Wands + The Emperor",
-                "Ace of Cups + The Empress + Four of Wands",
-                "The Magician + The Chariot + The Sun",
-                "Death + The Star + Ace of Wands",
-                "The Devil Reversed + Judgement + The Fool",
-                "Nine of Pentacles + King of Pentacles + The World",
-                "Two of Cups + Ten of Cups + Star Reversed",
-                "Strength + The Hierophant + Sun Reversed",
-            ];
-            const CARDS: &[&str] = &[
-                "The Fool",
-                "The Magician",
-                "The High Priestess",
-                "The Empress",
-                "The Emperor",
-                "The Hierophant",
-                "The Lovers",
-                "The Chariot",
-                "Strength",
-                "The Hermit",
-                "Wheel of Fortune",
-                "Justice",
-                "The Hanged Man",
-                "Death",
-                "Temperance",
-                "The Devil",
-                "The Tower",
-                "The Star",
-                "The Moon",
-                "The Sun",
-                "Judgement",
-                "The World",
-            ];
-            (0..n)
-                .map(|i| match species[i] {
-                    FishSpecies::Mutantfish => {
-                        plain(MUTANT_SPREADS[rng.random_range(0..MUTANT_SPREADS.len())])
-                    }
-                    FishSpecies::Goldenfish => {
-                        plain(GOLDEN_SPREADS[rng.random_range(0..GOLDEN_SPREADS.len())])
-                    }
-                    _ => {
-                        let mut deck: Vec<&str> = CARDS.to_vec();
-                        let i1 = rng.random_range(0..deck.len());
-                        let c1 = deck.remove(i1);
-                        let i2 = rng.random_range(0..deck.len());
-                        let c2 = deck.remove(i2);
-                        let i3 = rng.random_range(0..deck.len());
-                        let c3 = deck.remove(i3);
-                        let r1 = if rng.random::<bool>() { " (R)" } else { "" };
-                        let r2 = if rng.random::<bool>() { " (R)" } else { "" };
-                        let r3 = if rng.random::<bool>() { " (R)" } else { "" };
-                        plain(format!("{}{}, {}{}, {}{}", c1, r1, c2, r2, c3, r3))
-                    }
-                })
-                .collect()
-        }
-
-        FantasyKind::FavoriteQuote => (0..n)
-            .map(|i| match species[i] {
-                FishSpecies::Mutantfish => plain("OOGHHHHHHH"),
-                FishSpecies::Goldenfish => plain("Gonna be, gonna be golden"),
-                _ => {
-                    let count = rng.random_range(2..=8u32);
-                    plain((0..count).map(|_| "glub").collect::<Vec<_>>().join(" "))
-                }
-            })
-            .collect(),
-
-        FantasyKind::FavoriteTime => (0..n)
-            .map(|_| {
-                plain(format!(
-                    "{:02}:{:02}",
-                    rng.random_range(0..24u32),
-                    rng.random_range(0..60u32)
-                ))
-            })
-            .collect(),
-
-        FantasyKind::Lonely => (0..n)
-            .map(|_| {
-                plain(if rng.random_range(0..10u32) == 0 {
-                    "Yes"
-                } else {
-                    "No"
-                })
-            })
-            .collect(),
-
-        FantasyKind::Gmi => (0..n)
-            .map(|_| plain(if rng.random::<bool>() { "gmi" } else { "ngmi" }))
-            .collect(),
-
-        FantasyKind::ElOLaPr => (0..n).map(|_| plain("La PR")).collect(),
-
-        FantasyKind::TheOrThePr => (0..n).map(|_| plain("The PR")).collect(),
-
-        FantasyKind::Crush => (0..n)
-            .map(|_| plain(fish_names[rng.random_range(0..fish_names.len())].clone()))
-            .collect(),
-
-        FantasyKind::MarriedTo => (0..n)
-            .map(|_| plain(fish_names[rng.random_range(0..fish_names.len())].clone()))
-            .collect(),
-
-        FantasyKind::Hates => {
-            let target = rng.random_range(0..n);
-            (0..n)
-                .map(|i| {
-                    if i == target {
-                        plain("No one")
-                    } else {
-                        plain(fish_names[target].clone())
-                    }
-                })
-                .collect()
-        }
-
-        FantasyKind::Status => {
-            const S: &[&str] = &[
-                "Swimming",
-                "Pondering",
-                "Breathing",
-                "Prompting",
-                "Prooompting",
-                "Fishing",
-                "Dreaming",
-                "Feeling",
-                "Happy",
-                "Sad",
-                "Nauseous",
-                "Kicking Rocks",
-                "Giving the Time",
-                "Taking out the turn",
-                "Falling",
-                "Floating",
-            ];
-            (0..n)
-                .map(|_| plain(S[rng.random_range(0..S.len())]))
-                .collect()
-        }
-
-        FantasyKind::Sin => {
-            const SINS: &[&str] = &[
-                "Lust", "Gluttony", "Greed", "Sloth", "Wrath", "Envy", "Pride",
-            ];
-            (0..n)
-                .map(|i| match species[i] {
-                    FishSpecies::Mutantfish => plain("[REDACTED]"),
-                    FishSpecies::Goldenfish => plain(""),
-                    _ => plain(SINS[rng.random_range(0..SINS.len())]),
-                })
-                .collect()
-        }
-
-        FantasyKind::HasSeenTheSky => (0..n)
-            .map(|i| {
-                plain(if species[i] == FishSpecies::Goldenfish {
-                    "Yes"
-                } else {
-                    "No"
-                })
-            })
-            .collect(),
-
-        FantasyKind::Temperature => (0..n)
-            .map(|_| {
-                let t = 25.0f32 + rng.random_range(-14.0f32..14.0);
-                plain(format!("{:.1}°C", t))
-            })
-            .collect(),
-
-        FantasyKind::Delicious => (0..n)
-            .map(|i| match species[i] {
-                FishSpecies::Mutantfish => plain("NOOOOOOOOOO"),
-                FishSpecies::Goldenfish => plain("Yes."),
-                _ => plain(match rng.random_range(0..3u32) {
-                    0 => "Yes",
-                    1 => "No",
-                    _ => "Maybe",
-                }),
-            })
-            .collect(),
-
-        FantasyKind::Region => {
-            const R: &[&str] = &[
-                "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "RM",
-                "XIV", "XV",
-            ];
-            (0..n)
-                .map(|_| plain(R[rng.random_range(0..R.len())]))
-                .collect()
-        }
-
-        FantasyKind::Dni => (0..n).map(|_| plain(generate_rut(rng))).collect(),
-
-        FantasyKind::FavoriteSeason => {
-            const S: &[&str] = &["Winter", "Autumn", "Spring", "Summer"];
-            (0..n)
-                .map(|_| plain(S[rng.random_range(0..S.len())]))
-                .collect()
-        }
-    }
-}
-
 fn display_clone(mut fish: Fish) -> Fish {
     fish.facing = Direction::Left;
     fish
-}
-
-fn plain(s: impl Into<String>) -> FantasyCell {
-    FantasyCell {
-        text: s.into(),
-        swatch: None,
-    }
 }

@@ -99,7 +99,8 @@ impl ShowState {
                 let (value, swatch) = if is_unfish {
                     (String::new(), None)
                 } else {
-                    let fv = fields::gen_field_value(kind, fish, all_names, rng);
+                    let fv = fields::cached_field_value(fish, kind)
+                        .unwrap_or_else(|| fields::gen_field_value(kind, fish, all_names, rng));
                     (fv.text, fv.swatch)
                 };
                 show_fields.push(ShowField {
@@ -117,7 +118,8 @@ impl ShowState {
                 let (value, swatch) = if is_unfish {
                     (String::new(), None)
                 } else {
-                    let fv = fields::gen_field_value(kind, fish, all_names, rng);
+                    let fv = fields::cached_field_value(fish, kind)
+                        .unwrap_or_else(|| fields::gen_field_value(kind, fish, all_names, rng));
                     (fv.text, fv.swatch)
                 };
                 show_fields.push(ShowField {

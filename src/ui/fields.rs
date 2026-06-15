@@ -41,6 +41,7 @@ pub enum FieldKind {
     Region,
     Dni,
     FavoriteSeason,
+    FavoritePassage,
 }
 
 pub struct FieldValue {
@@ -83,6 +84,7 @@ impl FieldKind {
             Region,
             Dni,
             FavoriteSeason,
+            FavoritePassage,
         ]
     }
 
@@ -119,6 +121,7 @@ impl FieldKind {
             FieldKind::Region => "Region",
             FieldKind::Dni => "DNI",
             FieldKind::FavoriteSeason => "Favorite Season",
+            FieldKind::FavoritePassage => "Favorite Passage?",
         }
     }
 }
@@ -151,6 +154,32 @@ pub fn generate_rut(rng: &mut impl RngExt) -> String {
         8 => format!("{}.{}.{}-{}", &s[..2], &s[2..5], &s[5..], v),
         _ => format!("{}.{}.{}-{}", &s[..1], &s[1..4], &s[4..], v),
     }
+}
+
+pub fn populate_field_cache(fish: &mut Fish, all_names: &[String], rng: &mut impl RngExt) {
+    if fish.unfish_state.is_some() {
+        return;
+    }
+    let all_kinds = FieldKind::all();
+    let n = all_kinds.len();
+    if fish.field_cache.len() < n {
+        fish.field_cache.resize(n, None);
+    }
+    for (idx, &kind) in all_kinds.iter().enumerate() {
+        if fish.field_cache[idx].is_none() {
+            let fv = gen_field_value(kind, fish, all_names, rng);
+            fish.field_cache[idx] = Some((fv.text, fv.swatch));
+        }
+    }
+}
+
+pub fn cached_field_value(fish: &Fish, kind: FieldKind) -> Option<FieldValue> {
+    let idx = FieldKind::all().iter().position(|&k| k == kind)?;
+    let (text, swatch) = fish.field_cache.get(idx)?.as_ref()?;
+    Some(FieldValue {
+        text: text.clone(),
+        swatch: *swatch,
+    })
 }
 
 fn plain(s: impl Into<String>) -> FieldValue {
@@ -425,8 +454,8 @@ pub fn gen_field_value(
                 "Lust", "Gluttony", "Greed", "Sloth", "Wrath", "Envy", "Pride",
             ];
             match fish.species {
-                FishSpecies::Mutantfish => plain("[REDACTED]"),
-                FishSpecies::Goldenfish => plain(""),
+                FishSpecies::Mutantfish => plain("Wrath"),
+                FishSpecies::Goldenfish => plain("Greed"),
                 _ => plain(SINS[rng.random_range(0..SINS.len())]),
             }
         }
@@ -465,6 +494,27 @@ pub fn gen_field_value(
         FieldKind::FavoriteSeason => {
             const S: &[&str] = &["Winter", "Autumn", "Spring", "Summer"];
             plain(S[rng.random_range(0..S.len())])
+        }
+
+        FieldKind::FavoritePassage => {
+            const PASSAGES: &[&str] = &[
+                "\"Let the water teem with living creatures.\" — Genesis 1:20",
+                "\"Follow me, and I will make you fishers of men.\" — Matthew 4:19",
+                "\"Cast the net on the right side of the boat.\" — John 21:6",
+                "\"Bring some of the fish you have just caught.\" — John 21:10",
+                "\"They caught so many fish that their nets began to break.\" — Luke 5:6",
+                "\"He blessed the five loaves and the two fish.\" — Luke 9:16",
+                "\"The Lord is my shepherd; I shall not want.\" — Psalm 23:1",
+                "\"For the love of money is a root of all kinds of evil.\" — 1 Timothy 6:10",
+                "\"You cannot serve both God and money.\" — Matthew 6:24",
+                "\"Do not store up treasures on earth, where moth and rust destroy.\" — Matthew 6:19",
+                "\"A generous person will prosper.\" — Proverbs 11:25",
+                "\"Wealth gained hastily will dwindle.\" — Proverbs 13:11",
+                "\"Trust in the Lord with all your heart.\" — Proverbs 3:5",
+                "\"I can do all things through him who strengthens me.\" — Philippians 4:13",
+                "\"Give thanks to the Lord, for he is good.\" — Psalm 107:1",
+            ];
+            plain(PASSAGES[rng.random_range(0..PASSAGES.len())])
         }
     }
 }
