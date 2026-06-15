@@ -82,7 +82,13 @@ impl Widget for TankView<'_> {
                     render_seaweed(plant, area, buf);
                 }
             }
-            TankBackground::Coral { corals, .. } => {
+            TankBackground::Coral { plants, corals, .. } => {
+                for plant in plants {
+                    if plant.x >= area.width as i32 {
+                        break;
+                    }
+                    render_seaweed(plant, area, buf);
+                }
                 for coral in corals {
                     if coral.base_x >= area.width as i32 {
                         break;
@@ -296,6 +302,20 @@ fn render_seaweed(seaweed: &dyn Seaweed, area: Rect, buf: &mut Buffer) {
     }
 }
 
+fn coral_painted_span(chars: &[(char, i32)]) -> Option<(i32, i32)> {
+    let mut col = 0i32;
+    let mut first = None;
+    let mut last = None;
+    for &(ch, w) in chars {
+        if ch != ' ' && ch != 'X' {
+            first.get_or_insert(col);
+            last = Some(col);
+        }
+        col += w;
+    }
+    first.zip(last)
+}
+
 fn render_coral_line(
     line: &str,
     mirrored: bool,
@@ -311,36 +331,36 @@ fn render_coral_line(
         let effective_x = start_x + canvas_w - line_w;
         let pairs: Vec<(char, i32)> = line
             .chars()
-            .map(|c| {
-                (
-                    mirror_char(c),
-                    UnicodeWidthChar::width(c).unwrap_or(1) as i32,
-                )
-            })
+            .map(|c| (mirror_char(c), UnicodeWidthChar::width(c).unwrap_or(1) as i32))
             .rev()
             .collect();
+        let span = coral_painted_span(&pairs);
         let mut col = 0i32;
-        for (ch, w) in pairs {
-            if ch != ' ' && ch != 'X' {
-                let sx = effective_x + col;
-                if sx >= area.x as i32 && sx < area.right() as i32 {
-                    buf[(sx as u16, screen_y as u16)]
-                        .set_char(ch)
-                        .set_style(style);
+        for &(ch, w) in &pairs {
+            let sx = effective_x + col;
+            if sx >= area.x as i32 && sx < area.right() as i32 {
+                if ch != ' ' && ch != 'X' {
+                    buf[(sx as u16, screen_y as u16)].set_char(ch).set_style(style);
+                } else if span.map_or(false, |(lo, hi)| col >= lo && col <= hi) {
+                    buf[(sx as u16, screen_y as u16)].set_char(' ').set_style(Style::reset());
                 }
             }
             col += w;
         }
     } else {
+        let chars: Vec<(char, i32)> = line
+            .chars()
+            .map(|c| (c, UnicodeWidthChar::width(c).unwrap_or(1) as i32))
+            .collect();
+        let span = coral_painted_span(&chars);
         let mut col = 0i32;
-        for ch in line.chars() {
-            let w = UnicodeWidthChar::width(ch).unwrap_or(1) as i32;
-            if ch != ' ' && ch != 'X' {
-                let sx = start_x + col;
-                if sx >= area.x as i32 && sx < area.right() as i32 {
-                    buf[(sx as u16, screen_y as u16)]
-                        .set_char(ch)
-                        .set_style(style);
+        for &(ch, w) in &chars {
+            let sx = start_x + col;
+            if sx >= area.x as i32 && sx < area.right() as i32 {
+                if ch != ' ' && ch != 'X' {
+                    buf[(sx as u16, screen_y as u16)].set_char(ch).set_style(style);
+                } else if span.map_or(false, |(lo, hi)| col >= lo && col <= hi) {
+                    buf[(sx as u16, screen_y as u16)].set_char(' ').set_style(Style::reset());
                 }
             }
             col += w;
