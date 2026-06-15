@@ -119,6 +119,7 @@ pub struct Fish {
     pub sell_price_bonus_pct: u8,
     pub abduction_lock: bool,
     pub engulf_timer: f32,
+    pub field_cache: Vec<Option<(String, Option<Color>)>>,
     direction_timer: u32,
     zoomie_timer: f32,
 }
@@ -233,6 +234,7 @@ impl Fish {
             sell_price_bonus_pct: 0,
             abduction_lock: false,
             engulf_timer: 0.0,
+            field_cache: Vec::new(),
         }
     }
 
@@ -269,6 +271,7 @@ impl Fish {
             sell_price_bonus_pct: 0,
             abduction_lock: false,
             engulf_timer: 0.0,
+            field_cache: Vec::new(),
         }
     }
 
@@ -322,6 +325,7 @@ impl Fish {
             sell_price_bonus_pct: 0,
             abduction_lock: false,
             engulf_timer: 0.0,
+            field_cache: Vec::new(),
         }
     }
 

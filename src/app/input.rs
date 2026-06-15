@@ -11,6 +11,7 @@ use crate::{
     settings::{FPS_MAX, FPS_MIN},
     tank::{Tank, TankKind},
     ui::{
+        fields,
         fishing_overlay::FishingState,
         fishtanks_overlay::FishtanksState,
         index_overlay::IndexState,
@@ -260,6 +261,35 @@ impl App {
                     .map(|s| s.selected_tank_name().to_string())
                     .unwrap_or_default();
                 if let Some(fish_name) = fish_name {
+                    let visible = self
+                        .tanks
+                        .iter()
+                        .flat_map(|t| t.fish.iter())
+                        .find(|f| f.name == fish_name)
+                        .is_some_and(|f| !f.is_invisible());
+                    if !visible {
+                        return;
+                    }
+                    let tank_kind = self
+                        .tanks
+                        .iter()
+                        .find(|t| t.name == tank_name)
+                        .map(|t| t.kind)
+                        .unwrap_or(TankKind::Base);
+                    let all_names: Vec<String> = self
+                        .tanks
+                        .iter()
+                        .flat_map(|t| t.fish.iter().map(|f| f.name.clone()))
+                        .collect();
+                    let mut rng = rand::rng();
+                    'populate: for tank in &mut self.tanks {
+                        for fish in &mut tank.fish {
+                            if fish.name == fish_name {
+                                fields::populate_field_cache(fish, &all_names, &mut rng);
+                                break 'populate;
+                            }
+                        }
+                    }
                     let fish = self
                         .tanks
                         .iter()
@@ -267,21 +297,6 @@ impl App {
                         .find(|f| f.name == fish_name)
                         .cloned();
                     if let Some(fish) = fish {
-                        if fish.is_invisible() {
-                            return;
-                        }
-                        let tank_kind = self
-                            .tanks
-                            .iter()
-                            .find(|t| t.name == tank_name)
-                            .map(|t| t.kind)
-                            .unwrap_or(TankKind::Base);
-                        let all_names: Vec<String> = self
-                            .tanks
-                            .iter()
-                            .flat_map(|t| t.fish.iter().map(|f| f.name.clone()))
-                            .collect();
-                        let mut rng = rand::rng();
                         let backed_index = match self.active_overlay.take() {
                             Some(Overlay::Index(idx)) => Some(Box::new(idx)),
                             other => {
@@ -1494,12 +1509,21 @@ impl App {
             commands::Action::Expand(name) => self.expand_tank(&name),
             commands::Action::Restore(name) => self.restore_entity(&name),
             commands::Action::Index { all, tank_filter } => {
+                let all_names: Vec<String> = self
+                    .tanks
+                    .iter()
+                    .flat_map(|t| t.fish.iter().map(|f| f.name.clone()))
+                    .collect();
+                let mut rng = rand::rng();
                 if let Some(filter) = tank_filter {
                     let tank_idx = self
                         .tanks
                         .iter()
                         .position(|t| t.name.eq_ignore_ascii_case(&filter));
                     if let Some(idx) = tank_idx {
+                        for fish in &mut self.tanks[idx].fish {
+                            fields::populate_field_cache(fish, &all_names, &mut rng);
+                        }
                         let fish_with_tanks: Vec<(&str, &Fish)> = self.tanks[idx]
                             .fish
                             .iter()
@@ -1512,6 +1536,11 @@ impl App {
                         )));
                     }
                 } else {
+                    for tank in &mut self.tanks {
+                        for fish in &mut tank.fish {
+                            fields::populate_field_cache(fish, &all_names, &mut rng);
+                        }
+                    }
                     let fish_with_tanks: Vec<(&str, &Fish)> = self
                         .tanks
                         .iter()
@@ -1651,6 +1680,20 @@ impl App {
                 name: fish_name,
                 all,
             } => {
+                let all_names: Vec<String> = self
+                    .tanks
+                    .iter()
+                    .flat_map(|t| t.fish.iter().map(|f| f.name.clone()))
+                    .collect();
+                let mut rng = rand::rng();
+                'populate: for tank in &mut self.tanks {
+                    for fish in &mut tank.fish {
+                        if fish.name.eq_ignore_ascii_case(&fish_name) {
+                            fields::populate_field_cache(fish, &all_names, &mut rng);
+                            break 'populate;
+                        }
+                    }
+                }
                 let found = self
                     .tanks
                     .iter()
@@ -1667,12 +1710,6 @@ impl App {
                         .find(|t| t.name == tank_name)
                         .map(|t| t.kind)
                         .unwrap_or(TankKind::Base);
-                    let all_names: Vec<String> = self
-                        .tanks
-                        .iter()
-                        .flat_map(|t| t.fish.iter().map(|f| f.name.clone()))
-                        .collect();
-                    let mut rng = rand::rng();
                     self.set_overlay(Overlay::Show {
                         state: ShowState::new(
                             &fish,
