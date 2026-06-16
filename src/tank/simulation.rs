@@ -1101,7 +1101,13 @@ mod engulfment_tests {
     fn a_holyfish_emits_a_blessing_when_its_timer_elapses() {
         let mut tank = Tank::new("T".to_string(), TankKind::Base, &[]);
         let mut rng = rand::rng();
-        let mut holy = Fish::new(FishSpecies::Holyfish, "Saint".to_string(), 10.0, 5.0, &mut rng);
+        let mut holy = Fish::new(
+            FishSpecies::Holyfish,
+            "Saint".to_string(),
+            10.0,
+            5.0,
+            &mut rng,
+        );
         holy.blessing_timer = 0.0001;
         tank.fish.push(holy);
         let events = tank.tick_blessings(1.0);

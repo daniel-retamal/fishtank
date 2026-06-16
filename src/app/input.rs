@@ -196,6 +196,17 @@ impl App {
                 let graveyard_name_strings = self.graveyard_names();
                 let graveyard_names: Vec<&str> =
                     graveyard_name_strings.iter().map(String::as_str).collect();
+                let sellable_unique_name_strings: Vec<String> = self
+                    .tanks
+                    .iter()
+                    .flat_map(|t| t.fish.iter().map(|f| f.name.clone()))
+                    .chain(
+                        self.sellable_tanks_with_price()
+                            .into_iter()
+                            .map(|(name, _)| name),
+                    )
+                    .collect();
+                let sellable_stackable_name_strings = self.build_sellable_stackable_names();
                 if let Some(new_input) = commands::tab_complete(
                     &self.editor.text,
                     &commands::CompletionCtx {
@@ -207,6 +218,8 @@ impl App {
                         has_cow_in_current: self.tank().has_cow(),
                         entity_mutations: &entity_mutations_slice,
                         graveyard_names: &graveyard_names,
+                        sellable_unique_names: &sellable_unique_name_strings,
+                        sellable_stackable_names: &sellable_stackable_name_strings,
                     },
                 ) {
                     self.editor.set(new_input);
@@ -1188,7 +1201,7 @@ impl App {
         self.tanks[target_idx].place_fish(fish, name, &mut rng);
     }
 
-    fn sellable_tanks_with_price(&self) -> Vec<(String, u32)> {
+    pub(super) fn sellable_tanks_with_price(&self) -> Vec<(String, u32)> {
         if self.tanks.len() <= 1 {
             return vec![];
         }
@@ -1197,6 +1210,36 @@ impl App {
             .filter(|t| t.fish.is_empty())
             .map(|t| (t.name.clone(), t.kind.sell_price()))
             .collect()
+    }
+
+    pub(super) fn build_sellable_stackable_names(&self) -> Vec<String> {
+        let mut v = Vec::new();
+        if self.inventory.get(&StockItem::Junk).copied().unwrap_or(0) > 0 {
+            v.push("Junk".to_string());
+        }
+        if self.inventory.get(&StockItem::COFFEE).copied().unwrap_or(0) > 0 {
+            v.push("Coffee".to_string());
+        }
+        if self.inventory.get(&StockItem::BAIT).copied().unwrap_or(0) > 0 {
+            v.push("Bait".to_string());
+        }
+        for &variant in MilkVariant::ALL {
+            let stock = StockItem::Consumable(ConsumableKind::Milk(variant));
+            if self.inventory.get(&stock).copied().unwrap_or(0) > 0 {
+                v.push(variant.display_name().to_string());
+            }
+        }
+        if self
+            .inventory
+            .get(&StockItem::NECRONOMICON)
+            .copied()
+            .unwrap_or(0)
+            > 0
+            && ConsumableKind::Necronomicon.sell_price() > 0
+        {
+            v.push("Necronomicon".to_string());
+        }
+        v
     }
 
     fn handle_void_ritual_input(&mut self, event: Event) {
@@ -1932,7 +1975,198 @@ impl App {
                 let ct = self.current_tank;
                 self.plan_cow_delivery(ct, &mut rng);
             }
+            commands::Action::Buy(target) => self.execute_buy(target),
+            commands::Action::Sell(target) => self.execute_sell(target),
             commands::Action::Unknown => {}
         }
+    }
+
+    fn execute_buy(&mut self, target: commands::BuyTarget) {
+        let cash = self.cash;
+        match target {
+            commands::BuyTarget::Fish(species) => {
+                let price = species.buy_price();
+                if cash < price {
+                    return;
+                }
+                let all_buyable = FishSpecies::all_buyable();
+                let Some(catalog_idx) = all_buyable.iter().position(|&s| s == species) else {
+                    return;
+                };
+                let mut rng = rand::rng();
+                let fish = Fish::new_for_display(species, &mut rng);
+                let mut fl = FishListState::new(cash);
+                fl.selected = catalog_idx;
+                fl.popup = Some(FishNamePopup {
+                    catalog_idx,
+                    fish,
+                    name_input: TextInput::new(),
+                });
+                let mut shop = ShopState::new();
+                shop.page = ShopPage::BuyFishList(fl);
+                self.set_overlay(Overlay::Shop(shop));
+            }
+            commands::BuyTarget::Tank(kind) => {
+                let price = kind.buy_price();
+                if cash < price {
+                    return;
+                }
+                let all_tanks = TankKind::all();
+                let Some(catalog_idx) = all_tanks.iter().position(|&k| k == kind) else {
+                    return;
+                };
+                let mut tl = TankListState::new(cash);
+                tl.selected = catalog_idx;
+                tl.popup = Some(BuyTankPopup {
+                    catalog_idx,
+                    name_input: TextInput::new(),
+                });
+                let mut shop = ShopState::new();
+                shop.page = ShopPage::BuyTankList(tl);
+                self.set_overlay(Overlay::Shop(shop));
+            }
+            commands::BuyTarget::Food { qty } => {
+                let cost = qty * crate::ui::shop_overlay::FOOD_BUY_PRICE;
+                if cash < cost {
+                    return;
+                }
+                self.food_supply += qty;
+                self.cash = self.cash.saturating_sub(cost);
+            }
+            commands::BuyTarget::Coffee { qty } => {
+                let unit_price = ConsumableKind::Coffee.buy_price();
+                let cost = qty * unit_price;
+                if cash < cost {
+                    return;
+                }
+                *self.inventory.entry(StockItem::COFFEE).or_insert(0) += qty;
+                self.cash = self.cash.saturating_sub(cost);
+            }
+            commands::BuyTarget::Bait { qty } => {
+                let unit_price = ConsumableKind::Bait.buy_price();
+                let cost = qty * unit_price;
+                if cash < cost {
+                    return;
+                }
+                *self.inventory.entry(StockItem::BAIT).or_insert(0) += qty;
+                self.cash = self.cash.saturating_sub(cost);
+            }
+        }
+    }
+
+    fn execute_sell(&mut self, target: commands::SellTarget) {
+        match target {
+            commands::SellTarget::Fish(name) => self.sell_fish_by_name(&name),
+            commands::SellTarget::Tank(name) => self.sell_tank_by_name(&name),
+            commands::SellTarget::Junk { qty } => {
+                let owned = self.inventory.get(&StockItem::Junk).copied().unwrap_or(0);
+                let sell_qty = qty.min(owned);
+                if sell_qty == 0 {
+                    return;
+                }
+                self.sell_stock(
+                    StockItem::Junk,
+                    sell_qty,
+                    crate::ui::shop_overlay::JUNK_SELL_PRICE,
+                );
+            }
+            commands::SellTarget::Coffee { qty } => {
+                let owned = self.inventory.get(&StockItem::COFFEE).copied().unwrap_or(0);
+                let sell_qty = qty.min(owned);
+                if sell_qty == 0 {
+                    return;
+                }
+                self.sell_stock(
+                    StockItem::COFFEE,
+                    sell_qty,
+                    ConsumableKind::Coffee.sell_price(),
+                );
+            }
+            commands::SellTarget::Bait { qty } => {
+                let owned = self.inventory.get(&StockItem::BAIT).copied().unwrap_or(0);
+                let sell_qty = qty.min(owned);
+                if sell_qty == 0 {
+                    return;
+                }
+                self.sell_stock(StockItem::BAIT, sell_qty, ConsumableKind::Bait.sell_price());
+            }
+            commands::SellTarget::Milk { variant, qty } => {
+                let stock = StockItem::Consumable(ConsumableKind::Milk(variant));
+                let owned = self.inventory.get(&stock).copied().unwrap_or(0);
+                let sell_qty = qty.min(owned);
+                if sell_qty == 0 {
+                    return;
+                }
+                self.sell_stock(stock, sell_qty, ConsumableKind::Milk(variant).sell_price());
+            }
+            commands::SellTarget::Necronomicon { qty } => {
+                let owned = self
+                    .inventory
+                    .get(&StockItem::NECRONOMICON)
+                    .copied()
+                    .unwrap_or(0);
+                let sell_qty = qty.min(owned);
+                if sell_qty == 0 {
+                    return;
+                }
+                self.sell_stock(
+                    StockItem::NECRONOMICON,
+                    sell_qty,
+                    ConsumableKind::Necronomicon.sell_price(),
+                );
+            }
+        }
+    }
+
+    fn sell_fish_by_name(&mut self, name: &str) {
+        let mut sold = None;
+        for tank in &mut self.tanks {
+            if let Some(pos) = tank
+                .fish
+                .iter()
+                .position(|f| f.name.eq_ignore_ascii_case(name))
+            {
+                let mc = tank.fish[pos].mutations.as_ref().map_or(0, |mr| mr.count);
+                let price = tank.fish[pos].species.sell_value(
+                    tank.fish[pos].weight_g,
+                    tank.fish[pos].size_category,
+                    mc,
+                );
+                tank.used_names.remove(&tank.fish[pos].name);
+                sold = Some((tank.fish.remove(pos), price));
+                break;
+            }
+        }
+        if let Some((fish, price)) = sold {
+            self.graveyard.push(fish);
+            self.cash += price;
+        }
+    }
+
+    fn sell_tank_by_name(&mut self, name: &str) {
+        let Some(pos) = self
+            .tanks
+            .iter()
+            .position(|t| t.name.eq_ignore_ascii_case(name))
+        else {
+            return;
+        };
+        if !self.tanks[pos].fish.is_empty() || self.tanks.len() <= 1 {
+            return;
+        }
+        let price = self.tanks[pos].kind.sell_price();
+        self.used_tank_names.remove(&self.tanks[pos].name);
+        self.tanks.remove(pos);
+        if self.current_tank >= pos && self.current_tank > 0 {
+            self.current_tank -= 1;
+        }
+        self.cash += price;
+    }
+
+    fn sell_stock(&mut self, stock: StockItem, qty: u32, unit_price: u32) {
+        let entry = self.inventory.entry(stock).or_insert(0);
+        *entry = entry.saturating_sub(qty);
+        self.inventory.retain(|_, v| *v > 0);
+        self.cash += qty * unit_price;
     }
 }

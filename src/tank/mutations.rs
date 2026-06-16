@@ -145,7 +145,10 @@ impl Tank {
     }
 
     pub(super) fn tick_irradiated_milk_mutations(&mut self) {
-        if !self.candy_tick.is_multiple_of(RAD_MILK_MUTATION_TICK_INTERVAL) {
+        if !self
+            .candy_tick
+            .is_multiple_of(RAD_MILK_MUTATION_TICK_INTERVAL)
+        {
             return;
         }
         let pending: Vec<String> = self

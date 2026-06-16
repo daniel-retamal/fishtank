@@ -1,10 +1,40 @@
 use crate::entities::cow::CowVariant;
 use crate::fishes::mutations::Mutation;
 use crate::fishes::species::{ALL_SPECIES, FishSpecies};
-use crate::loot::ConsumableKind;
+use crate::loot::{ConsumableKind, MilkVariant};
 use crate::names::title_case;
 use crate::tank::TankKind;
 use crate::void_ritual::{GiveTarget, parse_give_target};
+
+pub enum BuyTarget {
+    Fish(FishSpecies),
+    Tank(TankKind),
+    Food { qty: u32 },
+    Coffee { qty: u32 },
+    Bait { qty: u32 },
+}
+
+impl BuyTarget {
+    pub fn is_unique(&self) -> bool {
+        matches!(self, BuyTarget::Fish(_) | BuyTarget::Tank(_))
+    }
+}
+
+pub enum SellTarget {
+    Fish(String),
+    Tank(String),
+    Junk { qty: u32 },
+    Coffee { qty: u32 },
+    Bait { qty: u32 },
+    Milk { variant: MilkVariant, qty: u32 },
+    Necronomicon { qty: u32 },
+}
+
+impl SellTarget {
+    pub fn is_unique(&self) -> bool {
+        matches!(self, SellTarget::Fish(_) | SellTarget::Tank(_))
+    }
+}
 
 pub struct Completion {
     pub ghost: String,
@@ -21,6 +51,8 @@ pub struct CompletionCtx<'a> {
     pub has_cow_in_current: bool,
     pub entity_mutations: &'a [(&'a str, Vec<Mutation>)],
     pub graveyard_names: &'a [&'a str],
+    pub sellable_unique_names: &'a [String],
+    pub sellable_stackable_names: &'a [String],
 }
 
 fn all_mutation_tokens() -> Vec<&'static str> {
@@ -47,6 +79,7 @@ fn entity_mutation_tokens(
 static COMMAND_NAMES: &[&str] = &[
     "add",
     "bless",
+    "buy",
     "clone",
     "consume",
     "cowsay",
@@ -64,6 +97,7 @@ static COMMAND_NAMES: &[&str] = &[
     "names",
     "restore",
     "revive",
+    "sell",
     "shop",
     "show",
     "spawn",
@@ -95,12 +129,14 @@ pub fn autocomplete(input: &str, ctx: &CompletionCtx) -> Option<Completion> {
         None => complete_command(body, ctx.has_cow_in_current),
         Some((cmd, rest)) => match cmd.to_ascii_lowercase().as_str() {
             "add" => complete_add_subtract("add", rest),
+            "buy" => complete_buy(rest),
             "consume" => complete_consume(rest, ctx.consumable_names),
             "feed" => complete_feed(rest),
             "fps" => complete_fps(rest),
             "index" => complete_index(rest, ctx.tank_names),
             "move" => complete_move(rest, ctx.fish_names, ctx.tank_names, ctx.fish_in_tanks),
             "mutate" => complete_mutate(rest, ctx.fish_names, ctx.entity_mutations),
+            "sell" => complete_sell(rest, ctx),
             "show" => complete_show(rest, ctx.fish_in_tanks),
             "spawn" => complete_spawn(rest),
             "subtract" => complete_add_subtract("subtract", rest),
@@ -880,9 +916,276 @@ fn complete_show(rest: &str, fish_in_tanks: &[(&str, &str)]) -> Option<Completio
     Some(Completion { ghost, tab_result })
 }
 
+fn split_trailing_qty(rest: &str) -> (&str, u32) {
+    let rest = rest.trim();
+    if let Some((name, qty_str)) = rest.rsplit_once(char::is_whitespace)
+        && let Ok(n) = qty_str.trim().parse::<u32>()
+        && n > 0
+    {
+        return (name.trim(), n);
+    }
+    (rest, 1)
+}
+
+fn buyable_item_names() -> Vec<String> {
+    let mut v: Vec<String> = FishSpecies::all_buyable()
+        .iter()
+        .map(|s| s.display_name().to_ascii_lowercase())
+        .collect();
+    for &kind in TankKind::all() {
+        v.push(kind.display_name().to_ascii_lowercase());
+    }
+    v.push("food".to_string());
+    v.push("coffee".to_string());
+    v.push("bait".to_string());
+    v
+}
+
+const STACKABLE_BUY_NAMES: &[&str] = &["food", "coffee", "bait"];
+
+fn resolve_stackable_sell(name_lower: &str, qty: u32) -> Option<SellTarget> {
+    match name_lower {
+        "junk" => Some(SellTarget::Junk { qty }),
+        "coffee" => Some(SellTarget::Coffee { qty }),
+        "bait" => Some(SellTarget::Bait { qty }),
+        "necronomicon" => Some(SellTarget::Necronomicon { qty }),
+        _ => MilkVariant::ALL
+            .iter()
+            .find(|&&v| v.display_name().to_ascii_lowercase() == name_lower)
+            .map(|&variant| SellTarget::Milk { variant, qty }),
+    }
+}
+
+fn complete_buy(rest: &str) -> Option<Completion> {
+    let names = buyable_item_names();
+    let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+
+    if rest.is_empty() {
+        return Some(Completion {
+            ghost: "<item>".to_string(),
+            tab_result: None,
+        });
+    }
+
+    let rest_lower = rest.to_ascii_lowercase();
+    let rest_trimmed = rest_lower.trim_end();
+
+    for &name in STACKABLE_BUY_NAMES {
+        if rest_trimmed == name {
+            let space = if rest.ends_with(' ') { "" } else { " " };
+            return Some(Completion {
+                ghost: format!("{}<qty>", space),
+                tab_result: None,
+            });
+        }
+        let prefix_space = format!("{} ", name);
+        if rest_lower.starts_with(&prefix_space) {
+            let after = &rest_lower[prefix_space.len()..];
+            return if after.is_empty() {
+                Some(Completion {
+                    ghost: "<qty>".to_string(),
+                    tab_result: None,
+                })
+            } else {
+                None
+            };
+        }
+    }
+
+    if refs.contains(&rest_trimmed) {
+        return None;
+    }
+
+    let typed_len = rest_trimmed.len();
+    let matches: Vec<&str> = refs
+        .iter()
+        .copied()
+        .filter(|&n| n.starts_with(rest_trimmed))
+        .collect();
+
+    if matches.is_empty() {
+        return None;
+    }
+
+    let first = matches[0];
+    let is_stackable = STACKABLE_BUY_NAMES.contains(&first);
+    let ghost = if is_stackable {
+        format!("{} <qty>", &first[typed_len..])
+    } else {
+        first[typed_len..].to_string()
+    };
+
+    let tab_result = if matches.len() == 1 {
+        Some(format!("/buy {}", first))
+    } else {
+        let cp = longest_common_prefix(&matches);
+        if cp.len() > typed_len {
+            Some(format!("/buy {}", cp))
+        } else {
+            Some(format!("/buy {} ", first))
+        }
+    };
+    Some(Completion { ghost, tab_result })
+}
+
+fn complete_sell(rest: &str, ctx: &CompletionCtx) -> Option<Completion> {
+    let unique: Vec<&str> = ctx
+        .sellable_unique_names
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let stackable: Vec<&str> = ctx
+        .sellable_stackable_names
+        .iter()
+        .map(String::as_str)
+        .collect();
+
+    if unique.is_empty() && stackable.is_empty() {
+        return None;
+    }
+
+    if rest.is_empty() {
+        return Some(Completion {
+            ghost: "<item>".to_string(),
+            tab_result: None,
+        });
+    }
+
+    let rest_lower = rest.to_ascii_lowercase();
+    let rest_trimmed = rest_lower.trim_end();
+
+    for &name in &stackable {
+        let name_lower = name.to_ascii_lowercase();
+        if rest_trimmed == name_lower {
+            let space = if rest.ends_with(' ') { "" } else { " " };
+            return Some(Completion {
+                ghost: format!("{}<qty>", space),
+                tab_result: None,
+            });
+        }
+        let prefix_space = format!("{} ", name_lower);
+        if rest_lower.starts_with(&prefix_space) {
+            let after = &rest_lower[prefix_space.len()..];
+            return if after.is_empty() {
+                Some(Completion {
+                    ghost: "<qty>".to_string(),
+                    tab_result: None,
+                })
+            } else {
+                None
+            };
+        }
+    }
+
+    if unique
+        .iter()
+        .any(|&n| n.to_ascii_lowercase() == rest_trimmed)
+    {
+        return None;
+    }
+
+    let typed_len = rest_trimmed.len();
+    let all: Vec<&str> = unique
+        .iter()
+        .copied()
+        .chain(stackable.iter().copied())
+        .collect();
+    let matches: Vec<&str> = all
+        .iter()
+        .copied()
+        .filter(|&n| n.to_ascii_lowercase().starts_with(rest_trimmed))
+        .collect();
+
+    if matches.is_empty() {
+        return None;
+    }
+
+    let first = matches[0];
+    let is_stackable = stackable.iter().any(|&n| n.eq_ignore_ascii_case(first));
+    let ghost = if is_stackable {
+        format!("{} <qty>", &first[typed_len..])
+    } else {
+        first[typed_len..].to_string()
+    };
+
+    let tab_result = if matches.len() == 1 {
+        Some(format!("/sell {}", first))
+    } else {
+        let cp = longest_common_prefix(&matches);
+        if cp.len() > typed_len {
+            Some(format!("/sell {}", cp))
+        } else {
+            Some(format!("/sell {} ", first))
+        }
+    };
+    Some(Completion { ghost, tab_result })
+}
+
+fn parse_buy(rest: &str) -> Action {
+    if rest.is_empty() {
+        return Action::Unknown;
+    }
+    let (name_part, qty) = split_trailing_qty(rest);
+    let name_lower = name_part.to_ascii_lowercase();
+
+    if let Some(species) = FishSpecies::parse(&name_lower) {
+        return if species.config().buyable {
+            Action::Buy(BuyTarget::Fish(species))
+        } else {
+            Action::Unknown
+        };
+    }
+    if let Some(kind) = TankKind::parse(&name_lower) {
+        return Action::Buy(BuyTarget::Tank(kind));
+    }
+    match name_lower.as_str() {
+        "food" => Action::Buy(BuyTarget::Food { qty }),
+        "coffee" => Action::Buy(BuyTarget::Coffee { qty }),
+        "bait" => Action::Buy(BuyTarget::Bait { qty }),
+        _ => Action::Unknown,
+    }
+}
+
+fn parse_sell(rest: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
+    if rest.is_empty() {
+        return Action::Unknown;
+    }
+
+    let rest_trimmed = rest.trim();
+    if rest_trimmed.starts_with('"') || rest_trimmed.starts_with('\'') {
+        let name = parse_rest_or_quoted(rest_trimmed);
+        if name.is_empty() {
+            return Action::Unknown;
+        }
+        if fish_names.iter().any(|&n| n.eq_ignore_ascii_case(&name)) {
+            return Action::Sell(SellTarget::Fish(name));
+        }
+        if tank_names.iter().any(|&n| n.eq_ignore_ascii_case(&name)) {
+            return Action::Sell(SellTarget::Tank(name));
+        }
+        return Action::Unknown;
+    }
+
+    let (name_part, qty) = split_trailing_qty(rest_trimmed);
+    if let Some(target) = resolve_stackable_sell(&name_part.to_ascii_lowercase(), qty) {
+        return Action::Sell(target);
+    }
+
+    let words: Vec<&str> = rest_trimmed.split_whitespace().collect();
+    if let Some((_, display)) = greedy_name_words(&words, fish_names) {
+        return Action::Sell(SellTarget::Fish(display.to_string()));
+    }
+    if let Some((_, display)) = greedy_name_words(&words, tank_names) {
+        return Action::Sell(SellTarget::Tank(display.to_string()));
+    }
+
+    Action::Unknown
+}
+
 fn command_args_placeholder(cmd: &str) -> &'static str {
     match cmd {
         "add" | "subtract" => "<resource> <amount>",
+        "buy" => "<item>",
         "consume" => "<consumable>",
         "cowsay" => "\"<text>\"",
         "feed" => "<amount>",
@@ -893,6 +1196,7 @@ fn command_args_placeholder(cmd: &str) -> &'static str {
         "give" => "<thing>",
         "move" => "<entity> <tank>",
         "mutate" => "<name> <mutation>",
+        "sell" => "<item>",
         "spawn" => "<species> <name>",
         _ => "",
     }
@@ -962,6 +1266,8 @@ pub enum Action {
     Bless,
     Expand(String),
     Restore(String),
+    Buy(BuyTarget),
+    Sell(SellTarget),
     Unknown,
 }
 
@@ -1217,6 +1523,8 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
                 None => Action::Unknown,
             }
         }
+        "buy" => parse_buy(rest),
+        "sell" => parse_sell(rest, fish_names, tank_names),
         "give" => match parse_give_target(rest) {
             Some(target) => Action::Give(target),
             None => Action::Unknown,
@@ -1771,5 +2079,233 @@ mod tests {
             parse("/give nonsense", fish, tanks),
             Action::Unknown
         ));
+    }
+
+    #[test]
+    fn parse_buy_fish_by_name() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(
+            parse("/buy salmon", fish, tanks),
+            Action::Buy(BuyTarget::Fish(FishSpecies::Salmon))
+        ));
+    }
+
+    #[test]
+    fn parse_buy_tank_by_name() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(
+            parse("/buy helltank", fish, tanks),
+            Action::Buy(BuyTarget::Tank(TankKind::Hell))
+        ));
+    }
+
+    #[test]
+    fn parse_buy_food_default_qty() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(
+            parse("/buy food", fish, tanks),
+            Action::Buy(BuyTarget::Food { qty: 1 })
+        ));
+    }
+
+    #[test]
+    fn parse_buy_food_with_qty() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(
+            parse("/buy food 5", fish, tanks),
+            Action::Buy(BuyTarget::Food { qty: 5 })
+        ));
+    }
+
+    #[test]
+    fn parse_buy_coffee_with_qty() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(
+            parse("/buy coffee 3", fish, tanks),
+            Action::Buy(BuyTarget::Coffee { qty: 3 })
+        ));
+    }
+
+    #[test]
+    fn parse_buy_bait_with_qty() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(
+            parse("/buy bait 10", fish, tanks),
+            Action::Buy(BuyTarget::Bait { qty: 10 })
+        ));
+    }
+
+    #[test]
+    fn parse_buy_unknown_item_is_unknown() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(
+            parse("/buy nonsense", fish, tanks),
+            Action::Unknown
+        ));
+    }
+
+    #[test]
+    fn parse_buy_no_arg_is_unknown() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(parse("/buy", fish, tanks), Action::Unknown));
+    }
+
+    #[test]
+    fn parse_sell_fish_by_name() {
+        let fish: &[&str] = &["Nemo"];
+        let tanks: &[&str] = &[];
+        assert!(matches!(
+            parse("/sell Nemo", fish, tanks),
+            Action::Sell(SellTarget::Fish(ref n)) if n == "Nemo"
+        ));
+    }
+
+    #[test]
+    fn parse_sell_tank_by_name() {
+        let fish: &[&str] = &[];
+        let tanks: &[&str] = &["Ocean"];
+        assert!(matches!(
+            parse("/sell Ocean", fish, tanks),
+            Action::Sell(SellTarget::Tank(ref n)) if n == "Ocean"
+        ));
+    }
+
+    #[test]
+    fn parse_sell_junk_default_qty() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(
+            parse("/sell junk", fish, tanks),
+            Action::Sell(SellTarget::Junk { qty: 1 })
+        ));
+    }
+
+    #[test]
+    fn parse_sell_junk_with_qty() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(
+            parse("/sell junk 5", fish, tanks),
+            Action::Sell(SellTarget::Junk { qty: 5 })
+        ));
+    }
+
+    #[test]
+    fn parse_sell_milk_multiword() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(
+            parse("/sell chocolate milk", fish, tanks),
+            Action::Sell(SellTarget::Milk {
+                variant: MilkVariant::Chocolate,
+                qty: 1,
+            })
+        ));
+    }
+
+    #[test]
+    fn parse_sell_milk_multiword_with_qty() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(
+            parse("/sell strawberry milk 3", fish, tanks),
+            Action::Sell(SellTarget::Milk {
+                variant: MilkVariant::Strawberry,
+                qty: 3,
+            })
+        ));
+    }
+
+    #[test]
+    fn parse_sell_necronomicon() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(
+            parse("/sell necronomicon 2", fish, tanks),
+            Action::Sell(SellTarget::Necronomicon { qty: 2 })
+        ));
+    }
+
+    #[test]
+    fn parse_sell_no_arg_is_unknown() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(parse("/sell", fish, tanks), Action::Unknown));
+    }
+
+    #[test]
+    fn parse_sell_fish_quoted_multiword() {
+        let fish: &[&str] = &["Blue Tang"];
+        let tanks: &[&str] = &[];
+        assert!(matches!(
+            parse("/sell \"Blue Tang\"", fish, tanks),
+            Action::Sell(SellTarget::Fish(ref n)) if n == "Blue Tang"
+        ));
+    }
+
+    #[test]
+    fn autocomplete_buy_partial_name_ghost() {
+        let result = autocomplete("/buy sa", &CompletionCtx::default());
+        let c = result.unwrap();
+        assert!(c.ghost.contains("lmon"));
+    }
+
+    #[test]
+    fn autocomplete_buy_food_shows_qty_ghost() {
+        let result = autocomplete("/buy food", &CompletionCtx::default());
+        let c = result.unwrap();
+        assert!(c.ghost.contains("<qty>"));
+    }
+
+    #[test]
+    fn autocomplete_buy_coffee_shows_qty_ghost() {
+        let result = autocomplete("/buy coffee", &CompletionCtx::default());
+        let c = result.unwrap();
+        assert!(c.ghost.contains("<qty>"));
+    }
+
+    #[test]
+    fn autocomplete_buy_unique_no_qty_ghost() {
+        let result = autocomplete("/buy salmon", &CompletionCtx::default());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn autocomplete_sell_empty_shows_item_ghost() {
+        let result = autocomplete(
+            "/sell ",
+            &CompletionCtx {
+                sellable_stackable_names: &["Junk".to_string()],
+                ..Default::default()
+            },
+        );
+        let c = result.unwrap();
+        assert_eq!(c.ghost, "<item>");
+    }
+
+    #[test]
+    fn autocomplete_sell_stackable_exact_shows_qty_ghost() {
+        let result = autocomplete(
+            "/sell Junk",
+            &CompletionCtx {
+                sellable_stackable_names: &["Junk".to_string()],
+                ..Default::default()
+            },
+        );
+        let c = result.unwrap();
+        assert!(c.ghost.contains("<qty>"));
+    }
+
+    #[test]
+    fn autocomplete_sell_unique_name_completion() {
+        let result = autocomplete(
+            "/sell Ne",
+            &CompletionCtx {
+                sellable_unique_names: &["Nemo".to_string()],
+                ..Default::default()
+            },
+        );
+        let c = result.unwrap();
+        assert!(c.ghost.contains("mo"));
+    }
+
+    #[test]
+    fn autocomplete_sell_no_items_returns_none() {
+        let result = autocomplete("/sell ", &CompletionCtx::default());
+        assert!(result.is_none());
     }
 }

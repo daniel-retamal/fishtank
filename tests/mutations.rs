@@ -34,8 +34,14 @@ fn holyfish_is_never_devil_marked_in_the_helltank() {
     tank.spawn_fish(FishSpecies::Merluza, "Sinner".to_string(), &mut rng);
     let saint = tank.fish.iter().find(|f| f.name == "Saint").unwrap();
     let sinner = tank.fish.iter().find(|f| f.name == "Sinner").unwrap();
-    assert!(!saint.devil_marked, "the holy fish resists the devil's mark");
-    assert!(sinner.devil_marked, "ordinary fish are still marked in hell");
+    assert!(
+        !saint.devil_marked,
+        "the holy fish resists the devil's mark"
+    );
+    assert!(
+        sinner.devil_marked,
+        "ordinary fish are still marked in hell"
+    );
 }
 
 #[test]

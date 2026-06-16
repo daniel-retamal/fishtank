@@ -9,8 +9,7 @@ use ratatui::{
 };
 
 use crate::colors::{
-    BROWN_DARK, CREAM, DARK_GRAY, KHAKI, LIGHT_GREEN, LIGHT_RED, LIGHT_YELLOW, PINK, RED,
-    WHITE,
+    BROWN_DARK, CREAM, DARK_GRAY, KHAKI, LIGHT_GREEN, LIGHT_RED, LIGHT_YELLOW, PINK, RED, WHITE,
 };
 use crate::fishes::{
     fish::{Direction, Fish},
@@ -890,4 +889,3 @@ fn draw_consumable_item_right_panel(
         buf.set_string(tx, y + h - 1, text, hint);
     }
 }
-

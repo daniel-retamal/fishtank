@@ -13,8 +13,7 @@ use crate::{
     fishes::fish::Fish,
     fishes::species::FishSpecies,
     loot::{
-        ConsumableKind, CowCounts, LootKind, LootPool, StockItem, roll_loot,
-        roll_loot_no_fish,
+        ConsumableKind, CowCounts, LootKind, LootPool, StockItem, roll_loot, roll_loot_no_fish,
     },
     names,
     settings::Settings,
@@ -719,6 +718,13 @@ impl App {
         let graveyard_name_strings = self.graveyard_names();
         let graveyard_names: Vec<&str> =
             graveyard_name_strings.iter().map(String::as_str).collect();
+        let sellable_unique_strings: Vec<String> = self
+            .tanks
+            .iter()
+            .flat_map(|t| t.fish.iter().map(|f| f.name.clone()))
+            .chain(self.sellable_tanks_with_price().into_iter().map(|(n, _)| n))
+            .collect();
+        let sellable_stackable_strings = self.build_sellable_stackable_names();
         let ghost = if ritual_blocking {
             String::new()
         } else {
@@ -733,6 +739,8 @@ impl App {
                     has_cow_in_current: self.tank().has_cow(),
                     entity_mutations: &entity_mutations_slice,
                     graveyard_names: &graveyard_names,
+                    sellable_unique_names: &sellable_unique_strings,
+                    sellable_stackable_names: &sellable_stackable_strings,
                 },
             )
             .map(|c| c.ghost)
