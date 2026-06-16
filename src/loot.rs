@@ -2,8 +2,8 @@ use rand::RngExt;
 use ratatui::style::Color;
 
 use crate::colors::{
-    BLUE, BROWN, BROWN_DARK, DARK_GRAY, GRAY, GREEN, LIGHT_GREEN, LIGHT_MAGENTA, LIGHT_YELLOW,
-    ORANGE, PINK, PURPLE_LIGHT, RED, SILVER, TAN, TERRACOTTA, WHITE,
+    BLUE, BROWN, BROWN_DARK, CREAM, DARK_GRAY, GRAY, GREEN, LIGHT_GREEN, LIGHT_MAGENTA,
+    LIGHT_YELLOW, ORANGE, PINK, PURPLE_LIGHT, RED, SILVER, TAN, TERRACOTTA, WHITE,
 };
 use crate::economy::{Purchasable, Rarity, Sellable};
 use crate::entities::cow::CowVariant;
@@ -188,6 +188,12 @@ const DEMON_CORE_PANEL_INNER_W: u16 = 18;
 const DEMON_CORE_HOOK_COL: u16 = 13;
 const DEMON_CORE_HOOK_ROW: u16 = 1;
 const DEMON_CORE_DESCRIPTION: &str = "A heavy metal heart quietly rotting with anger. Your <player_species> <species_main_appendage> yearns for its burn. Bring forth its shimmering nightmare in the Radioactivetank. Unchain your biology";
+pub const COMPUTER_SELL_PRICE: u32 = 7_000;
+const COMPUTER_BUY_PRICE: u32 = 7_700;
+const COMPUTER_HOOK_COL: u16 = 10;
+const COMPUTER_HOOK_ROW: u16 = 2;
+const COMPUTER_PANEL_INNER_W: u16 = COMPUTER_HOOK_COL + 3;
+const COMPUTER_DESCRIPTION: &str = "The monster whose influence has changed history, leaving none of it left. The Angelii are speaking, listen. Connect to the terminal and see the Matrixtank.";
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ConsumableKind {
@@ -196,6 +202,7 @@ pub enum ConsumableKind {
     Milk(MilkVariant),
     Necronomicon,
     DemonCore,
+    Computer,
 }
 
 impl ConsumableKind {
@@ -206,6 +213,7 @@ impl ConsumableKind {
         }
         v.push(ConsumableKind::Necronomicon);
         v.push(ConsumableKind::DemonCore);
+        v.push(ConsumableKind::Computer);
         v
     }
 
@@ -216,6 +224,7 @@ impl ConsumableKind {
             ConsumableKind::Milk(m) => m.display_name(),
             ConsumableKind::Necronomicon => "Necronomicon",
             ConsumableKind::DemonCore => "Demon Core",
+            ConsumableKind::Computer => "Computer",
         }
     }
 
@@ -223,6 +232,7 @@ impl ConsumableKind {
         match self {
             ConsumableKind::Necronomicon => Some(crate::tank::TankKind::Hell),
             ConsumableKind::DemonCore => Some(crate::tank::TankKind::Rad),
+            ConsumableKind::Computer => Some(crate::tank::TankKind::Matrix),
             _ => None,
         }
     }
@@ -245,6 +255,7 @@ impl ConsumableKind {
             ConsumableKind::Milk(_) => MILK_PANEL_INNER_W_LOCAL,
             ConsumableKind::Necronomicon => NECRONOMICON_PANEL_INNER_W,
             ConsumableKind::DemonCore => DEMON_CORE_PANEL_INNER_W,
+            ConsumableKind::Computer => COMPUTER_PANEL_INNER_W,
         }
     }
 
@@ -255,6 +266,7 @@ impl ConsumableKind {
             ConsumableKind::Milk(_) => MILK_HOOK_COL,
             ConsumableKind::Necronomicon => 12,
             ConsumableKind::DemonCore => DEMON_CORE_HOOK_COL,
+            ConsumableKind::Computer => COMPUTER_HOOK_COL,
         }
     }
 
@@ -265,6 +277,7 @@ impl ConsumableKind {
             ConsumableKind::Milk(_) => MILK_HOOK_ROW,
             ConsumableKind::Necronomicon => 0,
             ConsumableKind::DemonCore => DEMON_CORE_HOOK_ROW,
+            ConsumableKind::Computer => COMPUTER_HOOK_ROW,
         }
     }
 
@@ -272,9 +285,10 @@ impl ConsumableKind {
         match self {
             ConsumableKind::Coffee => Some("caffeinated"),
             ConsumableKind::Bait => Some("baiting"),
-            ConsumableKind::Milk(_) | ConsumableKind::Necronomicon | ConsumableKind::DemonCore => {
-                None
-            }
+            ConsumableKind::Milk(_)
+            | ConsumableKind::Necronomicon
+            | ConsumableKind::DemonCore
+            | ConsumableKind::Computer => None,
         }
     }
 
@@ -282,9 +296,10 @@ impl ConsumableKind {
         match self {
             ConsumableKind::Coffee => Some(crate::consumable::COFFEE_DURATION),
             ConsumableKind::Bait => Some(crate::consumable::BAIT_DURATION),
-            ConsumableKind::Milk(_) | ConsumableKind::Necronomicon | ConsumableKind::DemonCore => {
-                None
-            }
+            ConsumableKind::Milk(_)
+            | ConsumableKind::Necronomicon
+            | ConsumableKind::DemonCore
+            | ConsumableKind::Computer => None,
         }
     }
 
@@ -292,6 +307,7 @@ impl ConsumableKind {
         match self {
             ConsumableKind::Coffee => 10,
             ConsumableKind::Bait => 15,
+            ConsumableKind::Computer => COMPUTER_BUY_PRICE,
             ConsumableKind::Milk(_) | ConsumableKind::Necronomicon | ConsumableKind::DemonCore => 0,
         }
     }
@@ -302,12 +318,16 @@ impl ConsumableKind {
             ConsumableKind::Bait => 12,
             ConsumableKind::Milk(_) => MILK_SELL_PRICE,
             ConsumableKind::Necronomicon => NECRONOMICON_SELL_PRICE,
+            ConsumableKind::Computer => COMPUTER_SELL_PRICE,
             ConsumableKind::DemonCore => 0,
         }
     }
 
     pub fn is_buyable(self) -> bool {
-        matches!(self, ConsumableKind::Coffee | ConsumableKind::Bait)
+        matches!(
+            self,
+            ConsumableKind::Coffee | ConsumableKind::Bait | ConsumableKind::Computer
+        )
     }
 
     pub fn description(self) -> &'static str {
@@ -321,11 +341,17 @@ impl ConsumableKind {
             ConsumableKind::Milk(m) => m.description(),
             ConsumableKind::Necronomicon => NECRONOMICON_DESCRIPTION,
             ConsumableKind::DemonCore => DEMON_CORE_DESCRIPTION,
+            ConsumableKind::Computer => COMPUTER_DESCRIPTION,
         }
     }
 
     pub fn rarity(self) -> Rarity {
-        Rarity::Common
+        match self {
+            ConsumableKind::Necronomicon
+            | ConsumableKind::DemonCore
+            | ConsumableKind::Computer => Rarity::Legendary,
+            _ => Rarity::Common,
+        }
     }
 }
 
@@ -465,6 +491,27 @@ pub fn demoncore_sprite_rows(glisten_phase: f32) -> Vec<Vec<(char, Color)>> {
     rows
 }
 
+const COMPUTER_SPRITE_LINES: &[&str] = &[
+    " ________",
+    "| ______o|",
+    "||__---_||",
+    "| ______ |",
+    "||______||",
+    "|--------|",
+    "|      O |",
+    "|      | |",
+    "|      | |",
+    "|      | |",
+    "|::::::::|",
+];
+
+pub fn computer_sprite_rows() -> Vec<Vec<(char, Color)>> {
+    COMPUTER_SPRITE_LINES
+        .iter()
+        .map(|line| line.chars().map(|ch| (ch, CREAM)).collect())
+        .collect()
+}
+
 pub const MILK_SPRITE_W: u16 = 9;
 pub const MILK_SPRITE_H: u16 = 7;
 const MILK_HOOK_COL: u16 = 9;
@@ -587,6 +634,7 @@ impl StockItem {
     pub const BAIT: StockItem = StockItem::Consumable(ConsumableKind::Bait);
     pub const NECRONOMICON: StockItem = StockItem::Consumable(ConsumableKind::Necronomicon);
     pub const DEMON_CORE: StockItem = StockItem::Consumable(ConsumableKind::DemonCore);
+    pub const COMPUTER: StockItem = StockItem::Consumable(ConsumableKind::Computer);
 
     pub fn display_name(self) -> &'static str {
         match self {
@@ -655,6 +703,7 @@ impl LootPool {
             PoolSlot::Consumable(ConsumableKind::Necronomicon),
         ));
         slots.push((LEGENDARY, PoolSlot::Consumable(ConsumableKind::DemonCore)));
+        slots.push((LEGENDARY, PoolSlot::Consumable(ConsumableKind::Computer)));
         Self {
             slots,
             devils_luck: 0,
@@ -686,7 +735,8 @@ impl LootPool {
             let legendary = match slot {
                 PoolSlot::Species(s) => s.config().rarity == Rarity::Legendary,
                 PoolSlot::Consumable(ConsumableKind::Necronomicon)
-                | PoolSlot::Consumable(ConsumableKind::DemonCore) => true,
+                | PoolSlot::Consumable(ConsumableKind::DemonCore)
+                | PoolSlot::Consumable(ConsumableKind::Computer) => true,
                 _ => false,
             };
             if legendary {
@@ -712,7 +762,8 @@ impl LootPool {
             let boostable = match slot {
                 PoolSlot::Species(s) => s.config().rarity != Rarity::Common,
                 PoolSlot::Consumable(ConsumableKind::Necronomicon)
-                | PoolSlot::Consumable(ConsumableKind::DemonCore) => true,
+                | PoolSlot::Consumable(ConsumableKind::DemonCore)
+                | PoolSlot::Consumable(ConsumableKind::Computer) => true,
                 _ => false,
             };
             if boostable {

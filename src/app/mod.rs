@@ -412,7 +412,9 @@ impl App {
             return;
         }
         match kind {
-            ConsumableKind::Necronomicon | ConsumableKind::DemonCore => {
+            ConsumableKind::Necronomicon
+            | ConsumableKind::DemonCore
+            | ConsumableKind::Computer => {
                 self.set_overlay(Overlay::TankSummon {
                     input: crate::ui::text_input::TextInput::new(),
                     kind,

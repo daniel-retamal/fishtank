@@ -866,6 +866,7 @@ impl App {
                             let unit_price = match popup.option_idx {
                                 1 => ConsumableKind::Coffee.buy_price(),
                                 2 => ConsumableKind::Bait.buy_price(),
+                                5 => ConsumableKind::Computer.buy_price(),
                                 _ => crate::ui::shop_overlay::FOOD_BUY_PRICE,
                             };
                             let cost = qty * unit_price;
@@ -877,6 +878,10 @@ impl App {
                                     }
                                     2 => {
                                         *self.inventory.entry(StockItem::BAIT).or_insert(0) += qty;
+                                    }
+                                    5 => {
+                                        *self.inventory.entry(StockItem::COMPUTER).or_insert(0) +=
+                                            qty;
                                     }
                                     _ => {
                                         self.food_supply += qty;
@@ -910,6 +915,7 @@ impl App {
                                 let unit_price = match idx {
                                     1 => ConsumableKind::Coffee.buy_price(),
                                     2 => ConsumableKind::Bait.buy_price(),
+                                    5 => ConsumableKind::Computer.buy_price(),
                                     _ => crate::ui::shop_overlay::FOOD_BUY_PRICE,
                                 };
                                 if cash >= unit_price {
@@ -1121,6 +1127,12 @@ impl App {
                                         self.inventory.entry(StockItem::NECRONOMICON).or_insert(0);
                                     *qty = qty.saturating_sub(sell_qty);
                                 }
+                                SellEntry::Computer { .. } => {
+                                    let sell_qty = confirm.sell_qty;
+                                    let qty =
+                                        self.inventory.entry(StockItem::COMPUTER).or_insert(0);
+                                    *qty = qty.saturating_sub(sell_qty);
+                                }
                                 SellEntry::Tank { name, .. } => {
                                     let tank_name = name.clone();
                                     if let Some(pos) =
@@ -1238,6 +1250,16 @@ impl App {
             && ConsumableKind::Necronomicon.sell_price() > 0
         {
             v.push("Necronomicon".to_string());
+        }
+        if self
+            .inventory
+            .get(&StockItem::COMPUTER)
+            .copied()
+            .unwrap_or(0)
+            > 0
+            && ConsumableKind::Computer.sell_price() > 0
+        {
+            v.push("Computer".to_string());
         }
         v
     }
@@ -2113,6 +2135,22 @@ impl App {
                     StockItem::NECRONOMICON,
                     sell_qty,
                     ConsumableKind::Necronomicon.sell_price(),
+                );
+            }
+            commands::SellTarget::Computer { qty } => {
+                let owned = self
+                    .inventory
+                    .get(&StockItem::COMPUTER)
+                    .copied()
+                    .unwrap_or(0);
+                let sell_qty = qty.min(owned);
+                if sell_qty == 0 {
+                    return;
+                }
+                self.sell_stock(
+                    StockItem::COMPUTER,
+                    sell_qty,
+                    ConsumableKind::Computer.sell_price(),
                 );
             }
         }

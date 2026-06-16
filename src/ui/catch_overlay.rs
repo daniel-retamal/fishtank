@@ -9,7 +9,8 @@ use ratatui::{
 };
 
 use crate::colors::{
-    BROWN_DARK, CREAM, DARK_GRAY, KHAKI, LIGHT_GREEN, LIGHT_RED, LIGHT_YELLOW, PINK, RED, WHITE,
+    BROWN_DARK, CREAM, DARK_GRAY, GREEN, KHAKI, LIGHT_GREEN, LIGHT_RED, LIGHT_YELLOW, PINK, RED,
+    WHITE,
 };
 use crate::fishes::{
     fish::{Direction, Fish},
@@ -17,7 +18,7 @@ use crate::fishes::{
 };
 use crate::loot::{
     CashValue, ConsumableKind, ItemKind, JunkSprite, LootKind, bait_sprite_rows,
-    coffee_sprite_rows, demoncore_sprite_rows, milk_sprite_rows,
+    coffee_sprite_rows, computer_sprite_rows, demoncore_sprite_rows, milk_sprite_rows,
 };
 use crate::ui::{
     hints::{HINT_CLOSE, HINT_ENTER_CAPTURE},
@@ -32,6 +33,8 @@ const MILK_OVERLAY_HEIGHT: u16 = 9;
 
 const DEMON_CORE_OVERLAY_HEIGHT: u16 = 9;
 const DEMON_CORE_GLISTEN_SPEED: f32 = 3.0;
+
+const COMPUTER_OVERLAY_HEIGHT: u16 = 13;
 
 const NECRO_OVERLAY_HEIGHT: u16 = 8;
 const NECRO_HOOK_COL: u16 = 12;
@@ -170,6 +173,8 @@ impl Widget for CatchOverlay<'_> {
             NECRO_OVERLAY_HEIGHT
         } else if is_demoncore(&state.loot) {
             DEMON_CORE_OVERLAY_HEIGHT
+        } else if is_computer(&state.loot) {
+            COMPUTER_OVERLAY_HEIGHT
         } else if is_milk(&state.loot) {
             MILK_OVERLAY_HEIGHT
         } else {
@@ -257,6 +262,9 @@ fn overlay_title(loot: &LootKind) -> &'static str {
         LootKind::Item(ItemKind::Consumable(ConsumableKind::DemonCore)) => {
             " Demon Core to the Fishtank! "
         }
+        LootKind::Item(ItemKind::Consumable(ConsumableKind::Computer)) => {
+            " Computer to the Fishtank! "
+        }
         LootKind::Item(_) => " Junk to the Fishtank! ",
     }
 }
@@ -265,6 +273,13 @@ fn is_demoncore(loot: &LootKind) -> bool {
     matches!(
         loot,
         LootKind::Item(ItemKind::Consumable(ConsumableKind::DemonCore))
+    )
+}
+
+fn is_computer(loot: &LootKind) -> bool {
+    matches!(
+        loot,
+        LootKind::Item(ItemKind::Consumable(ConsumableKind::Computer))
     )
 }
 
@@ -279,6 +294,7 @@ fn loot_border_color(state: &CatchState) -> Color {
         },
         l if is_necronomicon(l) => LIGHT_RED,
         l if is_demoncore(l) => LIGHT_GREEN,
+        l if is_computer(l) => GREEN,
         _ => WHITE,
     }
 }
@@ -658,6 +674,7 @@ fn draw_consumable_panel(
         ConsumableKind::Bait => bait_sprite_rows(),
         ConsumableKind::Milk(v) => milk_sprite_rows(v),
         ConsumableKind::DemonCore => demoncore_sprite_rows(state.glisten_phase),
+        ConsumableKind::Computer => computer_sprite_rows(),
         ConsumableKind::Necronomicon => return,
     };
     let sprite_h = rows.len() as u16;

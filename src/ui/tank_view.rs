@@ -43,6 +43,7 @@ use crate::{
     tanks::hell::{
         FACE_COLOR, H_WAVE_AMPLITUDE, H_WAVE_ROW_SPREAD, HellBackground, RANDOM_FACE_COLOR,
     },
+    tanks::matrix::{MatrixBackground, trail_color},
     tanks::radioactive::{FLUID_COLOR, FluidChar, RadBarrel},
     tanks::void::{VOID_EYE_CENTER_X, VOID_EYE_VERTICAL_OFFSET, VoidBackground},
     void_ritual::VOID_TEXT_BELOW_EYE_OFFSET,
@@ -206,6 +207,9 @@ impl Widget for TankView<'_> {
                     render_opaque_grid(&barrel.rows(), barrel.x, bottom_y - 1, area, buf);
                     render_rad_spurts(barrel, bottom_y, area, buf);
                 }
+            }
+            TankBackground::Matrix { bg } => {
+                render_matrix_background(bg, area, buf);
             }
         }
         for bubble in &self.tank.bubbles {
@@ -1261,6 +1265,28 @@ fn render_hell_background(bg: &HellBackground, area: Rect, buf: &mut Buffer) {
 
 fn render_void_background(bg: &VoidBackground, area: Rect, buf: &mut Buffer) {
     render_void_background_at(bg, bg.current_frame, area, buf);
+}
+
+fn render_matrix_background(bg: &MatrixBackground, area: Rect, buf: &mut Buffer) {
+    for col in &bg.columns {
+        let ax = area.x as i32 + col.x;
+        if ax < area.x as i32 || ax >= area.right() as i32 {
+            continue;
+        }
+        let head_row = col.head_y.round() as i32;
+        for (dist, &ch) in col.chars.iter().enumerate() {
+            let y = head_row - dist as i32;
+            if y < 0 || y >= area.height as i32 {
+                continue;
+            }
+            let Some(color) = trail_color(dist) else {
+                continue;
+            };
+            buf[(ax as u16, area.y + y as u16)]
+                .set_char(ch)
+                .set_style(Style::new().fg(color).remove_modifier(Modifier::all()));
+        }
+    }
 }
 
 fn render_void_background_at(bg: &VoidBackground, frame_idx: usize, area: Rect, buf: &mut Buffer) {

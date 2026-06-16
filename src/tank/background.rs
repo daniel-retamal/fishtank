@@ -13,6 +13,7 @@ use crate::tanks::coral::{CoralStructure, FloorAlgae, extend_coral_reef};
 use crate::tanks::desert::{DesertSky, extend_desert_cacti};
 use crate::tanks::haunted::{HauntedBackground, extend_haunted};
 use crate::tanks::hell::{HellBackground, HellPlant, extend_hell_plants};
+use crate::tanks::matrix::{MatrixBackground, extend_matrix};
 use crate::tanks::radioactive::{RadBackground, extend_rad};
 use crate::tanks::void::VoidBackground;
 
@@ -66,6 +67,9 @@ pub enum TankBackground {
     },
     Rad {
         bg: RadBackground,
+    },
+    Matrix {
+        bg: MatrixBackground,
     },
 }
 
@@ -172,6 +176,10 @@ impl TankBackground {
                 );
                 TankBackground::Rad { bg }
             }
+            TankKind::Matrix => {
+                let bg = MatrixBackground::new(INITIAL_WIDTH as i32, rng);
+                TankBackground::Matrix { bg }
+            }
         }
     }
 
@@ -213,6 +221,7 @@ impl TankBackground {
             }
             TankBackground::Desert { bg } => bg.tick(dt, rng, width, height),
             TankBackground::Rad { bg } => bg.tick(dt, rng),
+            TankBackground::Matrix { bg } => bg.tick(dt, height, rng),
         }
     }
 
@@ -273,6 +282,9 @@ impl TankBackground {
                     width as i32 + CORAL_SPAWN_LOOKAHEAD,
                     rng,
                 );
+            }
+            TankBackground::Matrix { bg } => {
+                extend_matrix(&mut bg.columns, width as i32, rng);
             }
         }
     }

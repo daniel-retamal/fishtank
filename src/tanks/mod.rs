@@ -4,5 +4,6 @@ pub mod coral;
 pub mod desert;
 pub mod haunted;
 pub mod hell;
+pub mod matrix;
 pub mod radioactive;
 pub mod void;

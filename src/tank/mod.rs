@@ -4,7 +4,7 @@ use rand::RngExt;
 
 use ratatui::style::Color;
 
-use crate::colors::{CYAN, LIGHT_GREEN, PINK, RED, WHITE};
+use crate::colors::{CYAN, GREEN, LIGHT_GREEN, PINK, RED, WHITE};
 
 use crate::economy::{Purchasable, Rarity, Sellable};
 use crate::entities::bubble::{Bubble, BubbleSpawner};
@@ -48,6 +48,7 @@ pub enum TankKind {
     Candy,
     Desert,
     Rad,
+    Matrix,
 }
 
 pub struct TankConfig {
@@ -154,6 +155,16 @@ impl TankKind {
                 bubble_rate_mult: RAD_BUBBLE_RATE_MULT,
                 auto_mutate_all: true,
             },
+            TankKind::Matrix => TankConfig {
+                display_name: "Matrixtank",
+                buy_price: 8000,
+                sell_price: 7000,
+                capacity: 100,
+                bubble_color: GREEN,
+                rarity: Rarity::Legendary,
+                bubble_rate_mult: 1.0,
+                auto_mutate_all: false,
+            },
         }
     }
 
@@ -209,6 +220,7 @@ impl TankKind {
             TankKind::Candy,
             TankKind::Desert,
             TankKind::Rad,
+            TankKind::Matrix,
         ]
     }
 }

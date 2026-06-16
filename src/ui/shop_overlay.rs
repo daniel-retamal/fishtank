@@ -29,7 +29,7 @@ const OVERLAY_WIDTH: u16 = INNER_WIDTH + 2;
 const PENGUIN_HEIGHT: u16 = 4;
 const PENGUIN_BOX_ROW: u16 = PENGUIN_HEIGHT + 1;
 const MAX_LIST_VISIBLE: usize = 7;
-const BUY_CAT_ITEM_COUNT: usize = 5;
+const BUY_CAT_ITEM_COUNT: usize = 6;
 
 const PENGUIN_LINES: &[&str] = &["  __   ", " ( o>  ", " ///\\  ", " \\V_/_ "];
 
@@ -57,18 +57,19 @@ pub fn buy_cat_available(idx: usize, cash: u32) -> bool {
         2 => cash >= ConsumableKind::Bait.buy_price(),
         3 => cash >= FOOD_BUY_PRICE,
         4 => TankKind::all().iter().any(|k| k.buy_price() <= cash),
+        5 => cash >= ConsumableKind::Computer.buy_price(),
         _ => false,
     }
 }
 
 pub fn buy_cat_first_available(cash: u32) -> usize {
-    (0..5).find(|&i| buy_cat_available(i, cash)).unwrap_or(0)
+    (0..6).find(|&i| buy_cat_available(i, cash)).unwrap_or(0)
 }
 
 pub fn buy_cat_next(current: usize, down: bool, cash: u32) -> usize {
     let step: i32 = if down { 1 } else { -1 };
     let mut idx = current as i32 + step;
-    while (0..5).contains(&idx) {
+    while (0..6).contains(&idx) {
         if buy_cat_available(idx as usize, cash) {
             return idx as usize;
         }
@@ -109,6 +110,9 @@ pub enum SellEntry {
     Necronomicon {
         qty: u32,
     },
+    Computer {
+        qty: u32,
+    },
 }
 
 impl SellEntry {
@@ -129,6 +133,7 @@ impl SellEntry {
             }
             SellEntry::Tank { name, .. } => format!("{} (Fishtank)", name),
             SellEntry::Necronomicon { qty } => format!("Necronomicon ({})", qty),
+            SellEntry::Computer { qty } => format!("Computer ({})", qty),
         }
     }
 
@@ -144,6 +149,7 @@ impl SellEntry {
             ),
             SellEntry::Tank { sell_price, .. } => format!("${}", sell_price),
             SellEntry::Necronomicon { .. } => format!("${}", NECRONOMICON_SELL_PRICE),
+            SellEntry::Computer { .. } => format!("${}", ConsumableKind::Computer.sell_price()),
         }
     }
 
@@ -158,6 +164,7 @@ impl SellEntry {
             }
             SellEntry::Tank { sell_price, .. } => *sell_price,
             SellEntry::Necronomicon { .. } => NECRONOMICON_SELL_PRICE,
+            SellEntry::Computer { .. } => ConsumableKind::Computer.sell_price(),
         }
     }
 
@@ -168,7 +175,8 @@ impl SellEntry {
             | SellEntry::Coffee { qty }
             | SellEntry::Bait { qty }
             | SellEntry::Milk { qty, .. }
-            | SellEntry::Necronomicon { qty } => *qty,
+            | SellEntry::Necronomicon { qty }
+            | SellEntry::Computer { qty } => *qty,
         }
     }
 }
@@ -222,6 +230,10 @@ impl SellMenuState {
         let necro_qty = qty_of(StockItem::NECRONOMICON);
         if necro_qty > 0 {
             items.push(SellEntry::Necronomicon { qty: necro_qty });
+        }
+        let computer_qty = qty_of(StockItem::COMPUTER);
+        if computer_qty > 0 && ConsumableKind::Computer.sell_price() > 0 {
+            items.push(SellEntry::Computer { qty: computer_qty });
         }
         for &variant in MilkVariant::ALL {
             let q = qty_of(StockItem::Consumable(ConsumableKind::Milk(variant)));
@@ -608,6 +620,7 @@ impl Widget for ShopOverlay<'_> {
                     buy_cat_available(2, self.cash),
                     buy_cat_available(3, self.cash),
                     buy_cat_available(4, self.cash),
+                    buy_cat_available(5, self.cash),
                 ];
                 let draw_h = content_h.saturating_sub(1);
                 draw_buy_category_right(
@@ -809,7 +822,7 @@ fn draw_buy_category_right(
     dim: bool,
 ) {
     let (x, y, w, content_h) = (area.x, area.y, area.width, area.height);
-    const ITEMS: &[&str] = &["Fishes", "Coffee", "Bait", "Food", "Fishtank"];
+    const ITEMS: &[&str] = &["Fishes", "Coffee", "Bait", "Food", "Fishtank", "Computer"];
     let visible = content_h as usize;
     let scroll = if selected >= visible {
         selected + 1 - visible
@@ -1071,6 +1084,7 @@ fn draw_category_buy_popup(buf: &mut Buffer, popup: &BuyCategoryPopup, area: Rec
     let (title, unit_price) = match popup.option_idx {
         1 => (" Buy Coffee ", ConsumableKind::Coffee.buy_price()),
         2 => (" Buy Bait ", ConsumableKind::Bait.buy_price()),
+        5 => (" Buy Computer ", ConsumableKind::Computer.buy_price()),
         _ => (" Buy Food ", FOOD_BUY_PRICE),
     };
     draw_qty_popup(
@@ -1211,6 +1225,18 @@ fn draw_sell_confirm_popup(buf: &mut Buffer, confirm: &SellConfirm, entry: &Sell
         );
         return;
     }
+    if let SellEntry::Computer { qty } = entry {
+        draw_qty_popup(
+            buf,
+            " Sell Computer ",
+            confirm.sell_qty,
+            *qty,
+            ConsumableKind::Computer.sell_price(),
+            HINT_ENTER_SELL,
+            area,
+        );
+        return;
+    }
 
     let pop_h: u16 = 5;
     let pop_w: u16 = 40;
@@ -1245,7 +1271,8 @@ fn draw_sell_confirm_popup(buf: &mut Buffer, confirm: &SellConfirm, entry: &Sell
         | SellEntry::Coffee { .. }
         | SellEntry::Bait { .. }
         | SellEntry::Milk { .. }
-        | SellEntry::Necronomicon { .. } => unreachable!(),
+        | SellEntry::Necronomicon { .. }
+        | SellEntry::Computer { .. } => unreachable!(),
     };
     layout.draw_border(buf, &title, WHITE, BACKGROUND);
 

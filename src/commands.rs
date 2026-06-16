@@ -28,6 +28,7 @@ pub enum SellTarget {
     Bait { qty: u32 },
     Milk { variant: MilkVariant, qty: u32 },
     Necronomicon { qty: u32 },
+    Computer { qty: u32 },
 }
 
 impl SellTarget {
@@ -949,6 +950,7 @@ fn resolve_stackable_sell(name_lower: &str, qty: u32) -> Option<SellTarget> {
         "coffee" => Some(SellTarget::Coffee { qty }),
         "bait" => Some(SellTarget::Bait { qty }),
         "necronomicon" => Some(SellTarget::Necronomicon { qty }),
+        "computer" => Some(SellTarget::Computer { qty }),
         _ => MilkVariant::ALL
             .iter()
             .find(|&&v| v.display_name().to_ascii_lowercase() == name_lower)

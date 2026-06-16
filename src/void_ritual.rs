@@ -45,6 +45,7 @@ pub const GIVE_BAIT_QTY: u32 = 625;
 pub const GIVE_JUNK_QTY: u32 = 1000;
 pub const GIVE_NECRONOMICON_QTY: u32 = 1;
 pub const GIVE_DEMON_CORE_QTY: u32 = 1;
+pub const GIVE_COMPUTER_QTY: u32 = 1;
 pub const GIVE_MILK_QTY: u32 = 15;
 pub const GIVE_RESOURCE_AMOUNT: u32 = 5000;
 pub const EXPAND_AMOUNT: u32 = 75;
@@ -296,6 +297,7 @@ fn give_qty_for(kind: crate::loot::ConsumableKind) -> u32 {
         CK::Milk(_) => GIVE_MILK_QTY,
         CK::Necronomicon => GIVE_NECRONOMICON_QTY,
         CK::DemonCore => GIVE_DEMON_CORE_QTY,
+        CK::Computer => GIVE_COMPUTER_QTY,
     }
 }
 
