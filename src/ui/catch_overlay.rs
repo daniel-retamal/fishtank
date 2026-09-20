@@ -17,18 +17,38 @@ use crate::fishes::{
     species::FishSpecies,
 };
 use crate::loot::{
-    CashValue, ConsumableKind, ItemKind, JunkSprite, LootKind, bait_sprite_rows,
-    coffee_sprite_rows, computer_sprite_rows, demoncore_sprite_rows, milk_sprite_rows,
+    ConsumableKind, ItemKind, JunkSprite, LootKind, bait_sprite_rows, blank_blueprint_sprite_rows,
+    blank_wafer_sprite_rows, coffee_sprite_rows, computer_sprite_rows, demoncore_sprite_rows,
+    fabricator_sprite_rows, milk_sprite_rows, part_sprite_rows, void_seed_sprite_rows,
 };
 use crate::ui::{
+    hint_bar::HintBar,
     hints::{HINT_CLOSE, HINT_ENTER_CAPTURE},
+    layout::Screen,
+    panels::{PanelSpec, Panels, Reach},
     render_fish_sprite, table,
     text_input::{TextInput, draw_text_cursor},
 };
+use unicode_width::UnicodeWidthChar;
 
 const BACKGROUND: Color = Color::Reset;
 const RIGHT_PANEL_WIDTH: u16 = 34;
 const OVERLAY_HEIGHT: u16 = 7;
+const CARD_FRAME_ROWS: u16 = 2;
+const MIN_BODY_WIDTH: u16 = 16;
+const TEXT_PAD: u16 = 1;
+const ART_INSET: u16 = 1;
+const HOOK_LINE_MIN_ROWS: u16 = 1;
+const HOOK_LINE: char = '⎹';
+const HOOK: char = 'J';
+const CASH_SPRITE: &str = "[ $ ]";
+const CASH_HOOK_COL: u16 = 5;
+const FOOD_HOOK_COL: u16 = 11;
+const FOOD_HOOK_ROW: u16 = 2;
+const NAME_LABEL: &str = "Name it";
+const CONGRATULATIONS: &str = "Congratulations!";
+const CASH_ASIDE: &str = "Chasing cash, making money.";
+const ADDED_TO_INVENTORY: &str = "Added to inventory";
 const MILK_OVERLAY_HEIGHT: u16 = 9;
 
 const DEMON_CORE_OVERLAY_HEIGHT: u16 = 9;
@@ -157,67 +177,326 @@ impl CatchState {
 
 pub struct CatchOverlay<'a> {
     state: &'a CatchState,
+    screen: Screen,
 }
 
 impl<'a> CatchOverlay<'a> {
-    pub fn new(state: &'a CatchState) -> Self {
-        Self { state }
+    pub fn new(state: &'a CatchState, screen: Screen) -> Self {
+        Self { state, screen }
     }
 }
 
 impl Widget for CatchOverlay<'_> {
-    fn render(self, area: Rect, buf: &mut Buffer) {
+    fn render(self, _area: Rect, buf: &mut Buffer) {
         let state = self.state;
-
-        let overlay_h = if is_necronomicon(&state.loot) {
-            NECRO_OVERLAY_HEIGHT
-        } else if is_demoncore(&state.loot) {
-            DEMON_CORE_OVERLAY_HEIGHT
-        } else if is_computer(&state.loot) {
-            COMPUTER_OVERLAY_HEIGHT
-        } else if is_milk(&state.loot) {
-            MILK_OVERLAY_HEIGHT
-        } else {
-            OVERLAY_HEIGHT
+        let art = CardArt::of(state);
+        let lines = card_lines(state);
+        let hints = card_hints(state);
+        let border = loot_border_color(state);
+        let title = overlay_title(&state.loot);
+        let rows_for = |width: u16| CardLine::rows(&lines, width);
+        let spec = PanelSpec {
+            title: &title,
+            title_style: Style::default()
+                .fg(border)
+                .add_modifier(Modifier::BOLD)
+                .bg(BACKGROUND),
+            border: Style::default().fg(border).bg(BACKGROUND),
+            background: BACKGROUND,
+            side: (art.width, art.height),
+            body_w: RIGHT_PANEL_WIDTH,
+            body_min_w: MIN_BODY_WIDTH.max(CardLine::longest_word(&lines) + TEXT_PAD * 2),
+            body_rows: &rows_for,
+            hints: &hints,
+            reach: Reach::Full,
         };
-        let content_h = overlay_h - 2;
+        let panels = Panels::open(buf, self.screen, &spec);
+        art.draw(buf, panels.side);
+        CardLine::draw_all(buf, panels.body, &lines, state);
+    }
+}
 
-        let left_w = left_panel_inner_w(&state.loot, state.fish.as_ref());
-        let inner_w = left_w + 1 + RIGHT_PANEL_WIDTH;
-        let overlay_w = inner_w + 2;
+enum Sprite<'a> {
+    Fish(&'a Fish),
+    Cells(Vec<Vec<(char, Color)>>),
+}
 
-        let Some(layout) = table::OverlayLayout::centered(area, overlay_w, overlay_h) else {
-            return;
+struct CardArt<'a> {
+    sprite: Sprite<'a>,
+    hook: (u16, u16),
+    width: u16,
+    height: u16,
+}
+
+impl<'a> CardArt<'a> {
+    fn of(state: &'a CatchState) -> Self {
+        let (sprite, hook) = match &state.loot {
+            LootKind::Fish(_) => match state.fish.as_ref() {
+                Some(fish) => (
+                    Sprite::Fish(fish),
+                    (
+                        fish.display_width as u16,
+                        fish.line_sprite().body_row as u16,
+                    ),
+                ),
+                None => (Sprite::Cells(Vec::new()), (0, 0)),
+            },
+            LootKind::Cash(cv) => (
+                Sprite::Cells(vec![
+                    CASH_SPRITE.chars().map(|ch| (ch, cv.color())).collect(),
+                ]),
+                (CASH_HOOK_COL, 0),
+            ),
+            LootKind::Food(_) => (
+                Sprite::Cells(food_sprite_rows()),
+                (FOOD_HOOK_COL, FOOD_HOOK_ROW),
+            ),
+            LootKind::Item(ItemKind::Junk(sprite)) => (
+                Sprite::Cells(sprite.rows.clone()),
+                (JunkSprite::hook_col(), JunkSprite::hook_row()),
+            ),
+            LootKind::Item(ItemKind::Consumable(ConsumableKind::Necronomicon)) => (
+                Sprite::Cells(necro_sprite_rows(&state.necro_eye_open)),
+                (NECRO_HOOK_COL, NECRO_HOOK_ROW),
+            ),
+            LootKind::Item(ItemKind::Consumable(kind)) => (
+                Sprite::Cells(consumable_rows(*kind, state).unwrap_or_default()),
+                (kind.hook_col(), kind.hook_row()),
+            ),
         };
-        layout.clear_bg(buf, BACKGROUND);
+        let mut art = Self {
+            sprite,
+            hook,
+            width: left_panel_inner_w(&state.loot, state.fish.as_ref()),
+            height: 0,
+        };
+        art.height =
+            base_card_height(&state.loot).max(art.rows() + CARD_FRAME_ROWS) - CARD_FRAME_ROWS;
+        art
+    }
 
-        let ox = layout.ox;
-        let oy = layout.oy;
-        let panel_sep_x = ox + 1 + left_w;
-        let border_col = loot_border_color(state);
-        layout.draw_border(buf, overlay_title(&state.loot), border_col, BACKGROUND);
-
-        buf[(panel_sep_x, oy + overlay_h - 1)]
-            .set_char('┴')
-            .set_fg(border_col)
-            .set_bg(BACKGROUND);
-
-        for row in 1..=content_h {
-            buf[(panel_sep_x, oy + row)]
-                .set_char('│')
-                .set_fg(border_col)
-                .set_bg(BACKGROUND);
+    fn rows(&self) -> u16 {
+        match &self.sprite {
+            Sprite::Fish(fish) => fish.line_sprite().rows.len() as u16,
+            Sprite::Cells(rows) => rows.len() as u16,
         }
+    }
 
-        draw_left_panel(buf, state, ox + 1, oy + 1, left_w, content_h);
-        draw_right_panel(
-            buf,
-            state,
-            panel_sep_x + 1,
-            oy + 1,
-            RIGHT_PANEL_WIDTH,
-            content_h,
-        );
+    fn draw(&self, buf: &mut Buffer, area: Rect) {
+        if area.width == 0 || area.height == 0 {
+            return;
+        }
+        let (hook_col, hook_row) = self.hook;
+        let mut top = area.height.saturating_sub(self.rows()) / 2;
+        if top + hook_row == 0 && area.height > self.rows() {
+            top = HOOK_LINE_MIN_ROWS;
+        }
+        let x = area.x + area.width.saturating_sub(self.width) / 2 + ART_INSET;
+        let hook_y = (area.y + top + hook_row).min(area.bottom() - 1);
+        let y = hook_y as i32 - hook_row as i32;
+        let hook_x = x + hook_col;
+        let line = Style::default().fg(DARK_GRAY).bg(BACKGROUND);
+        let inside = |cx: u16, cy: u16| cx < area.right() && cy < area.bottom();
+        for line_y in area.y..hook_y {
+            if inside(hook_x, line_y) {
+                buf[(hook_x, line_y)].set_char(HOOK_LINE).set_style(line);
+            }
+        }
+        match &self.sprite {
+            Sprite::Fish(fish) => {
+                let sprite = fish.line_sprite();
+                let body_y = y + sprite.body_row as i32;
+                if let Ok(body_y) = u16::try_from(body_y) {
+                    render_fish_sprite(buf, &sprite, x, body_y, area, BACKGROUND);
+                }
+            }
+            Sprite::Cells(rows) => draw_cells(buf, rows, x, y, area),
+        }
+        if inside(hook_x, hook_y) {
+            buf[(hook_x, hook_y)].set_char(HOOK).set_style(line);
+        }
+    }
+}
+
+fn draw_cells(buf: &mut Buffer, rows: &[Vec<(char, Color)>], x: u16, y: i32, area: Rect) {
+    for (row_idx, row) in rows.iter().enumerate() {
+        let Ok(row_y) = u16::try_from(y + row_idx as i32) else {
+            continue;
+        };
+        if row_y < area.y {
+            continue;
+        }
+        if row_y >= area.bottom() {
+            return;
+        }
+        let mut col = x;
+        for &(ch, color) in row {
+            let ch_w = UnicodeWidthChar::width(ch).unwrap_or(1) as u16;
+            if col + ch_w > area.right() {
+                break;
+            }
+            buf[(col, row_y)]
+                .set_char(ch)
+                .set_fg(color)
+                .set_bg(BACKGROUND);
+            col += ch_w;
+        }
+    }
+}
+
+enum CardLine {
+    Headline(String),
+    Text(String, Color),
+    Aside(String),
+    Gap,
+    NameInput,
+}
+
+impl CardLine {
+    fn wrapped(text: &str, width: u16) -> Vec<String> {
+        table::wrap_words(text, width.saturating_sub(TEXT_PAD * 2) as usize)
+    }
+
+    fn height(&self, width: u16) -> u16 {
+        match self {
+            CardLine::Headline(text) | CardLine::Text(text, _) | CardLine::Aside(text) => {
+                Self::wrapped(text, width).len() as u16
+            }
+            CardLine::Gap | CardLine::NameInput => 1,
+        }
+    }
+
+    fn longest_word(lines: &[CardLine]) -> u16 {
+        lines
+            .iter()
+            .filter_map(|line| match line {
+                CardLine::Headline(text) | CardLine::Text(text, _) | CardLine::Aside(text) => {
+                    Some(text)
+                }
+                CardLine::Gap | CardLine::NameInput => None,
+            })
+            .flat_map(|text| text.split_whitespace())
+            .map(|word| table::visual_width(word) as u16)
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn rows(lines: &[CardLine], width: u16) -> u16 {
+        lines.iter().map(|line| line.height(width)).sum()
+    }
+
+    fn draw_all(buf: &mut Buffer, body: Rect, lines: &[CardLine], state: &CatchState) {
+        if body.height == 0 {
+            return;
+        }
+        let x = body.x + TEXT_PAD;
+        let room = body.width.saturating_sub(TEXT_PAD * 2);
+        let has_input = lines.iter().any(|line| matches!(line, CardLine::NameInput));
+        let squeezed = Self::rows(lines, body.width) > body.height;
+        let input_y = body.bottom() - 1;
+        let text_bottom = if squeezed && has_input {
+            input_y
+        } else {
+            body.bottom()
+        };
+        let mut y = body.y;
+        for line in lines {
+            let fits = |at: u16| at < text_bottom;
+            match line {
+                CardLine::Gap => y += 1,
+                CardLine::NameInput => {
+                    let at = if squeezed { input_y } else { y };
+                    draw_text_cursor(
+                        buf,
+                        &state.name_input,
+                        state.cursor_visible,
+                        x,
+                        at,
+                        room,
+                        BACKGROUND,
+                    );
+                    y += 1;
+                }
+                CardLine::Headline(text) | CardLine::Text(text, _) | CardLine::Aside(text) => {
+                    let style = line.style();
+                    for piece in Self::wrapped(text, body.width) {
+                        if !fits(y) {
+                            break;
+                        }
+                        let piece_x = match line {
+                            CardLine::Aside(_) => {
+                                x + room.saturating_sub(table::visual_width(&piece) as u16)
+                            }
+                            _ => x,
+                        };
+                        buf.set_stringn(piece_x, y, &piece, room as usize, style);
+                        y += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    fn style(&self) -> Style {
+        let base = Style::default().bg(BACKGROUND);
+        match self {
+            CardLine::Headline(_) => base.fg(WHITE).add_modifier(Modifier::BOLD),
+            CardLine::Text(_, color) => base.fg(*color),
+            CardLine::Aside(_) => base.fg(DARK_GRAY),
+            CardLine::Gap | CardLine::NameInput => base.fg(WHITE),
+        }
+    }
+}
+
+fn card_lines(state: &CatchState) -> Vec<CardLine> {
+    match &state.loot {
+        LootKind::Fish(species) => vec![
+            CardLine::Headline(format!("{} captured!", species.display_name())),
+            CardLine::Gap,
+            CardLine::Text(NAME_LABEL.to_string(), WHITE),
+            CardLine::NameInput,
+        ],
+        LootKind::Cash(cv) => vec![
+            CardLine::Headline(CONGRATULATIONS.to_string()),
+            CardLine::Text(format!("${} found!", cv.amount()), cv.color()),
+            CardLine::Gap,
+            CardLine::Aside(CASH_ASIDE.to_string()),
+        ],
+        LootKind::Food(amount) => vec![
+            CardLine::Headline(CONGRATULATIONS.to_string()),
+            CardLine::Text(format!("+{amount} food!"), WHITE),
+        ],
+        LootKind::Item(item) => vec![
+            CardLine::Text(format!("{}!", item.display_name()), WHITE),
+            CardLine::Text(ADDED_TO_INVENTORY.to_string(), WHITE),
+            CardLine::Gap,
+            CardLine::Aside(format!(
+                "You now have {} {}(s)",
+                state.item_qty,
+                item.display_name()
+            )),
+        ],
+    }
+}
+
+fn card_hints(state: &CatchState) -> HintBar {
+    if state.is_fish() {
+        return HintBar::new(HINT_ENTER_CAPTURE);
+    }
+    HintBar::new(HINT_CLOSE)
+}
+
+fn base_card_height(loot: &LootKind) -> u16 {
+    if is_necronomicon(loot) {
+        NECRO_OVERLAY_HEIGHT
+    } else if is_demoncore(loot) {
+        DEMON_CORE_OVERLAY_HEIGHT
+    } else if is_computer(loot) {
+        COMPUTER_OVERLAY_HEIGHT
+    } else if is_milk(loot) {
+        MILK_OVERLAY_HEIGHT
+    } else {
+        OVERLAY_HEIGHT
     }
 }
 
@@ -248,25 +527,15 @@ fn left_panel_inner_w(loot: &LootKind, fish: Option<&Fish>) -> u16 {
     }
 }
 
-fn overlay_title(loot: &LootKind) -> &'static str {
-    match loot {
-        LootKind::Fish(_) => " Fish to the Fishtank! ",
-        LootKind::Cash(_) => " Cash to the Fishtank! ",
-        LootKind::Food(_) => " Food to the Fishtank! ",
-        LootKind::Item(ItemKind::Consumable(ConsumableKind::Coffee)) => " Coffee to the Fishtank! ",
-        LootKind::Item(ItemKind::Consumable(ConsumableKind::Bait)) => " Bait to the Fishtank! ",
-        LootKind::Item(ItemKind::Consumable(ConsumableKind::Milk(_))) => " Milk to the Fishtank! ",
-        LootKind::Item(ItemKind::Consumable(ConsumableKind::Necronomicon)) => {
-            " Necronomicon to the Fishtank! "
-        }
-        LootKind::Item(ItemKind::Consumable(ConsumableKind::DemonCore)) => {
-            " Demon Core to the Fishtank! "
-        }
-        LootKind::Item(ItemKind::Consumable(ConsumableKind::Computer)) => {
-            " Computer to the Fishtank! "
-        }
-        LootKind::Item(_) => " Junk to the Fishtank! ",
-    }
+fn overlay_title(loot: &LootKind) -> String {
+    let catch = match loot {
+        LootKind::Fish(_) => "Fish",
+        LootKind::Cash(_) => "Cash",
+        LootKind::Food(_) => "Food",
+        LootKind::Item(ItemKind::Consumable(ConsumableKind::Milk(_))) => "Milk",
+        LootKind::Item(item) => item.display_name(),
+    };
+    format!(" {catch} to the Fishtank! ")
 }
 
 fn is_demoncore(loot: &LootKind) -> bool {
@@ -296,42 +565,6 @@ fn loot_border_color(state: &CatchState) -> Color {
         l if is_demoncore(l) => LIGHT_GREEN,
         l if is_computer(l) => GREEN,
         _ => WHITE,
-    }
-}
-
-fn draw_left_panel(buf: &mut Buffer, state: &CatchState, x: u16, y: u16, w: u16, h: u16) {
-    if w == 0 || h == 0 {
-        return;
-    }
-    match &state.loot {
-        LootKind::Fish(_) => {
-            if let Some(ref fish) = state.fish {
-                draw_fish_panel(buf, fish, x, y, w, h);
-            }
-        }
-        LootKind::Cash(cv) => draw_cash_panel(buf, *cv, x, y, w, h),
-        LootKind::Food(_) => draw_food_panel(buf, x, y, w, h),
-        LootKind::Item(item) => match item {
-            ItemKind::Junk(sprite) => draw_junk_panel(buf, sprite, x, y, w, h),
-            ItemKind::Consumable(ConsumableKind::Necronomicon) => {
-                draw_necro_panel(buf, &state.necro_eye_open, x, y, w, h)
-            }
-            ItemKind::Consumable(kind) => draw_consumable_panel(buf, *kind, state, x, y, w, h),
-        },
-    }
-}
-
-fn draw_right_panel(buf: &mut Buffer, state: &CatchState, x: u16, y: u16, w: u16, h: u16) {
-    if w == 0 || h == 0 {
-        return;
-    }
-    match &state.loot {
-        LootKind::Fish(species) => draw_fish_right_panel(buf, state, *species, x, y, w, h),
-        LootKind::Cash(cv) => draw_cash_right_panel(buf, *cv, x, y, w, h),
-        LootKind::Food(amount) => draw_food_right_panel(buf, *amount, x, y, w, h),
-        LootKind::Item(item) => {
-            draw_consumable_item_right_panel(buf, item.display_name(), state.item_qty, x, y, w, h)
-        }
     }
 }
 
@@ -433,118 +666,6 @@ fn necro_sprite_rows(eye_open: &[bool]) -> Vec<Vec<(char, Color)>> {
     ]
 }
 
-fn draw_necro_panel(buf: &mut Buffer, eye_open: &[bool], x: u16, y: u16, w: u16, h: u16) {
-    let sprite_x = x + 1;
-    let rows = necro_sprite_rows(eye_open);
-    let sprite_h = rows.len() as u16;
-    let vert_pad = (h.saturating_sub(sprite_h)) / 2;
-    let sprite_y = y + vert_pad;
-    let hook_x = sprite_x + NECRO_HOOK_COL;
-    let hook_y = sprite_y + NECRO_HOOK_ROW;
-    let lines_above = vert_pad + NECRO_HOOK_ROW;
-
-    for i in 0..lines_above {
-        if hook_x < x + w {
-            buf[(hook_x, y + i)]
-                .set_char('⎹')
-                .set_fg(DARK_GRAY)
-                .set_bg(BACKGROUND);
-        }
-    }
-
-    for (row_idx, row) in rows.iter().enumerate() {
-        let row_y = sprite_y + row_idx as u16;
-        if row_y >= y + h {
-            break;
-        }
-        for (col_idx, (ch, color)) in row.iter().enumerate() {
-            let col = sprite_x + col_idx as u16;
-            if col >= x + w {
-                break;
-            }
-            buf[(col, row_y)]
-                .set_char(*ch)
-                .set_fg(*color)
-                .set_bg(BACKGROUND);
-        }
-    }
-
-    if hook_x < x + w && hook_y < y + h {
-        buf[(hook_x, hook_y)]
-            .set_char('J')
-            .set_fg(DARK_GRAY)
-            .set_bg(BACKGROUND);
-    }
-}
-
-fn draw_fish_panel(buf: &mut Buffer, fish: &Fish, x: u16, y: u16, w: u16, h: u16) {
-    let fish_dw = fish.display_width as u16;
-    let fish_x = x + 1;
-    let hook_x = fish_x + fish_dw;
-
-    let row_offset = if h <= 1 { 0 } else { (h / 2).max(1) };
-    let fish_y = y + row_offset;
-
-    for i in 0..row_offset {
-        if hook_x < x + w {
-            buf[(hook_x, y + i)]
-                .set_char('⎹')
-                .set_fg(DARK_GRAY)
-                .set_bg(BACKGROUND);
-        }
-    }
-
-    let sprite = fish.line_sprite();
-    let max_w = (x + w).saturating_sub(fish_x);
-    render_fish_sprite(buf, &sprite, fish_x, fish_y, max_w, BACKGROUND);
-
-    if hook_x < x + w {
-        buf[(hook_x, fish_y)]
-            .set_char('J')
-            .set_fg(DARK_GRAY)
-            .set_bg(BACKGROUND);
-    }
-}
-
-fn draw_cash_panel(buf: &mut Buffer, cv: CashValue, x: u16, y: u16, w: u16, h: u16) {
-    let sprite_x = x + 1;
-    let sprite_h: u16 = 1;
-    let vert_pad = (h.saturating_sub(sprite_h)) / 2;
-    let sprite_y = y + vert_pad;
-    let hook_x = sprite_x + 5;
-
-    for i in 0..vert_pad {
-        if hook_x < x + w {
-            buf[(hook_x, y + i)]
-                .set_char('⎹')
-                .set_fg(DARK_GRAY)
-                .set_bg(BACKGROUND);
-        }
-    }
-
-    let color = cv.color();
-    let sprite = "[ $ ]";
-    if sprite_y < y + h {
-        for (i, ch) in sprite.chars().enumerate() {
-            let col = sprite_x + i as u16;
-            if col >= x + w {
-                break;
-            }
-            buf[(col, sprite_y)]
-                .set_char(ch)
-                .set_fg(color)
-                .set_bg(BACKGROUND);
-        }
-    }
-
-    if hook_x < x + w && sprite_y < y + h {
-        buf[(hook_x, sprite_y)]
-            .set_char('J')
-            .set_fg(DARK_GRAY)
-            .set_bg(BACKGROUND);
-    }
-}
-
 fn food_sprite_rows() -> Vec<Vec<(char, Color)>> {
     vec![
         vec![
@@ -614,295 +735,18 @@ fn food_sprite_rows() -> Vec<Vec<(char, Color)>> {
     ]
 }
 
-fn draw_food_panel(buf: &mut Buffer, x: u16, y: u16, w: u16, h: u16) {
-    let sprite_x = x + 1;
-    let rows = food_sprite_rows();
-    let sprite_h = rows.len() as u16;
-    let vert_pad = (h.saturating_sub(sprite_h)) / 2;
-    let sprite_y = y + vert_pad;
-    let hook_col: u16 = 11;
-    let hook_row: u16 = 2;
-    let hook_x = sprite_x + hook_col;
-    let hook_y = sprite_y + hook_row;
-    let lines_above = vert_pad + hook_row;
-
-    for i in 0..lines_above {
-        if hook_x < x + w {
-            buf[(hook_x, y + i)]
-                .set_char('⎹')
-                .set_fg(DARK_GRAY)
-                .set_bg(BACKGROUND);
-        }
-    }
-
-    for (row_idx, row) in rows.iter().enumerate() {
-        let row_y = sprite_y + row_idx as u16;
-        if row_y >= y + h {
-            break;
-        }
-        for (col_idx, (ch, color)) in row.iter().enumerate() {
-            let col = sprite_x + col_idx as u16;
-            if col >= x + w {
-                break;
-            }
-            buf[(col, row_y)]
-                .set_char(*ch)
-                .set_fg(*color)
-                .set_bg(BACKGROUND);
-        }
-    }
-
-    if hook_x < x + w && hook_y < y + h {
-        buf[(hook_x, hook_y)]
-            .set_char('J')
-            .set_fg(DARK_GRAY)
-            .set_bg(BACKGROUND);
-    }
-}
-
-fn draw_consumable_panel(
-    buf: &mut Buffer,
-    kind: ConsumableKind,
-    state: &CatchState,
-    x: u16,
-    y: u16,
-    w: u16,
-    h: u16,
-) {
-    let rows = match kind {
+fn consumable_rows(kind: ConsumableKind, state: &CatchState) -> Option<Vec<Vec<(char, Color)>>> {
+    Some(match kind {
         ConsumableKind::Coffee => coffee_sprite_rows(state.anim_phase),
         ConsumableKind::Bait => bait_sprite_rows(),
         ConsumableKind::Milk(v) => milk_sprite_rows(v),
         ConsumableKind::DemonCore => demoncore_sprite_rows(state.glisten_phase),
         ConsumableKind::Computer => computer_sprite_rows(),
-        ConsumableKind::Necronomicon => return,
-    };
-    let sprite_h = rows.len() as u16;
-    let sprite_x = x + 1;
-    let vert_pad = (h.saturating_sub(sprite_h)) / 2;
-    let sprite_y = y + vert_pad;
-    let hook_col = kind.hook_col();
-    let hook_row = kind.hook_row();
-    let hook_x = sprite_x + hook_col;
-    let hook_y = sprite_y + hook_row;
-    let lines_above = vert_pad + hook_row;
-
-    for i in 0..lines_above {
-        if hook_x < x + w {
-            buf[(hook_x, y + i)]
-                .set_char('⎹')
-                .set_fg(DARK_GRAY)
-                .set_bg(BACKGROUND);
-        }
-    }
-
-    for (row_idx, row) in rows.iter().enumerate() {
-        let row_y = sprite_y + row_idx as u16;
-        if row_y >= y + h {
-            break;
-        }
-        for (col, (ch, color)) in row.iter().enumerate() {
-            if sprite_x + col as u16 >= x + w {
-                break;
-            }
-            buf[(sprite_x + col as u16, row_y)]
-                .set_char(*ch)
-                .set_fg(*color)
-                .set_bg(BACKGROUND);
-        }
-    }
-
-    if hook_x < x + w && hook_y < y + h {
-        buf[(hook_x, hook_y)]
-            .set_char('J')
-            .set_fg(DARK_GRAY)
-            .set_bg(BACKGROUND);
-    }
-}
-
-fn draw_junk_panel(buf: &mut Buffer, sprite: &JunkSprite, x: u16, y: u16, w: u16, h: u16) {
-    let sprite_x = x + 1;
-    let sprite_h = JunkSprite::sprite_height();
-    let vert_pad = (h.saturating_sub(sprite_h)) / 2;
-    let sprite_y = y + vert_pad;
-    let hook_col = JunkSprite::hook_col();
-    let hook_row = JunkSprite::hook_row();
-    let hook_x = sprite_x + hook_col;
-    let hook_y = sprite_y + hook_row;
-    let lines_above = vert_pad + hook_row;
-
-    for i in 0..lines_above {
-        if hook_x < x + w {
-            buf[(hook_x, y + i)]
-                .set_char('⎹')
-                .set_fg(DARK_GRAY)
-                .set_bg(BACKGROUND);
-        }
-    }
-
-    for (row_idx, row) in sprite.rows.iter().enumerate() {
-        let row_y = sprite_y + row_idx as u16;
-        if row_y >= y + h {
-            break;
-        }
-        let mut col = 0u16;
-        for (ch, color) in row {
-            let cw = table::visual_width(&ch.to_string()) as u16;
-            if sprite_x + col + cw > x + w {
-                break;
-            }
-            buf[(sprite_x + col, row_y)]
-                .set_char(*ch)
-                .set_fg(*color)
-                .set_bg(BACKGROUND);
-            col += cw;
-        }
-    }
-
-    if hook_x < x + w && hook_y < y + h {
-        buf[(hook_x, hook_y)]
-            .set_char('J')
-            .set_fg(DARK_GRAY)
-            .set_bg(BACKGROUND);
-    }
-}
-
-fn draw_fish_right_panel(
-    buf: &mut Buffer,
-    state: &CatchState,
-    species: FishSpecies,
-    x: u16,
-    y: u16,
-    w: u16,
-    h: u16,
-) {
-    let caught_line = format!("{} captured!", species.display_name());
-    let white_bold = Style::default()
-        .fg(WHITE)
-        .add_modifier(Modifier::BOLD)
-        .bg(BACKGROUND);
-    let white = Style::default().fg(WHITE).bg(BACKGROUND);
-
-    if h > 0 {
-        buf.set_string(
-            x,
-            y,
-            table::truncate_str(&caught_line, w as usize),
-            white_bold,
-        );
-    }
-    if h > 2 {
-        buf.set_string(x, y + 2, table::truncate_str("Name it", w as usize), white);
-    }
-    if h > 3 {
-        draw_text_cursor(
-            buf,
-            &state.name_input,
-            state.cursor_visible,
-            x,
-            y + 3,
-            w,
-            BACKGROUND,
-        );
-    }
-    if h > 4 {
-        let hint = Style::default().fg(DARK_GRAY).bg(BACKGROUND);
-        let right_hint = HINT_ENTER_CAPTURE;
-        let rw = right_hint.len() as u16;
-        if rw < w {
-            buf.set_string(x + w - rw - 1, y + 4, right_hint, hint);
-        }
-    }
-}
-
-fn draw_cash_right_panel(buf: &mut Buffer, cv: CashValue, x: u16, y: u16, w: u16, h: u16) {
-    let white_bold = Style::default()
-        .fg(WHITE)
-        .add_modifier(Modifier::BOLD)
-        .bg(BACKGROUND);
-    let cash_style = Style::default().fg(cv.color()).bg(BACKGROUND);
-    let hint = Style::default().fg(DARK_GRAY).bg(BACKGROUND);
-
-    if h > 0 {
-        buf.set_string(
-            x,
-            y,
-            table::truncate_str("Congratulations!", w as usize),
-            white_bold,
-        );
-    }
-    if h > 1 {
-        let msg = format!("${} found!", cv.amount());
-        buf.set_string(x, y + 1, table::truncate_str(&msg, w as usize), cash_style);
-    }
-    if h > 3 {
-        let text = "Chasing cash, making money.";
-        let tx = x + w - 1 - (text.len() as u16).min(w - 1);
-        buf.set_string(tx, y + 3, text, hint);
-    }
-    if h > 4 {
-        let text = HINT_CLOSE;
-        let tx = x + w - 1 - (text.len() as u16).min(w - 1);
-        buf.set_string(tx, y + 4, text, hint);
-    }
-}
-
-fn draw_food_right_panel(buf: &mut Buffer, amount: u32, x: u16, y: u16, w: u16, h: u16) {
-    let white_bold = Style::default()
-        .fg(WHITE)
-        .add_modifier(Modifier::BOLD)
-        .bg(BACKGROUND);
-    let white = Style::default().fg(WHITE).bg(BACKGROUND);
-    let hint = Style::default().fg(DARK_GRAY).bg(BACKGROUND);
-
-    if h > 0 {
-        buf.set_string(
-            x,
-            y,
-            table::truncate_str("Congratulations!", w as usize),
-            white_bold,
-        );
-    }
-    if h > 1 {
-        let msg = format!("+{} food!", amount);
-        buf.set_string(x, y + 1, table::truncate_str(&msg, w as usize), white);
-    }
-    if h > 4 {
-        let text = HINT_CLOSE;
-        let tx = x + w - 1 - (text.len() as u16).min(w - 1);
-        buf.set_string(tx, y + 4, text, hint);
-    }
-}
-
-fn draw_consumable_item_right_panel(
-    buf: &mut Buffer,
-    item_name: &str,
-    qty: u32,
-    x: u16,
-    y: u16,
-    w: u16,
-    h: u16,
-) {
-    let white = Style::default().fg(WHITE).bg(BACKGROUND);
-    let hint = Style::default().fg(DARK_GRAY).bg(BACKGROUND);
-
-    let line0 = format!("{}!", item_name);
-    let line1 = "Added to inventory";
-    if h > 0 {
-        buf.set_string(x, y, table::truncate_str(&line0, w as usize), white);
-    }
-    if h > 1 {
-        buf.set_string(x, y + 1, table::truncate_str(line1, w as usize), white);
-    }
-    if h >= 4 {
-        let qty_msg = format!("You now have {} {}(s)", qty, item_name);
-        let qty_msg = table::truncate_str(&qty_msg, (w - 1) as usize);
-        let tx = x + w - 1 - (qty_msg.len() as u16).min(w - 1);
-        buf.set_string(tx, y + h - 2, qty_msg, hint);
-    }
-    if h >= 3 {
-        let text = HINT_CLOSE;
-        let tx = x + w - 1 - (text.len() as u16).min(w - 1);
-        buf.set_string(tx, y + h - 1, text, hint);
-    }
+        ConsumableKind::BlankWafer => blank_wafer_sprite_rows(),
+        ConsumableKind::Part(part) => part_sprite_rows(part),
+        ConsumableKind::Fabricator => fabricator_sprite_rows(),
+        ConsumableKind::BlankBlueprint => blank_blueprint_sprite_rows(),
+        ConsumableKind::VoidSeed => void_seed_sprite_rows(),
+        ConsumableKind::Necronomicon => return None,
+    })
 }

@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 use ratatui::style::Color;
 
 use crate::economy::{Purchasable, Rarity, Sellable};
+use crate::tank::TankKind;
 
 pub const EYE_ROUND: char = 'º';
 pub const EYE_CIRCLE: char = 'ʘ';
@@ -47,6 +48,7 @@ pub enum FishSpecies {
     Kuro,
     Candyfish,
     Holyfish,
+    Botfish,
     Unfish,
 }
 
@@ -63,9 +65,24 @@ impl FishSpecies {
         &WILD_SPECIES
     }
 
+    pub fn native_to(kind: TankKind) -> Vec<FishSpecies> {
+        ALL_SPECIES
+            .iter()
+            .copied()
+            .filter(|species| species.config().habitat == Habitat::Native(kind))
+            .collect()
+    }
+
     pub fn buy_price(self) -> u32 {
         self.config().rarity.fish_buy_price()
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Habitat {
+    Everywhere,
+    Native(TankKind),
+    Nowhere,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -78,12 +95,13 @@ pub struct SpeciesConfig {
     pub speed_range: (f32, f32),
     pub rarity: Rarity,
     pub buyable: bool,
-    pub wild_loot: bool,
+    pub habitat: Habitat,
     pub abductable: bool,
     pub mutatable: bool,
     pub markable: bool,
     pub auto_glisten: bool,
     pub auto_mutate: bool,
+    pub programmable: bool,
     pub can_zoomie: bool,
     pub zoomie_vertical: bool,
     pub eye_color: Option<Color>,
@@ -133,6 +151,7 @@ pub const ALL_SPECIES: &[FishSpecies] = &[
     FishSpecies::Kuro,
     FishSpecies::Candyfish,
     FishSpecies::Holyfish,
+    FishSpecies::Botfish,
 ];
 
 static BUYABLE_SPECIES: LazyLock<Vec<FishSpecies>> = LazyLock::new(|| {
@@ -147,7 +166,7 @@ static WILD_SPECIES: LazyLock<Vec<FishSpecies>> = LazyLock::new(|| {
     ALL_SPECIES
         .iter()
         .copied()
-        .filter(|species| species.config().wild_loot)
+        .filter(|species| species.config().habitat == Habitat::Everywhere)
         .collect()
 });
 
@@ -248,6 +267,7 @@ static TURBOFISH_PALETTE: [Color; 2] = [YELLOW, ORANGE];
 
 static CASHFISH_PALETTE: [Color; 1] = [LIGHT_RED];
 static HOLYFISH_PALETTE: [Color; 1] = [GRAY];
+static BOTFISH_PALETTE: [Color; 1] = [DARK_GRAY];
 
 static AKA_PALETTE: [Color; 1] = [RED];
 static KURO_PALETTE: [Color; 1] = [DARK_GRAY];
@@ -291,7 +311,9 @@ pub static MUTANT_WHITE_PALETTE: [Color; 3] = [GRAY, SILVER, WHITE];
 
 static ANCHOVETA_L: [&str; 1] = ["<><"];
 static ANCHOVETA_R: [&str; 1] = ["><>"];
-static JELLYFISH_LR: [&str; 1] = ["ള"];
+static JELLYFISH_LR: [&str; 1] = ["ଳ"];
+static BOTFISH_L: [&str; 1] = ["-º]]]]]-]"];
+static BOTFISH_R: [&str; 1] = ["[-[[[[[º-"];
 
 fn rarity_arrays(rarity: Rarity) -> ([usize; 4], [u32; 4], [u32; 4]) {
     match rarity {
@@ -320,12 +342,13 @@ fn standard_config(
         speed_range,
         rarity,
         buyable: true,
-        wild_loot: true,
+        habitat: Habitat::Everywhere,
         abductable: true,
         mutatable: true,
         markable: true,
         auto_glisten: false,
         auto_mutate: false,
+        programmable: false,
         can_zoomie: true,
         zoomie_vertical: false,
         eye_color: None,
@@ -356,12 +379,13 @@ fn fixed_config(
         speed_range,
         rarity,
         buyable: true,
-        wild_loot: true,
+        habitat: Habitat::Everywhere,
         abductable: true,
         mutatable: true,
         markable: true,
         auto_glisten: false,
         auto_mutate: false,
+        programmable: false,
         can_zoomie: true,
         zoomie_vertical: false,
         eye_color: None,
@@ -374,6 +398,10 @@ fn fixed_config(
 }
 
 impl FishSpecies {
+    pub fn un_name(self) -> String {
+        format!("Un{}", self.config().name)
+    }
+
     pub fn config(self) -> SpeciesConfig {
         use FishSpecies::*;
         use PatternKind::*;
@@ -480,12 +508,13 @@ impl FishSpecies {
                     speed_range: (1.0, 2.5),
                     rarity: Rare,
                     buyable: true,
-                    wild_loot: true,
+                    habitat: Habitat::Everywhere,
                     abductable: true,
                     mutatable: true,
                     markable: true,
                     auto_glisten: false,
                     auto_mutate: false,
+                    programmable: false,
                     can_zoomie: true,
                     zoomie_vertical: false,
                     eye_color: None,
@@ -590,7 +619,7 @@ impl FishSpecies {
                     (2.0, 3.5),
                     Legendary,
                 );
-                config.wild_loot = false;
+                config.habitat = Habitat::Native(TankKind::Hell);
                 config.eye_color = Some(LIGHT_YELLOW);
                 config
             }
@@ -605,9 +634,26 @@ impl FishSpecies {
                     Legendary,
                 );
                 config.buyable = false;
+                config.habitat = Habitat::Native(TankKind::Void);
                 config.mutatable = false;
                 config.markable = false;
                 config.eye_color = Some(LIGHT_YELLOW);
+                config
+            }
+            Botfish => {
+                let mut config = fixed_config(
+                    "Botfish",
+                    &BOTFISH_L,
+                    &BOTFISH_R,
+                    &BOTFISH_PALETTE,
+                    Solid,
+                    (1.0, 2.0),
+                    Legendary,
+                );
+                config.habitat = Habitat::Native(TankKind::Matrix);
+                config.abductable = false;
+                config.markable = false;
+                config.programmable = true;
                 config
             }
             Mutantfish => SpeciesConfig {
@@ -619,12 +665,13 @@ impl FishSpecies {
                 speed_range: (2.0, 5.0),
                 rarity: Legendary,
                 buyable: true,
-                wild_loot: true,
+                habitat: Habitat::Native(TankKind::Rad),
                 abductable: true,
                 mutatable: true,
                 markable: true,
                 auto_glisten: true,
                 auto_mutate: true,
+                programmable: false,
                 can_zoomie: true,
                 zoomie_vertical: false,
                 eye_color: None,
@@ -645,7 +692,7 @@ impl FishSpecies {
                     Legendary,
                 );
                 config.buyable = false;
-                config.wild_loot = false;
+                config.habitat = Habitat::Native(TankKind::Candy);
                 config
             }
             Unfish => SpeciesConfig {
@@ -657,12 +704,13 @@ impl FishSpecies {
                 speed_range: (2.0, 4.0),
                 rarity: Common,
                 buyable: false,
-                wild_loot: false,
+                habitat: Habitat::Nowhere,
                 abductable: true,
                 mutatable: true,
                 markable: true,
                 auto_glisten: false,
                 auto_mutate: false,
+                programmable: false,
                 can_zoomie: false,
                 zoomie_vertical: false,
                 eye_color: None,

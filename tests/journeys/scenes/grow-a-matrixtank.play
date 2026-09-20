@@ -1,0 +1,12 @@
+# SCENE · connect to the Robotics bench the way a player does: a Computer is FOUND, never bought (§19),
+# so take the one the sea gave you, grow a Matrixtank with it, and go home.
+# A new tank switches you into it.
+
+run /give computer
+run /consume computer
+expect Name your
+snap the Computer names the tank it grows
+type Zion
+key enter
+run /switch "Fishtank"
+absent Zion

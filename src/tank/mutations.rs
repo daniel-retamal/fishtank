@@ -1,6 +1,7 @@
 use rand::RngExt;
 
 use crate::entities::cow::Cow;
+use crate::fishes::botfish::Strike;
 use crate::fishes::fish::{Fish, compute_display_width};
 use crate::fishes::mutant::{
     EXTRA_BODY_FOR_DOUBLE, EyeState, MIN_BODY_CHARS, MutantState, MutantTail, MutationRecord,
@@ -12,12 +13,19 @@ use crate::fishes::species::{BodyTemplate, FishSpecies};
 use crate::fishes::unfish::{UnfishKind, worm_display_width};
 use crate::util::{exponential_event, hyperbolic_scale, sample_exponential};
 
-use super::Tank;
 use super::{
     MIN_SPLIT_BODY_SIZE, MUTATION_ALPHA, MUTATION_INTERVAL_BASE, MUTATION_MEAN_FLOOR_SECS,
     RAD_AUTO_MUTANT_MEAN_SECS, RAD_MILK_MUTATION_TICK_INTERVAL, RAD_MUTATION_MEAN_SECS,
     RAD_WEIGHT_GAIN_G, RAD_WEIGHT_INTERVAL_SECS,
 };
+use super::{Tank, WorldSignal};
+
+fn rad_mean_secs(fish: &Fish) -> f32 {
+    if fish.auto_mutate_stacks() > 0 {
+        return RAD_AUTO_MUTANT_MEAN_SECS;
+    }
+    RAD_MUTATION_MEAN_SECS
+}
 
 fn mutation_affects_both_halves(mutation: Mutation) -> bool {
     !matches!(
@@ -39,13 +47,11 @@ fn restore_from_snapshot(snapshot: &Fish, x: f32, y: f32, weight_g: u32) -> Fish
     if let Some(mutant) = fish.mutant.as_mut() {
         mutant.is_double = false;
         mutant.backwards = false;
-        mutant.fused.clear();
         mutant.double_head_eyes.clear();
     }
     if let Some(us) = fish.unfish_state.as_mut() {
         us.worm_is_double = false;
         us.worm_backwards = false;
-        us.fused.clear();
     }
     fish.recompute_display_width();
     fish
@@ -86,19 +92,19 @@ impl Tank {
 
     fn tick_rad_mutations(&mut self, dt: f32) {
         let mut rng = rand::rng();
-        let fish_to_mutate: Vec<String> = self
-            .fish
-            .iter()
-            .filter(|f| {
-                let mean = if f.auto_mutate_stacks() > 0 {
-                    RAD_AUTO_MUTANT_MEAN_SECS
-                } else {
-                    RAD_MUTATION_MEAN_SECS
-                };
-                exponential_event(&mut rng, mean, dt)
-            })
-            .map(|f| f.name.clone())
+        let struck: Vec<usize> = (0..self.fish.len())
+            .filter(|&index| exponential_event(&mut rng, rad_mean_secs(&self.fish[index]), dt))
             .collect();
+        let (wired, plain): (Vec<usize>, Vec<usize>) = struck
+            .into_iter()
+            .partition(|&index| self.fish[index].is_wired());
+        let fish_to_mutate: Vec<String> = plain
+            .iter()
+            .map(|&index| self.fish[index].name.clone())
+            .collect();
+        for index in wired {
+            self.corrupt(index, &mut rng);
+        }
         for name in fish_to_mutate {
             self.apply_named_mutation(&name, "");
         }
@@ -121,6 +127,20 @@ impl Tank {
                 }
             }
         }
+    }
+
+    fn corrupt(&mut self, index: usize, rng: &mut impl RngExt) {
+        let channels: Vec<String> = self.channels.names().map(str::to_string).collect();
+        let Some(bot) = self.fish[index].script_mut() else {
+            return;
+        };
+        let Some(strike) = bot.irradiate(&channels, rng) else {
+            return;
+        };
+        if let Strike::KnockedLoose(part) = strike {
+            self.pending_loose_parts.push(part);
+        }
+        self.signal(WorldSignal::Mutation);
     }
 
     fn apply_random_mutation(&mut self) {
@@ -214,6 +234,7 @@ impl Tank {
         if matches!(outcome, MutationOutcome::SplitRequested) {
             self.split_fish(idx);
         }
+        self.signal(WorldSignal::Mutation);
         true
     }
 
@@ -239,6 +260,7 @@ impl Tank {
             );
             grave_fish.name = lost.name.clone();
             self.pending_graveyard.push(grave_fish);
+            self.signal(WorldSignal::Death);
         }
 
         let Some(heavier) = components[heavier_idx].fish_snapshot() else {
@@ -254,6 +276,13 @@ impl Tank {
         let mut ledger = components;
         for component in &mut ledger {
             component.snapshot = None;
+        }
+        if merged.botfish_state.is_some()
+            && let Some(circuit) = ledger
+                .iter_mut()
+                .find_map(|component| component.program.take())
+        {
+            merged.botfish_state = Some(circuit);
         }
         if let Some(us) = merged.unfish_state.as_mut() {
             us.worm_is_double = false;
@@ -301,6 +330,7 @@ impl Tank {
         if matches!(outcome, MutationOutcome::SplitRequested) {
             self.split_cow(idx);
         }
+        self.signal(WorldSignal::Mutation);
         true
     }
 
@@ -372,9 +402,7 @@ impl Tank {
             restore_from_snapshot(c1.fish_snapshot().unwrap(), spawn_x, spawn_y, c1.weight_g);
         child.name = c1.name.clone();
         child.mutations = Some(Box::new(MutationRecord::child_of(parent_count, &c0.name)));
-        self.mark_if_hell(&mut child);
-        self.used_names.insert(c1.name.clone());
-        self.fish.push(child);
+        self.admit(child, c1.name.clone());
         self.fish[idx].record_mut().partners.push(c1.name);
         true
     }
@@ -499,10 +527,7 @@ impl Tank {
             parent_count,
             &parent_name,
         )));
-        self.mark_if_hell(&mut new_fish);
-
-        self.used_names.insert(new_name.clone());
-        self.fish.push(new_fish);
+        self.admit(new_fish, new_name.clone());
         self.fish[idx].record_mut().partners.push(new_name);
     }
 
@@ -554,9 +579,11 @@ impl Tank {
             parent_count,
             &parent_name,
         )));
-        self.mark_if_hell(&mut new_fish);
-        self.used_names.insert(new_name.clone());
-        self.fish.push(new_fish);
+        let printed = self.fish[idx].script().is_some_and(|bot| bot.is_printed());
+        if printed && let Some(twin) = new_fish.script_mut() {
+            twin.mark_printed();
+        }
+        self.admit(new_fish, new_name.clone());
         self.fish[idx].record_mut().partners.push(new_name);
     }
 
@@ -643,9 +670,7 @@ impl Tank {
             parent_count,
             &parent_name,
         )));
-        self.mark_if_hell(&mut new_fish);
-        self.used_names.insert(new_name.clone());
-        self.fish.push(new_fish);
+        self.admit(new_fish, new_name.clone());
         self.fish[idx].record_mut().partners.push(new_name);
     }
 

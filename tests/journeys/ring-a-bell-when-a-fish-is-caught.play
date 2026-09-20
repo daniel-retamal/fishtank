@@ -1,0 +1,73 @@
+# JOURNEY · the Startle Nerve, the sense that feels the tank's own events: its catch flag pulses for
+# one stage when a fish lands, whoever landed it. Rod is a ring oscillator whose rig casts again
+# every time the line comes back up, so it keeps fishing while the bait lasts; Bell latches the pulse.
+# Only a FISH raises catch — cash, food and items come up too — which is why Rod keeps casting.
+# Rod's panel walks by count: listens, drives, threshold, cast, caught, bait_low.
+# The Nerve's walks: listens, drives, death, birth, sale, catch, abduction.
+
+clear
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
+include scenes/buy-at-the-bench.play "Angler Rig" Hands
+include scenes/buy-at-the-bench.play "Startle Nerve" Senses
+include scenes/buy-a-fish.play Botfish rod
+include scenes/buy-a-fish.play Botfish nerve
+include scenes/buy-a-fish.play Botfish bell
+
+run /shop
+key enter
+select Bait
+key enter
+expect < 1 >
+key right 19
+expect < 20 >
+snap twenty baits on the counter
+key enter
+key esc
+key esc
+absent Price/unit
+
+run /consume inverter coil
+key enter
+run /consume angler rig
+key enter
+absent to the botfishes
+run /consume startle nerve
+key down
+key enter
+absent to the botfishes
+
+run /program "Bell"
+type ding, held
+key down
+type held
+key enter
+absent listens
+
+run /program "Nerve"
+expect abduction[1]
+key down 5
+type ding
+snap the nerve's catch flag is wired to ding
+key enter
+absent listens
+
+run /fps 1
+run /program "Rod"
+expect threshold
+type go
+key down
+type go
+key down 2
+type go
+snap Rod rings, and every ring casts its line again
+key enter
+absent listens
+
+tick 400
+run /circuit
+key down 2
+expect ●  Bell
+snap a fish came up, the nerve pulsed, and Bell is still holding it
+key esc
+absent Circuit#

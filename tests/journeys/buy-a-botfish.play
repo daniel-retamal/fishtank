@@ -1,0 +1,20 @@
+# JOURNEY · the first step of every circuit: buy a botfish and confirm it can be wired.
+# A botfish is bought, never caught (§19) — this is the only honest way a player gets one,
+# and no god command (/spawn, /give, /add) appears anywhere in it.
+
+clear
+include scenes/buy-a-fish.play Botfish neo
+
+expect 32.3k
+snap the purse paid the Legendary price
+
+run /index
+expect Neo
+snap Neo joined the tank
+key esc
+
+run /program "Neo"
+expect listens
+expect trigger
+snap a bought botfish is wired like any other
+key esc

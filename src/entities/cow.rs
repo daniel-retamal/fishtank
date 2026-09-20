@@ -5,6 +5,7 @@ use ratatui::style::Color;
 
 use crate::colors::{BROWN, DARK_GRAY, LIGHT_GREEN, LIGHT_YELLOW, PINK, WHITE};
 use crate::entities::components::{Position, SwayState, tick_sway};
+use crate::entities::speech::SpeechBubble;
 use crate::fishes::fused::FusedComponent;
 use crate::fishes::mutant::{Circadian, EyeState, MutantState, MutantTail, MutationRecord};
 use crate::fishes::mutations::{
@@ -34,7 +35,6 @@ pub fn cow_default_sway_speed() -> f32 {
 }
 const COW_MIN_TORSO: usize = 3;
 const COW_MAX_TORSO: usize = 12;
-const SPEECH_BUBBLE_TTL: f32 = 6.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CowVariant {
@@ -98,21 +98,6 @@ impl CowVariant {
 }
 
 #[derive(Clone)]
-pub struct SpeechBubble {
-    pub text: String,
-    pub ttl: f32,
-}
-
-impl SpeechBubble {
-    pub fn new(text: String) -> Self {
-        Self {
-            text,
-            ttl: SPEECH_BUBBLE_TTL,
-        }
-    }
-}
-
-#[derive(Clone)]
 pub struct Cow {
     pub name: String,
     pub position: Position,
@@ -163,12 +148,7 @@ impl Cow {
         }
         tick_sway(&mut self.sway, self.sway_speed);
         self.mutant.tick_eyes(dt);
-        if let Some(b) = &mut self.speech {
-            b.ttl -= dt;
-            if b.ttl <= 0.0 {
-                self.speech = None;
-            }
-        }
+        SpeechBubble::fade(&mut self.speech, dt);
     }
 
     pub fn say(&mut self, text: String) {
@@ -944,17 +924,6 @@ fn apply_random_patches(rows: &mut [Vec<(char, Color)>], patch: Color, seed: u64
             }
         }
     }
-}
-
-pub fn build_speech_bubble(text: &str) -> Vec<String> {
-    let inner = text.len();
-    let top: String = std::iter::repeat_n('_', inner + 2).collect();
-    let bot: String = std::iter::repeat_n('-', inner + 2).collect();
-    vec![
-        format!(" {} ", top),
-        format!("< {} >", text),
-        format!(" {} ", bot),
-    ]
 }
 
 pub fn random_cow_color(rng: &mut impl RngExt) -> CowVariant {

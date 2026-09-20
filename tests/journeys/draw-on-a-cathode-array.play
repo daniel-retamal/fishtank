@@ -1,0 +1,57 @@
+# JOURNEY · draw on a Cathode Array: a dot with write and a whole byte with write_byte, on one rise.
+# Crt's coil makes it a rail on d0, bit 0 of the bus d, so d reads 1. Its screen is narrowed to 8 dots
+# (four braille cells, all inside the botfish's own body). The rail is addr, bit, byte and both strobes:
+# write stores the bit at dot 1 (top row, second dot) and write_byte stores the byte 1 at byte 1, the
+# second row's first dot. Both land in one cell, ⠊; without write_byte it reads ⠈, without write ⠂.
+# Spent: Computer $8000 + botfish $7700 + Cathode Array $7700 + Inverter Coil $496 = $23896 of the
+# $40000 a player starts with.
+# The panel walks by count: listens, drives, width, glyphs, addr, bit, write, byte, write_byte.
+
+clear
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
+include scenes/buy-at-the-bench.play "Cathode Array" Peripherals
+include scenes/buy-a-fish.play Botfish crt
+
+run /consume inverter coil
+key enter
+run /consume cathode array
+expect Cathode Array to the botfishes
+snap the install picker offers the Cathode Array to Crt
+key enter
+absent to the botfishes
+run /freeze "Crt"
+
+run /program "Crt"
+expect glyphs
+key down
+type d0
+key down
+key backspace 2
+type 8
+snap the screen is narrowed to eight dots
+key down 2
+type d
+key down
+type d0
+key down
+type d0
+key down
+type d
+key down
+type d0
+snap the rail is the address, the bit, the byte and both strobes
+key enter
+absent listens
+
+tick 4
+expect ⠊⠀⠀⠀
+snap a dot and a byte on Crt's body
+run /circuit
+expect write_byte
+snap the circuit lists the screen's five wires under Crt
+key esc
+absent Circuit#
+tick 40
+expect ⠊⠀⠀⠀
+snap the picture holds with the rail still high and nothing rising

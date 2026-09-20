@@ -1,3 +1,6 @@
+use std::cell::Cell;
+use std::ops::Range;
+
 use rand::RngExt;
 use ratatui::{
     buffer::Buffer,
@@ -6,12 +9,29 @@ use ratatui::{
     widgets::Widget,
 };
 
-use crate::colors::{BLACK, DARK_GRAY, STEEL, WHITE};
-use crate::fishes::fish::{Direction, Fish};
+use crate::colors::{BLACK, STEEL, WHITE};
+use crate::fishes::fish::{Direction, Fish, LineSprite};
 use crate::fishes::unfish::{BALL_HEIGHT, SKULL_HEIGHT, UnfishKind};
 use crate::ui::fields::{self, FieldKind, FieldValue};
-use crate::ui::hints::{HINT_CLOSE, HINT_ENTER_SHOW, HINT_NAV};
-use crate::ui::{render_fish_segs, scroll_list, table, tank_view};
+use crate::ui::grid::{self, CELL_PAD, Grid, HEADER_ROWS, HeaderStyle};
+use crate::ui::hint_bar::HintBar;
+use crate::ui::hints::{HINT_CLOSE, HINT_ENTER_SHOW, HINT_NAV, HINT_SCROLL};
+use crate::ui::layout::{Screen, Scroll, Scrollbar};
+use crate::ui::modal::{Frame, Modal};
+use crate::ui::{render_fish_sprite, table, tank_view};
+
+pub const NAME_COLUMN_MAX_W: usize = 24;
+
+const TITLE: &str = " FishResource#index ";
+const HINT_COLUMNS: &str = "←→ cols";
+const NAME_COLUMN: usize = 0;
+const FIRST_PAGED_COLUMN: usize = 1;
+const RULE_W: u16 = 1;
+const MIN_NAME_W: u16 = 4;
+const MIN_PAGED_W: u16 = 3;
+const MIN_FANTASY_W: usize = 4;
+const BACKGROUND: Color = Color::Reset;
+const FIXED_HEADERS: [&str; 5] = ["Name", "Species", "Display", "Weight", "Fishtank"];
 
 struct FantasyColumn {
     kind: FieldKind,
@@ -22,7 +42,7 @@ struct FantasyColumn {
 pub struct FishSnapshot {
     name: String,
     species_name: &'static str,
-    segments: Vec<(char, Color)>,
+    art: LineSprite,
     display_width: usize,
     weight_g: u32,
     tank_name: Option<String>,
@@ -32,8 +52,8 @@ pub struct FishSnapshot {
 
 pub struct IndexState {
     pub selected: usize,
-    pub scroll: usize,
-    pub col_scroll: usize,
+    scroll: Scroll,
+    col_scroll: Cell<usize>,
     snapshots: Vec<FishSnapshot>,
     fish_clones: Vec<Fish>,
     fixed_widths: Vec<usize>,
@@ -42,12 +62,21 @@ pub struct IndexState {
     animated_fish: Option<Fish>,
 }
 
-fn unfish_row_height(fish: &Fish) -> u16 {
+fn row_height(fish: &Fish, art: &LineSprite) -> u16 {
     match fish.unfish_state.as_ref().map(|us| us.kind) {
         Some(UnfishKind::Ball) => BALL_HEIGHT,
         Some(UnfishKind::Skull) => SKULL_HEIGHT,
-        _ => 1,
+        _ => art.rows.len() as u16,
     }
+}
+
+fn still_art(fish: &Fish) -> LineSprite {
+    let mut art = display_clone(fish.clone()).line_sprite();
+    let body_row = art.body_row;
+    if let Some(body) = art.rows.get_mut(body_row) {
+        *body = fish.static_left_segments();
+    }
+    art
 }
 
 impl IndexState {
@@ -62,15 +91,18 @@ impl IndexState {
 
         let snapshots: Vec<FishSnapshot> = filtered
             .iter()
-            .map(|(tank_name, f)| FishSnapshot {
-                name: f.name.clone(),
-                species_name: f.species.display_name(),
-                segments: f.static_left_segments(),
-                display_width: f.display_width,
-                weight_g: f.weight_g,
-                tank_name: Some(tank_name.to_string()),
-                display_height: unfish_row_height(f),
-                is_unfish: f.unfish_state.is_some(),
+            .map(|(tank_name, f)| {
+                let art = still_art(f);
+                FishSnapshot {
+                    name: f.name.clone(),
+                    species_name: f.species.display_name(),
+                    display_width: f.display_width,
+                    weight_g: f.weight_g,
+                    tank_name: Some(tank_name.to_string()),
+                    display_height: row_height(f, &art),
+                    is_unfish: f.unfish_state.is_some(),
+                    art,
+                }
             })
             .collect();
 
@@ -113,7 +145,9 @@ impl IndexState {
                     .map(|c| table::visual_width(&c.text))
                     .max()
                     .unwrap_or(0);
-                let col_width = max_cell_w.max(table::visual_width(kind.header())).max(4);
+                let col_width = max_cell_w
+                    .max(table::visual_width(kind.header()))
+                    .max(MIN_FANTASY_W);
                 FantasyColumn {
                     kind,
                     cells,
@@ -122,49 +156,34 @@ impl IndexState {
             })
             .collect::<Vec<_>>();
 
-        let max_name_w = snapshots
-            .iter()
-            .map(|s| s.name.len())
-            .max()
-            .unwrap_or(4)
-            .max("Name".len());
-        let max_species_w = snapshots
-            .iter()
-            .map(|s| s.species_name.len())
-            .max()
-            .unwrap_or(7)
-            .max("Species".len());
-        let max_display_w = snapshots
-            .iter()
-            .map(|s| s.display_width)
-            .max()
-            .unwrap_or(7)
-            .max("Display".len());
-        let max_food_w = snapshots
-            .iter()
-            .map(|s| fields::format_weight(s.weight_g).len())
-            .max()
-            .unwrap_or(1)
-            .max("Weight".len());
-
-        let mut fixed_widths = vec![max_name_w, max_species_w, max_display_w, max_food_w];
-        if show_tank_col {
-            let max_tank_w = snapshots
+        let widest = |header: &str, cell: &dyn Fn(&FishSnapshot) -> usize| {
+            snapshots
                 .iter()
-                .filter_map(|s| s.tank_name.as_deref())
-                .map(|tn| tn.len())
+                .map(cell)
                 .max()
-                .unwrap_or(4)
-                .max("Fishtank".len());
-            fixed_widths.push(max_tank_w);
+                .unwrap_or(0)
+                .max(table::visual_width(header))
+        };
+        let mut fixed_widths = vec![
+            widest(FIXED_HEADERS[0], &|s| table::visual_width(&s.name)).min(NAME_COLUMN_MAX_W),
+            widest(FIXED_HEADERS[1], &|s| table::visual_width(s.species_name)),
+            widest(FIXED_HEADERS[2], &|s| s.display_width),
+            widest(FIXED_HEADERS[3], &|s| {
+                fields::format_weight(s.weight_g).len()
+            }),
+        ];
+        if show_tank_col {
+            fixed_widths.push(widest(FIXED_HEADERS[4], &|s| {
+                s.tank_name.as_deref().map_or(0, table::visual_width)
+            }));
         }
 
         let animated_fish = fish_clones.first().cloned().map(display_clone);
 
         Self {
             selected: 0,
-            scroll: 0,
-            col_scroll: 1,
+            scroll: Scroll::default(),
+            col_scroll: Cell::new(FIRST_PAGED_COLUMN),
             snapshots,
             fish_clones,
             fixed_widths,
@@ -180,59 +199,26 @@ impl IndexState {
         }
     }
 
-    pub fn scroll_up(&mut self) {
-        let prev = self.selected;
-        scroll_list::scroll_up(&mut self.selected, &mut self.scroll);
-        if self.selected != prev {
-            self.animated_fish = self
-                .fish_clones
-                .get(self.selected)
-                .cloned()
-                .map(display_clone);
-        }
-    }
-
-    pub fn scroll_down(&mut self, available_lines: usize) {
-        if self.selected + 1 >= self.snapshots.len() {
+    fn select(&mut self, index: usize) {
+        if index == self.selected {
             return;
         }
-        self.selected += 1;
-        let mut lines = 0usize;
-        let mut is_visible = false;
-        for i in self.scroll..self.snapshots.len() {
-            let h = self.snapshots[i].display_height as usize;
-            if lines + h > available_lines {
-                break;
-            }
-            lines += h;
-            if i == self.selected {
-                is_visible = true;
-                break;
-            }
-        }
-        if !is_visible {
-            let sel_h = self.snapshots[self.selected].display_height as usize;
-            if sel_h >= available_lines {
-                self.scroll = self.selected;
-            } else {
-                let mut lines_used = sel_h;
-                let mut new_scroll = self.selected;
-                while new_scroll > 0 {
-                    let h = self.snapshots[new_scroll - 1].display_height as usize;
-                    if lines_used + h > available_lines {
-                        break;
-                    }
-                    lines_used += h;
-                    new_scroll -= 1;
-                }
-                self.scroll = new_scroll;
-            }
-        }
+        self.selected = index;
         self.animated_fish = self
             .fish_clones
             .get(self.selected)
             .cloned()
             .map(display_clone);
+    }
+
+    pub fn scroll_up(&mut self) {
+        self.select(self.selected.saturating_sub(1));
+    }
+
+    pub fn scroll_down(&mut self) {
+        if self.selected + 1 < self.snapshots.len() {
+            self.select(self.selected + 1);
+        }
     }
 
     pub fn selected_fish_name(&self) -> Option<&str> {
@@ -247,466 +233,275 @@ impl IndexState {
     }
 
     pub fn scroll_left(&mut self) {
-        if self.col_scroll > 1 {
-            self.col_scroll -= 1;
-        }
+        let start = self.col_scroll.get();
+        self.col_scroll
+            .set(start.saturating_sub(1).max(FIRST_PAGED_COLUMN));
     }
 
-    pub fn scroll_right(&mut self, terminal_width: u16) {
-        let widths = self.all_col_widths();
-        let total_inner_w: usize = widths.iter().sum::<usize>() + widths.len().saturating_sub(1);
-        let overlay_w = ((total_inner_w + 2) as u16).min(terminal_width);
-        let inner_w = overlay_w.saturating_sub(2) as usize;
-        let vis = self.visible_columns(inner_w);
-        let last_vis = vis.last().copied().unwrap_or(0);
-        if last_vis + 1 >= widths.len() {
-            return;
-        }
-        let target = last_vis + 1;
-        let saved = self.col_scroll;
-        loop {
-            self.col_scroll += 1;
-            if self.col_scroll >= widths.len() {
-                self.col_scroll = saved;
-                break;
-            }
-            if self.visible_columns(inner_w).contains(&target) {
-                break;
-            }
-        }
+    pub fn scroll_right(&mut self) {
+        let start = self.col_scroll.get();
+        let last = self.all_col_widths().len().saturating_sub(1);
+        self.col_scroll
+            .set((start + 1).min(last.max(FIRST_PAGED_COLUMN)));
     }
 
     fn all_col_widths(&self) -> Vec<usize> {
-        let mut w = self.fixed_widths.clone();
-        for fc in &self.fantasy_cols {
-            w.push(fc.col_width);
-        }
-        w
+        let fantasy = self.fantasy_cols.iter().map(|column| column.col_width);
+        self.fixed_widths
+            .iter()
+            .copied()
+            .chain(fantasy)
+            .map(|width| width + CELL_PAD as usize * 2)
+            .collect()
     }
 
-    pub fn visible_fish_count(&self, available_lines: usize) -> usize {
-        let mut lines_used = 0usize;
-        let mut count = 0usize;
-        for snap in self.snapshots.iter().skip(self.scroll) {
-            let h = snap.display_height as usize;
-            if lines_used + h > available_lines {
-                break;
-            }
-            lines_used += h;
-            count += 1;
+    fn header(&self, column: usize) -> &str {
+        if column < self.fixed_widths.len() {
+            return FIXED_HEADERS[column];
         }
-        count.max(1)
+        self.fantasy_cols[column - self.fixed_widths.len()]
+            .kind
+            .header()
     }
 
-    fn visible_columns(&self, inner_w: usize) -> Vec<usize> {
+    fn page(&self, inner_w: u16) -> Page {
         let widths = self.all_col_widths();
-        if widths.is_empty() {
-            return vec![];
-        }
-        let name_w = widths[0];
-        let mut vis = vec![0usize];
-        let mut used = name_w;
-        for (i, &w) in widths.iter().enumerate().skip(self.col_scroll.max(1)) {
-            if used + 1 + w <= inner_w {
-                vis.push(i);
-                used += 1 + w;
-            } else {
-                break;
+        let total = widths.len();
+        let name_w = (widths[NAME_COLUMN] as u16)
+            .min(inner_w.saturating_sub(RULE_W + MIN_PAGED_W))
+            .max(MIN_NAME_W.min(inner_w));
+        let room = inner_w.saturating_sub(name_w + RULE_W);
+        let fits_from = |start: usize| {
+            let mut used = 0u16;
+            let mut end = start;
+            while end < total {
+                let needed = widths[end] as u16 + if end > start { RULE_W } else { 0 };
+                if used + needed > room {
+                    break;
+                }
+                used += needed;
+                end += 1;
             }
+            end
+        };
+        let last_start = (FIRST_PAGED_COLUMN..total)
+            .find(|&start| fits_from(start) == total)
+            .unwrap_or(total.saturating_sub(1))
+            .max(FIRST_PAGED_COLUMN);
+        let start = self.col_scroll.get().clamp(FIRST_PAGED_COLUMN, last_start);
+        self.col_scroll.set(start);
+        let end = fits_from(start).max((start + 1).min(total));
+        let mut page_widths: Vec<u16> = vec![name_w];
+        page_widths.extend((start..end).map(|column| widths[column] as u16));
+        let used: u16 = page_widths.iter().sum::<u16>() + RULE_W * (page_widths.len() as u16 - 1);
+        let last = page_widths.len() - 1;
+        if used < inner_w {
+            page_widths[last] += inner_w - used;
+        } else if used > inner_w {
+            page_widths[last] = page_widths[last].saturating_sub(used - inner_w);
         }
-        vis
+        Page {
+            columns: std::iter::once(NAME_COLUMN).chain(start..end).collect(),
+            widths: page_widths,
+            more: start > FIRST_PAGED_COLUMN || end < total,
+            shown_up_to: end,
+            total,
+        }
     }
+}
+
+struct Page {
+    columns: Vec<usize>,
+    widths: Vec<u16>,
+    more: bool,
+    shown_up_to: usize,
+    total: usize,
 }
 
 pub struct IndexOverlay<'a> {
     state: &'a IndexState,
+    screen: Screen,
 }
 
 impl<'a> IndexOverlay<'a> {
-    pub fn new(state: &'a IndexState) -> Self {
-        Self { state }
+    pub fn new(state: &'a IndexState, screen: Screen) -> Self {
+        Self { state, screen }
     }
 }
 
 impl Widget for IndexOverlay<'_> {
-    fn render(self, area: Rect, buf: &mut Buffer) {
+    fn render(self, _area: Rect, buf: &mut Buffer) {
         let state = self.state;
         let n = state.snapshots.len();
-
         let widths = state.all_col_widths();
-        let total_inner_w: usize = widths.iter().sum::<usize>() + widths.len().saturating_sub(1);
-        let overlay_w = ((total_inner_w + 2) as u16).min(area.width);
-        let available_data_lines = area.height.saturating_sub(7) as usize;
-        let vis_count = state.visible_fish_count(available_data_lines);
-        let visible_data_lines: usize = state
+        let natural_w = (widths.iter().sum::<usize>() + widths.len().saturating_sub(1)) as u16;
+        let heights: Vec<usize> = state
             .snapshots
             .iter()
-            .skip(state.scroll)
-            .take(vis_count)
-            .map(|s| s.display_height as usize)
-            .sum::<usize>()
-            .max(1);
-        let overlay_h = ((visible_data_lines + 6) as u16).min(area.height);
-
-        let bg = Color::Reset;
-        let Some(layout) = table::OverlayLayout::centered(area, overlay_w, overlay_h) else {
-            return;
+            .map(|snapshot| snapshot.display_height as usize)
+            .collect();
+        let expected_page = state.page(natural_w.min(self.screen.whole.width.saturating_sub(2)));
+        let frame = Frame {
+            title: TITLE,
+            border: WHITE,
+            background: BACKGROUND,
         };
-        layout.clear_bg(buf, bg);
-        let ox = layout.ox;
-        let oy = layout.oy;
-        let rect = Rect::new(ox, oy, overlay_w, overlay_h);
+        let content = (
+            natural_w,
+            heights.iter().sum::<usize>() as u16 + HEADER_ROWS,
+        );
+        let (modal, _) = Modal::open_fitting(buf, self.screen, &frame, content, |overflowing| {
+            let nav = if overflowing { HINT_SCROLL } else { HINT_NAV };
+            HintBar::new(HINT_CLOSE)
+                .counted(nav, overflowing.then_some((state.selected + 1, n)))
+                .action_if(
+                    expected_page.more,
+                    format!(
+                        "{HINT_COLUMNS} ({}/{})",
+                        expected_page.shown_up_to, expected_page.total
+                    ),
+                )
+                .action_if(n > 0, HINT_ENTER_SHOW)
+        });
 
-        let inner_x = ox + 1;
-        let inner_w = overlay_w.saturating_sub(2) as usize;
-        let vis_cols = state.visible_columns(inner_w);
-        let fixed_count = state.fixed_widths.len();
-        let total_cols = fixed_count + state.fantasy_cols.len();
-        let last_vis = vis_cols.last().copied().unwrap_or(0);
-        let has_right_scroll = last_vis + 1 < total_cols;
-
-        draw_border(buf, rect, bg, has_right_scroll);
-        draw_header_row(buf, state, &vis_cols, inner_x, oy + 1, inner_w, bg);
-        draw_separator(buf, rect, state, &vis_cols, oy + 2, bg, has_right_scroll);
-
-        let data_start_y = oy + 3;
-        let data_end_y = oy + overlay_h - 3;
-
-        let row_layout = RowLayout {
-            state,
-            vis_cols: &vis_cols,
-            inner_x,
-            inner_w,
-            base_bg: bg,
-            area,
+        let page = state.page(modal.body.width);
+        let grid = Grid {
+            x: modal.body.x,
+            widths: page.widths.clone(),
         };
-        let mut y_cursor = data_start_y;
-        let mut fish_idx = state.scroll;
-        while y_cursor <= data_end_y && fish_idx < n {
-            let row_h = state.snapshots[fish_idx].display_height;
-            if y_cursor + row_h > data_end_y + 1 {
+        let (header_y, data) = grid::split_header(modal.body);
+        if let Some(y) = header_y {
+            let headers: Vec<&str> = page.columns.iter().map(|&c| state.header(c)).collect();
+            let style = HeaderStyle {
+                text: Style::default()
+                    .fg(WHITE)
+                    .add_modifier(Modifier::BOLD)
+                    .bg(BACKGROUND),
+                rule: Style::default().fg(WHITE).bg(BACKGROUND),
+            };
+            grid::draw_header(buf, &grid, modal.rect, y, &headers, &style);
+        }
+
+        let shown = state
+            .scroll
+            .follow(&heights, state.selected, data.height as usize);
+        let mut y = data.y;
+        for index in shown.clone() {
+            let height = (heights[index] as u16).min(data.bottom().saturating_sub(y));
+            if height == 0 {
                 break;
             }
-            let selected = fish_idx == state.selected;
-            draw_data_row(buf, &row_layout, fish_idx, y_cursor, selected);
-            y_cursor += row_h;
-            fish_idx += 1;
+            draw_data_row(buf, state, &page, &grid, index, y, height);
+            y += height;
         }
-
-        let footer_y = oy + overlay_h - 2;
-        let scrollable = n > vis_count || state.scroll > 0;
-        let h_scrollable = has_right_scroll || state.col_scroll > 1;
-        let col_hint = format!("({}/{})", last_vis + 1, total_cols);
-        let left_hint = match (scrollable, h_scrollable) {
-            (true, true) => format!(
-                " ↑↓ scroll ({}/{})   ←→ cols {}",
-                state.selected + 1,
-                n,
-                col_hint
-            ),
-            (true, false) => format!(" ↑↓ scroll ({}/{})", state.selected + 1, n),
-            (false, true) => format!(" ↑↓ navigate   ←→ cols {}", col_hint),
-            (false, false) => HINT_NAV.to_string(),
-        };
-        let right_text = HINT_CLOSE;
-        table::draw_hint_bar(
+        if page.more {
+            open_right_edge(buf, modal.rect, header_y);
+            return;
+        }
+        let lines_before: usize = heights[..shown.start].iter().sum();
+        Scrollbar {
+            x: modal.scrollbar_x(),
+            top: data.y,
+            height: data.height,
+        }
+        .draw(
             buf,
-            inner_x,
-            footer_y,
-            inner_w as u16,
-            &left_hint,
-            right_text,
-            bg,
+            line_range(lines_before, &heights[shown], data.height),
+            heights.iter().sum(),
+            WHITE,
         );
-        if n > 0 {
-            let ct = HINT_ENTER_SHOW;
-            let ct_w = table::visual_width(ct) as u16;
-            let left_w = table::visual_width(&left_hint) as u16;
-            let right_w = table::visual_width(right_text) as u16;
-            let center_x = inner_x + (inner_w as u16 - ct_w) / 2;
-            let right_edge = inner_x + inner_w as u16 - right_w - 2;
-            if center_x > inner_x + left_w + 1 && center_x + ct_w < right_edge {
-                buf.set_string(
-                    center_x,
-                    footer_y,
-                    ct,
-                    Style::default().fg(DARK_GRAY).bg(bg),
-                );
-            }
-        }
     }
 }
 
-fn draw_border(buf: &mut Buffer, rect: Rect, bg: Color, has_right_scroll: bool) {
-    let x = rect.x;
-    let y = rect.y;
-    let w = rect.width;
-    let h = rect.height;
-    let right = x + w - 1;
-    let bottom = y + h - 1;
-    let border_style = Style::default().fg(WHITE).bg(bg);
-    let title_style = Style::default()
-        .fg(WHITE)
-        .add_modifier(Modifier::BOLD)
-        .bg(bg);
-
-    buf[(x, y)].set_char('┌').set_style(border_style);
-    buf[(x, bottom)].set_char('└').set_style(border_style);
-    for dy in 1..h - 1 {
-        buf[(x, y + dy)].set_char('│').set_style(border_style);
-    }
-
-    if has_right_scroll {
-        for dx in 1..w {
-            buf[(x + dx, y)].set_char('─').set_style(border_style);
-            buf[(x + dx, bottom)].set_char('─').set_style(border_style);
-        }
-    } else {
-        buf[(right, y)].set_char('┐').set_style(border_style);
-        buf[(right, bottom)].set_char('┘').set_style(border_style);
-        for dx in 1..w - 1 {
-            buf[(x + dx, y)].set_char('─').set_style(border_style);
-            buf[(x + dx, bottom)].set_char('─').set_style(border_style);
-        }
-        for dy in 1..h - 1 {
-            buf[(right, y + dy)].set_char('│').set_style(border_style);
-        }
-    }
-
-    let title = " FishResource#index ";
-    if (title.len() as u16 + 4) < w {
-        buf.set_string(x + 2, y, title, title_style);
-    }
+fn line_range(before: usize, shown: &[usize], room: u16) -> Range<usize> {
+    let lines: usize = shown.iter().sum();
+    before..before + lines.min(room as usize)
 }
 
-fn draw_separator(
-    buf: &mut Buffer,
-    rect: Rect,
-    state: &IndexState,
-    vis_cols: &[usize],
-    sep_y: u16,
-    bg: Color,
-    has_right_scroll: bool,
-) {
-    let x = rect.x;
-    let right = rect.x + rect.width - 1;
-    let border_style = Style::default().fg(WHITE).bg(bg);
-    let sep_style = Style::default().fg(WHITE).bg(bg);
-
-    buf[(x, sep_y)].set_char('├').set_style(border_style);
-    if has_right_scroll {
-        for dx in 1..rect.width {
-            buf[(x + dx, sep_y)].set_char('─').set_style(sep_style);
-        }
-    } else {
-        buf[(right, sep_y)].set_char('┤').set_style(border_style);
-        for dx in 1..rect.width - 1 {
-            buf[(x + dx, sep_y)].set_char('─').set_style(sep_style);
-        }
+fn open_right_edge(buf: &mut Buffer, rect: Rect, header_y: Option<u16>) {
+    let right = rect.right().saturating_sub(1);
+    let style = Style::default().fg(WHITE).bg(BACKGROUND);
+    buf[(right, rect.y)].set_char('─').set_style(style);
+    let bottom = rect.bottom().saturating_sub(1);
+    buf[(right, bottom)].set_char('─').set_style(style);
+    for y in rect.y + 1..bottom {
+        buf[(right, y)].set_char(' ').set_style(style);
     }
-
-    let widths = state.all_col_widths();
-    let mut cx = rect.x + 1;
-    for (i, &col_idx) in vis_cols.iter().enumerate() {
-        cx += widths[col_idx] as u16;
-        if i < vis_cols.len() - 1 {
-            buf[(cx, sep_y)].set_char('┼').set_style(border_style);
-            cx += 1;
-        }
+    if let Some(y) = header_y {
+        buf[(right, y + 1)].set_char('─').set_style(style);
     }
-}
-
-fn fixed_col_header(col_idx: usize) -> &'static str {
-    match col_idx {
-        0 => "Name",
-        1 => "Species",
-        2 => "Display",
-        3 => "Weight",
-        4 => "Fishtank",
-        _ => "",
-    }
-}
-
-fn draw_header_row(
-    buf: &mut Buffer,
-    state: &IndexState,
-    vis_cols: &[usize],
-    inner_x: u16,
-    row_y: u16,
-    inner_w: usize,
-    bg: Color,
-) {
-    let hdr_style = Style::default()
-        .fg(WHITE)
-        .add_modifier(Modifier::BOLD)
-        .bg(bg);
-    let sep_style = Style::default().fg(WHITE).bg(bg);
-    let widths = state.all_col_widths();
-    let fixed_count = state.fixed_widths.len();
-
-    let mut x = inner_x;
-    for (order, &col_idx) in vis_cols.iter().enumerate() {
-        let w = widths[col_idx];
-        let header: &str = if col_idx < fixed_count {
-            fixed_col_header(col_idx)
-        } else {
-            state.fantasy_cols[col_idx - fixed_count].kind.header()
-        };
-        let padded = table::pad_right(header, w);
-        let clipped = table::truncate_str(
-            &padded,
-            (inner_x + inner_w as u16).saturating_sub(x) as usize,
-        );
-        buf.set_string(x, row_y, &clipped, hdr_style);
-        x += w as u16;
-        if order < vis_cols.len() - 1 {
-            if x < inner_x + inner_w as u16 {
-                buf[(x, row_y)].set_char('│').set_style(sep_style);
-            }
-            x += 1;
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct RowLayout<'a> {
-    state: &'a IndexState,
-    vis_cols: &'a [usize],
-    inner_x: u16,
-    inner_w: usize,
-    base_bg: Color,
-    area: Rect,
 }
 
 fn draw_data_row(
     buf: &mut Buffer,
-    layout: &RowLayout,
-    fish_idx: usize,
+    state: &IndexState,
+    page: &Page,
+    grid: &Grid,
+    index: usize,
     row_y: u16,
-    selected: bool,
+    row_h: u16,
 ) {
-    let RowLayout {
-        state,
-        vis_cols,
-        inner_x,
-        inner_w,
-        base_bg,
-        area,
-    } = *layout;
-    let row_h = state.snapshots[fish_idx].display_height;
-    let row_bg = if selected { WHITE } else { base_bg };
+    let selected = index == state.selected;
+    let row_bg = if selected { WHITE } else { BACKGROUND };
     let fg = if selected { BLACK } else { STEEL };
-    let sep_style = Style::default().fg(WHITE).bg(row_bg);
-    let widths = state.all_col_widths();
-    let snap = &state.snapshots[fish_idx];
-    let right_x = inner_x + inner_w as u16;
-
-    for dy in 0..row_h {
-        for dx in 0..inner_w as u16 {
-            if inner_x + dx < right_x && row_y + dy < area.bottom() {
-                buf[(inner_x + dx, row_y + dy)].set_bg(row_bg);
-            }
-        }
-    }
-
+    let text = Style::default().fg(fg).bg(row_bg);
+    let snap = &state.snapshots[index];
     let text_y = row_y + row_h / 2;
+    let fixed_count = state.fixed_widths.len();
 
-    let mut x = inner_x;
-    for (order, &col_idx) in vis_cols.iter().enumerate() {
-        let w = widths[col_idx];
-        let avail = right_x.saturating_sub(x) as usize;
-
-        let fixed_count = state.fixed_widths.len();
-        match col_idx {
-            0 => put_text(buf, &snap.name, x, text_y, w.min(avail), fg, row_bg),
-            1 => put_text(buf, snap.species_name, x, text_y, w.min(avail), fg, row_bg),
-            2 if snap.is_unfish && snap.display_height > 1 => {
-                let disp_w = w.min(avail) as u16;
-                for dy in 0..row_h {
-                    for dx in 0..disp_w {
-                        if x + dx < right_x && row_y + dy < area.bottom() {
-                            buf[(x + dx, row_y + dy)].reset();
-                        }
-                    }
-                }
-                let f = if selected {
-                    state.animated_fish.as_ref()
-                } else {
-                    None
-                }
-                .or_else(|| state.fish_clones.get(fish_idx));
-                if let Some(f) = f {
-                    tank_view::render_multi_row_unfish_at(f, x as i32, row_y as i32, area, buf);
-                }
-            }
-            2 if selected => {
-                let segs = state
-                    .animated_fish
-                    .as_ref()
-                    .map(|f| f.segments())
-                    .unwrap_or_else(|| snap.segments.clone());
-                render_display_cell(buf, &segs, x, text_y, w.min(avail), base_bg);
-            }
-            2 => render_display_cell(buf, &snap.segments, x, text_y, w.min(avail), base_bg),
-            3 => {
-                let s = fields::format_weight(snap.weight_g);
-                put_text(buf, &s, x, text_y, w.min(avail), fg, row_bg);
-            }
+    for (position, &column) in page.columns.iter().enumerate() {
+        let block = grid.cell(position, row_y, row_h);
+        for y in block.top()..block.bottom() {
+            grid::put(buf, Rect::new(block.x, y, block.width, 1), "", text);
+        }
+        let cell = grid.cell(position, text_y, 1);
+        match column {
+            0 => grid::put(buf, cell, &snap.name, text),
+            1 => grid::put(buf, cell, snap.species_name, text),
+            2 => draw_art(buf, state, index, block),
+            3 => grid::put(buf, cell, &fields::format_weight(snap.weight_g), text),
             4 if state.show_tank_col => {
-                let tn = snap.tank_name.as_deref().unwrap_or("");
-                put_text(buf, tn, x, text_y, w.min(avail), fg, row_bg);
+                grid::put(buf, cell, snap.tank_name.as_deref().unwrap_or(""), text)
             }
-            c => {
-                let fc_idx = c - fixed_count;
-                if fc_idx < state.fantasy_cols.len() {
-                    let col = &state.fantasy_cols[fc_idx];
-                    let cell = &col.cells[fish_idx];
-                    if col.kind == FieldKind::FavoriteColor {
-                        let swatch_bg = cell.swatch.unwrap_or(BLACK);
-                        for dx in 0..w.min(avail) as u16 {
-                            if x + dx < right_x {
-                                buf[(x + dx, text_y)].set_char(' ').set_bg(swatch_bg);
-                            }
-                        }
-                    } else {
-                        put_text(buf, &cell.text, x, text_y, w.min(avail), fg, row_bg);
-                    }
+            fantasy => {
+                let Some(col) = state.fantasy_cols.get(fantasy - fixed_count) else {
+                    continue;
+                };
+                let value = &col.cells[index];
+                if col.kind == FieldKind::FavoriteColor {
+                    let swatch = Style::default().bg(value.swatch.unwrap_or(BLACK));
+                    grid::put(buf, cell, "", swatch);
+                } else {
+                    grid::put(buf, cell, &value.text, text);
                 }
             }
         }
+    }
+    grid.draw_rules(buf, row_y, row_h, Style::default().fg(WHITE).bg(row_bg));
+}
 
-        x += w as u16;
-        if order < vis_cols.len() - 1 && x < right_x {
-            for dy in 0..row_h {
-                if row_y + dy < area.bottom() {
-                    buf[(x, row_y + dy)].set_char('│').set_style(sep_style);
-                }
-            }
-            x += 1;
+fn draw_art(buf: &mut Buffer, state: &IndexState, index: usize, block: Rect) {
+    for y in block.top()..block.bottom() {
+        for x in block.left()..block.right() {
+            buf[(x, y)].reset();
         }
     }
-}
-
-fn render_display_cell(
-    buf: &mut Buffer,
-    segs: &[(char, Color)],
-    x: u16,
-    y: u16,
-    col_width: usize,
-    bg: Color,
-) {
-    for dx in 0..col_width as u16 {
-        buf[(x + dx, y)].set_char(' ').set_bg(bg);
+    let block = grid::inside(block);
+    let snap = &state.snapshots[index];
+    let animated = state
+        .animated_fish
+        .as_ref()
+        .filter(|_| index == state.selected);
+    if snap.is_unfish && snap.display_height > 1 {
+        if let Some(fish) = animated.or_else(|| state.fish_clones.get(index)) {
+            tank_view::render_multi_row_unfish_at(fish, block.x as i32, block.y as i32, block, buf);
+        }
+        return;
     }
-    render_fish_segs(buf, segs, x, y, col_width as u16, bg);
-}
-
-fn put_text(buf: &mut Buffer, text: &str, x: u16, y: u16, width: usize, fg: Color, bg: Color) {
-    let style = Style::default().fg(fg).bg(bg);
-    let blank = " ".repeat(width);
-    buf.set_string(x, y, &blank, style);
-    let s = table::truncate_str(text, width);
-    buf.set_string(x, y, &s, style);
+    let live = animated.map(Fish::line_sprite);
+    let art = live.as_ref().unwrap_or(&snap.art);
+    let body_y = block.y + art.body_row as u16;
+    render_fish_sprite(buf, art, block.x, body_y, block, BACKGROUND);
 }
 
 fn display_clone(mut fish: Fish) -> Fish {

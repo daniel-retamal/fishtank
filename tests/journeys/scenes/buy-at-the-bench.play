@@ -1,0 +1,22 @@
+# SCENE · buy one piece of Robotics stock at the bench: $1 is its row, $2 the tier that holds it.
+# The bench opens only once a Matrixtank is grown (scenes/grow-a-matrixtank.play), and Robotics
+# opens on its tiers, one page each.
+
+run /shop
+key enter
+select Robotics
+key enter
+select $2
+key enter
+expect Price/unit
+select $1
+snap the $2 page with $1 marked
+key enter
+expect < 1 >
+snap the counter for one $1
+key enter
+key esc
+key esc
+key esc
+key esc
+absent Price/unit

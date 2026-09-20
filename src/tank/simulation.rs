@@ -262,6 +262,9 @@ impl Tank {
             ) {
                 continue;
             }
+            if self.fish[i].is_wired() || self.fish[i].is_pinned() {
+                continue;
+            }
             let fish_len = self.fish[i].display_width as f32;
             let head_x = self.fish[i].head_x() as f32;
             let fish_y = self.fish[i].position.y;
@@ -390,9 +393,10 @@ impl Tank {
         let mut rng = rand::rng();
         let receiver_snapshot = self.fish[receiver].clone();
         let engulfed_snapshot = self.fish[engulfed].clone();
-        let receiver_component = self.fish[receiver]
+        let mut receiver_component = self.fish[receiver]
             .fused_self_component()
             .with_snapshot(receiver_snapshot);
+        receiver_component.program = self.fish[receiver].fused_program(&self.fish[engulfed]);
         let mut engulfed_component = self.fish[engulfed]
             .fused_self_component()
             .with_snapshot(engulfed_snapshot);
@@ -448,10 +452,8 @@ impl Tank {
         let y_max = (self.height as f32 - 5.0).max(3.0);
         let x = rng.random_range(5.0_f32..x_max);
         let y = rng.random_range(3.0_f32..y_max);
-        let mut fish = crate::fishes::fish::Fish::new_unfish(kind, actual_name.clone(), x, y, rng);
-        self.mark_if_hell(&mut fish);
-        self.used_names.insert(actual_name);
-        self.fish.push(fish);
+        let fish = crate::fishes::fish::Fish::new_unfish(kind, actual_name.clone(), x, y, rng);
+        self.admit(fish, actual_name);
     }
 
     pub(super) fn tick_void_spawn(&mut self, dt: f32, rng: &mut impl RngExt) {
@@ -723,6 +725,57 @@ mod engulfment_tests {
         let species: Vec<FishSpecies> = tank.fish.iter().map(|f| f.species).collect();
         assert!(species.contains(&FishSpecies::Cashfish));
         assert!(species.contains(&FishSpecies::Mutantfish));
+    }
+
+    fn fuse_host_with_botfish() -> Tank {
+        let mut tank = Tank::new("T".to_string(), TankKind::Base, &[]);
+        let mut rng = rand::rng();
+        let mut host = Fish::new(FishSpecies::Cashfish, "Au".to_string(), 10.0, 5.0, &mut rng);
+        host.weight_g = 1000;
+        host.engulf_timer = 5.0;
+        let mut bot = Fish::new(FishSpecies::Botfish, "Neo".to_string(), 12.0, 5.0, &mut rng);
+        bot.weight_g = 1;
+        bot.botfish_state
+            .as_mut()
+            .unwrap()
+            .program("wake".to_string(), vec!["/feed 1".to_string()]);
+        tank.fish.push(host);
+        tank.fish.push(bot);
+        tank.tick_engulfment();
+        assert_eq!(tank.fish.len(), 1, "the botfish is engulfed");
+        tank
+    }
+
+    fn assert_carries_script(fish: &Fish) {
+        assert!(fish.is_programmable(), "programmability rides the fusion");
+        let script = fish.script().expect("the merged fish carries a script");
+        assert!(script.responds_to("wake"), "the trigger survives");
+        assert_eq!(
+            script.script,
+            vec!["/feed 1".to_string()],
+            "the lines survive"
+        );
+    }
+
+    #[test]
+    fn an_engulfed_botfish_makes_its_host_programmable() {
+        let tank = fuse_host_with_botfish();
+        assert_carries_script(&tank.fish[0]);
+    }
+
+    #[test]
+    fn endocytosis_with_a_botfish_keeps_the_script_on_one_body() {
+        let mut tank = fuse_host_with_botfish();
+        assert!(tank.apply_named_mutation("Au / Neo", "endocytosis"));
+        assert_eq!(tank.fish.len(), 1, "one body remains");
+        let survivor = &tank.fish[0];
+        assert!(!survivor.is_double(), "collapsed to a single body");
+        assert_eq!(
+            survivor.species,
+            FishSpecies::Cashfish,
+            "the heavier host body wins"
+        );
+        assert_carries_script(survivor);
     }
 
     fn engulf_two(a_body: usize, b_body: usize) -> Tank {
@@ -1130,5 +1183,701 @@ mod engulfment_tests {
         merluza.blessing_timer = 0.0001;
         tank.fish.push(merluza);
         assert!(tank.tick_blessings(1.0).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod wiring_tests {
+    use super::*;
+    use crate::entities::food::Food;
+    use crate::fishes::botfish::BotfishState;
+    use crate::fishes::parts::{Part, PinOwner};
+    use crate::tank::{ChannelRegistry, WorldSignal, WorldView};
+
+    const TANK_W: u16 = 60;
+    const TANK_H: u16 = 20;
+    const BOT_X: f32 = 10.0;
+    const BOT_Y: f32 = 5.0;
+    const FOOD_X: f32 = 12.0;
+
+    fn tank_with_botfish(wired: bool) -> Tank {
+        let mut tank = Tank::new("T".to_string(), TankKind::Base, &[]);
+        tank.width = TANK_W;
+        tank.height = TANK_H;
+        let mut bot = Fish::new(
+            FishSpecies::Botfish,
+            "Neo".to_string(),
+            BOT_X,
+            BOT_Y,
+            &mut rand::rng(),
+        );
+        if wired {
+            bot.botfish_state
+                .as_mut()
+                .unwrap()
+                .program("wake".to_string(), vec!["/feed 1".to_string()]);
+        }
+        assert_eq!(bot.is_wired(), wired);
+        tank.fish.push(bot);
+        tank
+    }
+
+    fn seek_nearby_food(tank: &mut Tank) {
+        tank.food.push(Food::new(FOOD_X));
+        tank.food[0].position.y = BOT_Y;
+        tank.assign_food_to_idle_fish();
+    }
+
+    const RAD_WATCH_TICKS: usize = 600;
+    const RAD_TICK_SECS: f32 = 1.0;
+
+    fn mutations_in_a_radtank(wired: bool) -> u32 {
+        let mut tank = tank_with_botfish(wired);
+        tank.kind = TankKind::Rad;
+        for _ in 0..RAD_WATCH_TICKS {
+            tank.tick_mutations(RAD_TICK_SECS);
+        }
+        tank.fish
+            .iter()
+            .filter_map(|f| f.mutations.as_ref())
+            .map(|record| record.count)
+            .sum()
+    }
+
+    #[test]
+    fn radiation_never_mutates_a_wired_botfish() {
+        assert_eq!(
+            mutations_in_a_radtank(true),
+            0,
+            "a circuit must survive the Radtank it farms"
+        );
+    }
+
+    #[test]
+    fn radiation_still_mutates_a_botfish_nobody_wired() {
+        assert!(
+            mutations_in_a_radtank(false) > 0,
+            "ten minutes at a thirty-second mean is never quiet for an unwired fish"
+        );
+    }
+
+    #[test]
+    fn a_wired_botfish_never_seeks_food() {
+        let mut tank = tank_with_botfish(true);
+        seek_nearby_food(&mut tank);
+        assert!(
+            matches!(tank.fish[0].state, FishState::Idle),
+            "a wired fish ignores food"
+        );
+    }
+
+    #[test]
+    fn an_unwired_botfish_seeks_food_normally() {
+        let mut tank = tank_with_botfish(false);
+        seek_nearby_food(&mut tank);
+        assert!(
+            matches!(tank.fish[0].state, FishState::SeekingFood { .. }),
+            "an unwired botfish still eats"
+        );
+    }
+
+    #[test]
+    fn every_tank_is_its_own_board() {
+        let mut a = Tank::new("A".to_string(), TankKind::Base, &[]);
+        let mut b = Tank::new("B".to_string(), TankKind::Base, &[]);
+
+        a.channels.set_level("clk", true);
+        b.channels.register("clk");
+
+        assert!(a.channels.level("clk"), "the driven board is high");
+        assert!(
+            !b.channels.level("clk"),
+            "the same channel name in another tank is a different wire"
+        );
+        assert!(
+            !b.channels.contains("harvest"),
+            "a channel never leaks between boards"
+        );
+    }
+
+    #[test]
+    fn a_fresh_tank_has_no_wiring() {
+        let tank = Tank::new("T".to_string(), TankKind::Base, &[]);
+        assert!(tank.channels.is_empty());
+    }
+
+    const DRIFT_TICKS: usize = 30;
+
+    fn plain_fish_tank() -> Tank {
+        let mut tank = Tank::new("T".to_string(), TankKind::Base, &[]);
+        tank.width = TANK_W;
+        tank.height = TANK_H;
+        let mut fish = Fish::new(
+            FishSpecies::Merluza,
+            "Ann".to_string(),
+            BOT_X,
+            BOT_Y,
+            &mut rand::rng(),
+        );
+        fish.randomize_direction();
+        tank.fish.push(fish);
+        tank
+    }
+
+    fn drift(tank: &mut Tank) -> (f32, f32) {
+        let settings = Settings::default();
+        let (start_x, start_y) = (tank.fish[0].position.x, tank.fish[0].position.y);
+        for _ in 0..DRIFT_TICKS {
+            tank.fish[0].tick(&settings, TANK_W, TANK_H, 0);
+        }
+        (
+            (tank.fish[0].position.x - start_x).abs(),
+            (tank.fish[0].position.y - start_y).abs(),
+        )
+    }
+
+    #[test]
+    fn a_frozen_fish_never_moves() {
+        let mut tank = plain_fish_tank();
+        tank.fish[0].frozen = true;
+        assert_eq!(drift(&mut tank), (0.0, 0.0), "a frozen fish is pinned");
+    }
+
+    #[test]
+    fn an_unfrozen_fish_drifts() {
+        let mut tank = plain_fish_tank();
+        let (dx, dy) = drift(&mut tank);
+        assert!(dx + dy > 0.0, "an unfrozen fish keeps swimming");
+    }
+
+    #[test]
+    fn unfreezing_returns_the_fish_to_motion() {
+        let mut tank = plain_fish_tank();
+        tank.fish[0].frozen = true;
+        assert_eq!(drift(&mut tank), (0.0, 0.0));
+        tank.fish[0].frozen = false;
+        let (dx, dy) = drift(&mut tank);
+        assert!(dx + dy > 0.0, "unfreezing restores movement");
+    }
+
+    #[test]
+    fn a_frozen_fish_never_seeks_food() {
+        let mut tank = plain_fish_tank();
+        tank.fish[0].frozen = true;
+        seek_nearby_food(&mut tank);
+        assert!(
+            matches!(tank.fish[0].state, FishState::Idle),
+            "a pinned fish is never sent after food it cannot reach"
+        );
+    }
+
+    const ZOOMIE_WINDOW_TICKS: usize = 200;
+    const ZOOMIE_WATCH_FPS: f32 = 1.0;
+    const HOST_WEIGHT_G: u32 = 1000;
+    const BOT_WEIGHT_G: u32 = 1;
+
+    fn host_carrying_a_bot(wired: bool) -> Tank {
+        let mut tank = Tank::new("T".to_string(), TankKind::Base, &[]);
+        tank.width = TANK_W;
+        tank.height = TANK_H;
+        let mut rng = rand::rng();
+        let mut host = Fish::new(
+            FishSpecies::Merluza,
+            "Ann".to_string(),
+            BOT_X,
+            BOT_Y,
+            &mut rng,
+        );
+        host.weight_g = HOST_WEIGHT_G;
+        host.engulf_timer = 5.0;
+        let mut bot = Fish::new(
+            FishSpecies::Botfish,
+            "Neo".to_string(),
+            FOOD_X,
+            BOT_Y,
+            &mut rng,
+        );
+        bot.weight_g = BOT_WEIGHT_G;
+        if wired {
+            bot.botfish_state
+                .as_mut()
+                .unwrap()
+                .program("wake".to_string(), vec!["/feed 1".to_string()]);
+        }
+        tank.fish.push(host);
+        tank.fish.push(bot);
+        tank.tick_engulfment();
+        assert_eq!(tank.fish.len(), 1, "the botfish is engulfed");
+        assert!(tank.fish[0].is_programmable());
+        assert_eq!(tank.fish[0].is_wired(), wired);
+        tank
+    }
+
+    fn zoomies_within_window(tank: &mut Tank) -> bool {
+        let settings = Settings {
+            fps: ZOOMIE_WATCH_FPS,
+            ..Settings::default()
+        };
+        for _ in 0..ZOOMIE_WINDOW_TICKS {
+            tank.fish[0].tick(&settings, TANK_W, TANK_H, 0);
+            if matches!(tank.fish[0].state, FishState::Zoomie { .. }) {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn a_wired_host_never_zoomies() {
+        let mut tank = host_carrying_a_bot(true);
+        assert!(!zoomies_within_window(&mut tank), "a wired fish stays calm");
+    }
+
+    #[test]
+    fn a_host_carrying_an_unwired_bot_still_zoomies() {
+        let mut tank = host_carrying_a_bot(false);
+        assert!(zoomies_within_window(&mut tank), "an unwired fish plays");
+    }
+
+    #[test]
+    fn an_unwired_botfish_zoomies_so_that_wiring_one_is_visible() {
+        let mut tank = tank_with_botfish(false);
+        assert!(
+            FishSpecies::Botfish.config().can_zoomie,
+            "a botfish must be able to zoomie, or wiring it changes nothing you can watch"
+        );
+        assert!(zoomies_within_window(&mut tank), "a loose botfish plays");
+    }
+
+    #[test]
+    fn a_wired_botfish_never_zoomies() {
+        let mut tank = tank_with_botfish(true);
+        assert!(
+            !zoomies_within_window(&mut tank),
+            "wiring a botfish calms it — this is the Phase 1 demo"
+        );
+    }
+
+    const ENGULF_SECS: f32 = 5.0;
+    const HEAVY_SENSE_WEIGHT_G: u32 = 5000;
+    const CARRIER: &str = "Ann / Cm";
+    const FUSED: &str = "Ann / Cm / Ear";
+    const RIPE: &str = "ripe";
+    const NOON: u32 = 12;
+
+    fn botfish(name: &str, weight_g: u32, wire: fn(&mut BotfishState)) -> Fish {
+        let mut bot = Fish::new(
+            FishSpecies::Botfish,
+            name.to_string(),
+            FOOD_X,
+            BOT_Y,
+            &mut rand::rng(),
+        );
+        bot.weight_g = weight_g;
+        wire(bot.botfish_state.as_mut().unwrap());
+        bot
+    }
+
+    fn module_wiring(bot: &mut BotfishState) {
+        bot.program(String::new(), vec!["/feed 1".to_string()]);
+        bot.install(Part::CommandModule);
+        bot.wire(Part::CommandModule, "fire", RIPE);
+        bot.install(Part::InverterCoil);
+        bot.install(Part::DelaySpool);
+        bot.listen("a");
+        bot.drive("q");
+    }
+
+    fn sense_wiring(bot: &mut BotfishState) {
+        bot.install(Part::StartleNerve);
+        bot.wire(Part::StartleNerve, "birth", RIPE);
+        bot.install(Part::InverterCoil);
+        bot.install(Part::DelaySpool);
+        bot.listen("b");
+        bot.drive("nq");
+    }
+
+    fn engulfing_host() -> Fish {
+        let mut host = Fish::new(
+            FishSpecies::Merluza,
+            "Ann".to_string(),
+            BOT_X,
+            BOT_Y,
+            &mut rand::rng(),
+        );
+        host.weight_g = HOST_WEIGHT_G;
+        host.engulf_timer = ENGULF_SECS;
+        host
+    }
+
+    fn carrier_of_a_module() -> Tank {
+        let mut tank = Tank::new("T".to_string(), TankKind::Base, &[]);
+        tank.width = TANK_W;
+        tank.height = TANK_H;
+        tank.admit(engulfing_host(), "Ann".to_string());
+        tank.admit(botfish("Cm", BOT_WEIGHT_G, module_wiring), "Cm".to_string());
+        tank.tick_engulfment();
+        assert!(tank.apply_named_mutation(CARRIER, "endocytosis"));
+        assert!(!tank.fish[0].is_double(), "the carrier is one body again");
+        tank
+    }
+
+    fn carrier_engulfs_a_sense(sense_weight_g: u32) -> Tank {
+        let mut tank = carrier_of_a_module();
+        tank.fish[0].engulf_timer = ENGULF_SECS;
+        tank.admit(
+            botfish("Ear", sense_weight_g, sense_wiring),
+            "Ear".to_string(),
+        );
+        tank.tick_engulfment();
+        assert_eq!(tank.fish.len(), 1, "the sense fish is engulfed");
+        assert_eq!(tank.fish[0].name, FUSED);
+        tank
+    }
+
+    fn named<'a>(tank: &'a Tank, name: &str) -> &'a BotfishState {
+        tank.fish
+            .iter()
+            .find(|f| f.name == name)
+            .and_then(Fish::script)
+            .unwrap_or_else(|| panic!("{name} carries a circuit"))
+    }
+
+    fn assert_module_fish(bot: &BotfishState) {
+        assert_eq!(
+            bot.parts().iter().collect::<Vec<_>>(),
+            vec![
+                (Part::InverterCoil, 1),
+                (Part::DelaySpool, 1),
+                (Part::CommandModule, 1)
+            ]
+        );
+        assert!(bot.hears("a") && bot.drives() == Some("q"));
+    }
+
+    fn assert_fused_circuit(bot: &BotfishState) {
+        assert_eq!(
+            bot.parts().iter().collect::<Vec<_>>(),
+            vec![
+                (Part::InverterCoil, 1),
+                (Part::DelaySpool, 2),
+                (Part::StartleNerve, 1),
+                (Part::CommandModule, 1)
+            ],
+            "the parts are a union: spools add up, a second coil does nothing"
+        );
+        assert!(bot.hears("a") && !bot.hears("b"), "the receiver listens");
+        assert_eq!(bot.drives(), Some("q"), "the receiver drives");
+        assert_eq!(bot.script, vec!["/feed 1".to_string()]);
+        assert_eq!(bot.pins().channel(Part::StartleNerve, "birth"), Some(RIPE));
+    }
+
+    #[test]
+    fn a_host_carrying_a_circuit_keeps_it_when_it_engulfs_another_botfish() {
+        let tank = carrier_engulfs_a_sense(BOT_WEIGHT_G);
+        let fused = &tank.fish[0];
+        assert!(fused.is_double());
+        assert!(fused.is_programmable());
+        assert_fused_circuit(named(&tank, FUSED));
+    }
+
+    #[test]
+    fn a_sense_fused_into_a_command_module_fish_senses_and_acts() {
+        let mut tank = carrier_engulfs_a_sense(BOT_WEIGHT_G);
+        tank.signal(WorldSignal::Birth);
+        let mut world = tank.observe(0, NOON);
+        tank.advance_stage(&mut world);
+        assert!(tank.channels.level(RIPE), "the fused sense drove the wire");
+        let mut world = tank.observe(0, NOON);
+        tank.advance_stage(&mut world);
+        assert!(
+            named(&tank, FUSED).is_processing(),
+            "and the fused module ran the program"
+        );
+    }
+
+    const PANEL_FISH: &str = "Lcd";
+    const PANEL_FUSED: &str = "Ann / Cm / Lcd";
+    const LETTER_A_LINES: [&str; 2] = ["k0", "k6"];
+
+    fn lit_panel_wiring(bot: &mut BotfishState) {
+        bot.install(Part::GlyphPanel);
+        bot.wire(Part::GlyphPanel, "char", "k");
+        bot.wire(Part::GlyphPanel, "write", "w");
+        let mut channels = ChannelRegistry::new();
+        for line in LETTER_A_LINES.into_iter().chain(["w"]) {
+            channels.set_level(line, true);
+        }
+        bot.react(&channels);
+    }
+
+    fn first_panel_row(bot: &BotfishState) -> Option<String> {
+        let displays = bot.displays();
+        let rows = displays.first()?.rows();
+        Some(rows[0].trim_end().to_string())
+    }
+
+    #[test]
+    fn a_glyph_panel_keeps_what_it_shows_through_a_fusion() {
+        let mut tank = carrier_of_a_module();
+        let lit = botfish(PANEL_FISH, BOT_WEIGHT_G, lit_panel_wiring);
+        assert_eq!(lit.script().and_then(first_panel_row).as_deref(), Some("A"));
+        tank.fish[0].engulf_timer = ENGULF_SECS;
+        tank.admit(lit, PANEL_FISH.to_string());
+        tank.tick_engulfment();
+
+        assert_eq!(tank.fish.len(), 1, "the panel fish is engulfed");
+        assert_eq!(
+            first_panel_row(named(&tank, PANEL_FUSED)).as_deref(),
+            Some("A"),
+            "the bubble survives a fusion"
+        );
+    }
+
+    const MEMORY_FISH: &str = "Ram";
+    const MEMORY_FUSED: &str = "Ann / Cm / Ram";
+
+    fn stored_letter_a(bot: &mut BotfishState) {
+        bot.install(Part::CoreStack);
+        bot.wire(Part::CoreStack, "data_in", "k");
+        bot.wire(Part::CoreStack, "write", "w");
+        let mut channels = ChannelRegistry::new();
+        for line in LETTER_A_LINES.into_iter().chain(["w"]) {
+            channels.set_level(line, true);
+        }
+        bot.react(&channels);
+    }
+
+    fn word_zero(bot: &BotfishState) -> Option<u32> {
+        let mut word = None;
+        bot.parts().report(
+            |_, _| 0,
+            &WorldView::default(),
+            |_, readings| word = readings.get("data_out"),
+        );
+        word
+    }
+
+    #[test]
+    fn a_core_stack_keeps_its_words_through_a_fusion() {
+        let mut tank = carrier_of_a_module();
+        let memory = botfish(MEMORY_FISH, BOT_WEIGHT_G, stored_letter_a);
+        assert_eq!(memory.script().and_then(word_zero), Some(u32::from(b'A')));
+        tank.fish[0].engulf_timer = ENGULF_SECS;
+        tank.admit(memory, MEMORY_FISH.to_string());
+        tank.tick_engulfment();
+
+        assert_eq!(tank.fish.len(), 1, "the memory fish is engulfed");
+        assert_eq!(
+            word_zero(named(&tank, MEMORY_FUSED)),
+            Some(u32::from(b'A')),
+            "word 0 survives a fusion"
+        );
+    }
+
+    const SCREEN_FISH: &str = "Crt";
+    const SCREEN_FUSED: &str = "Ann / Cm / Crt";
+
+    fn drawn_letter_a(bot: &mut BotfishState) {
+        bot.install(Part::CathodeArray);
+        bot.wire(Part::CathodeArray, "byte", "k");
+        bot.wire(Part::CathodeArray, "write_byte", "w");
+        let mut channels = ChannelRegistry::new();
+        for line in LETTER_A_LINES.into_iter().chain(["w"]) {
+            channels.set_level(line, true);
+        }
+        bot.react(&channels);
+    }
+
+    fn surface_start(bot: &BotfishState) -> Option<String> {
+        let displays = bot.displays();
+        let rows = displays.first()?.rows();
+        Some(rows[0].chars().take(4).collect())
+    }
+
+    #[test]
+    fn a_cathode_keeps_its_picture_through_a_fusion() {
+        let mut tank = carrier_of_a_module();
+        let screen = botfish(SCREEN_FISH, BOT_WEIGHT_G, drawn_letter_a);
+        assert_eq!(
+            screen.script().and_then(surface_start).as_deref(),
+            Some("⠁⠀⠀⠁"),
+            "byte 0 is 0x41: dots 0 and 6 of the top row"
+        );
+        tank.fish[0].engulf_timer = ENGULF_SECS;
+        tank.admit(screen, SCREEN_FISH.to_string());
+        tank.tick_engulfment();
+
+        assert_eq!(tank.fish.len(), 1, "the screen fish is engulfed");
+        assert_eq!(
+            surface_start(named(&tank, SCREEN_FUSED)).as_deref(),
+            Some("⠁⠀⠀⠁"),
+            "the surface survives a fusion"
+        );
+    }
+
+    #[test]
+    fn cytokinesis_gives_each_half_back_its_own_parts_and_wiring() {
+        let mut tank = carrier_engulfs_a_sense(BOT_WEIGHT_G);
+        assert!(tank.apply_named_mutation(FUSED, "cytokinesis"));
+        assert_eq!(tank.fish.len(), 2);
+
+        let carrier = tank.fish.iter().find(|f| f.name == CARRIER).unwrap();
+        assert!(carrier.is_programmable(), "the carrier is still a carrier");
+        assert_module_fish(named(&tank, CARRIER));
+
+        let ear = named(&tank, "Ear");
+        assert_eq!(
+            ear.parts().iter().collect::<Vec<_>>(),
+            vec![
+                (Part::InverterCoil, 1),
+                (Part::DelaySpool, 1),
+                (Part::StartleNerve, 1)
+            ]
+        );
+        assert!(ear.hears("b") && ear.drives() == Some("nq"));
+    }
+
+    #[test]
+    fn endocytosis_onto_the_heavier_botfish_body_keeps_the_receivers_circuit() {
+        let mut tank = carrier_engulfs_a_sense(HEAVY_SENSE_WEIGHT_G);
+        assert!(tank.apply_named_mutation(FUSED, "endocytosis"));
+
+        let survivor = &tank.fish[0];
+        assert_eq!(survivor.species, FishSpecies::Botfish, "the heavier body");
+        assert!(survivor.is_programmable());
+        assert_fused_circuit(named(&tank, FUSED));
+
+        let buried = tank
+            .pending_graveyard
+            .iter()
+            .find(|f| f.name == CARRIER)
+            .and_then(Fish::script)
+            .expect("the lost half is buried with its own circuit");
+        assert_module_fish(buried);
+    }
+
+    fn printed_neo() -> Tank {
+        let mut tank = Tank::new("T".to_string(), TankKind::Base, &[]);
+        tank.admit(
+            botfish("Neo", BOT_WEIGHT_G, module_wiring),
+            "Neo".to_string(),
+        );
+        let bot = tank.fish[0].script_mut().unwrap();
+        bot.install(Part::InverterCoil);
+        bot.install(Part::DelaySpool);
+        bot.mark_printed();
+        tank
+    }
+
+    #[test]
+    fn a_botfish_split_by_telophase_never_copies_its_parts_or_sheds_its_print_mark() {
+        let mut tank = printed_neo();
+        assert!(tank.apply_named_mutation("Neo", "telophase"));
+        assert!(tank.apply_named_mutation("Neo", "cytokinesis"));
+        assert_eq!(tank.fish.len(), 2);
+
+        let neo = named(&tank, "Neo");
+        assert!(neo.parts().has(Part::InverterCoil) && neo.parts().has(Part::DelaySpool));
+
+        let twin = tank.fish.iter().find(|f| f.name != "Neo").unwrap();
+        let twin_circuit = twin.script().expect("a botfish twin is programmable");
+        assert!(twin_circuit.parts().is_empty(), "no part is duplicated");
+        assert!(
+            twin_circuit.is_printed(),
+            "a printed fish cannot split into one worth money"
+        );
+        assert_eq!(twin.sell_value(), 0);
+    }
+
+    #[test]
+    fn a_doubled_fish_is_still_refused_as_engulf_receiver_and_prey() {
+        let mut tank = Tank::new("T".to_string(), TankKind::Base, &[]);
+        tank.admit(engulfing_host(), "Ann".to_string());
+        tank.admit(botfish("Cm", BOT_WEIGHT_G, module_wiring), "Cm".to_string());
+        assert!(tank.apply_named_mutation("Cm", "telophase"));
+        tank.tick_engulfment();
+        assert_eq!(tank.fish.len(), 2, "a doubled botfish is never prey");
+
+        assert!(tank.apply_named_mutation("Cm", "cytokinesis"));
+        tank.fish.retain(|f| f.name == "Ann" || f.name == "Cm");
+        assert!(tank.apply_named_mutation("Ann", "telophase"));
+        tank.fish[0].engulf_timer = ENGULF_SECS;
+        tank.tick_engulfment();
+        assert_eq!(tank.fish.len(), 2, "a doubled host never engulfs");
+    }
+
+    fn fitted_botfish(kind: TankKind) -> Tank {
+        let mut tank = tank_with_botfish(false);
+        tank.kind = kind;
+        let bot = tank.fish[0].script_mut().expect("a botfish");
+        bot.listen("a");
+        bot.drive("q");
+        bot.install(Part::InverterCoil);
+        for channel in ["a", "q", "z"] {
+            tank.channels.register(channel);
+        }
+        tank
+    }
+
+    fn fitting(tank: &Tank) -> (Vec<String>, Option<String>, u32) {
+        let bot = tank.fish[0].script().expect("a botfish");
+        (
+            bot.listens().map(str::to_string).collect(),
+            bot.drives().map(str::to_string),
+            bot.parts().count(Part::InverterCoil),
+        )
+    }
+
+    fn first_strike(tank: &mut Tank) -> bool {
+        let before = fitting(tank);
+        for _ in 0..RAD_WATCH_TICKS {
+            tank.tick_mutations(RAD_TICK_SECS);
+            if fitting(tank) != before {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn a_radtank_corrupts_a_wired_botfish_instead_of_mutating_it() {
+        let mut tank = fitted_botfish(TankKind::Rad);
+        assert!(
+            first_strike(&mut tank),
+            "ten minutes at a thirty-second mean always lands a strike"
+        );
+        assert!(
+            tank.fish[0]
+                .mutations
+                .as_ref()
+                .is_none_or(|record| record.count == 0),
+            "radiation still never mutates a wired fish"
+        );
+        assert!(
+            tank.observe(0, 0).pulsed(WorldSignal::Mutation),
+            "a Geiger hears the strike as the tank's mutation pulse"
+        );
+    }
+
+    #[test]
+    fn a_part_knocked_loose_is_handed_up_to_the_player_never_destroyed() {
+        let mut tank = fitted_botfish(TankKind::Rad);
+        tank.channels = ChannelRegistry::new();
+        let bot = tank.fish[0].script_mut().expect("a botfish");
+        bot.unlisten("a");
+        bot.unwire(PinOwner::Body, "out");
+
+        assert!(first_strike(&mut tank));
+
+        assert_eq!(tank.pending_loose_parts, vec![Part::InverterCoil]);
+        assert_eq!(fitting(&tank).2, 0);
+    }
+
+    #[test]
+    fn outside_a_radtank_a_circuit_is_never_touched() {
+        let mut tank = fitted_botfish(TankKind::Base);
+        assert!(!first_strike(&mut tank));
+        assert!(tank.pending_loose_parts.is_empty());
     }
 }

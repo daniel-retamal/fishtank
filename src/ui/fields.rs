@@ -401,7 +401,7 @@ pub fn gen_field_value(
 
         FieldKind::Crush => {
             if all_names.is_empty() {
-                plain("—")
+                plain(super::table::NOTHING)
             } else {
                 plain(all_names[rng.random_range(0..all_names.len())].clone())
             }
@@ -409,7 +409,7 @@ pub fn gen_field_value(
 
         FieldKind::MarriedTo => {
             if all_names.is_empty() {
-                plain("—")
+                plain(super::table::NOTHING)
             } else {
                 plain(all_names[rng.random_range(0..all_names.len())].clone())
             }
@@ -503,21 +503,21 @@ pub fn gen_field_value(
 
         FieldKind::FavoritePassage => {
             const PASSAGES: &[&str] = &[
-                "\"Let the water teem with living creatures.\" — Genesis 1:20",
-                "\"Follow me, and I will make you fishers of men.\" — Matthew 4:19",
-                "\"Cast the net on the right side of the boat.\" — John 21:6",
-                "\"Bring some of the fish you have just caught.\" — John 21:10",
-                "\"They caught so many fish that their nets began to break.\" — Luke 5:6",
-                "\"He blessed the five loaves and the two fish.\" — Luke 9:16",
-                "\"The Lord is my shepherd; I shall not want.\" — Psalm 23:1",
-                "\"For the love of money is a root of all kinds of evil.\" — 1 Timothy 6:10",
-                "\"You cannot serve both God and money.\" — Matthew 6:24",
-                "\"Do not store up treasures on earth, where moth and rust destroy.\" — Matthew 6:19",
-                "\"A generous person will prosper.\" — Proverbs 11:25",
-                "\"Wealth gained hastily will dwindle.\" — Proverbs 13:11",
-                "\"Trust in the Lord with all your heart.\" — Proverbs 3:5",
-                "\"I can do all things through him who strengthens me.\" — Philippians 4:13",
-                "\"Give thanks to the Lord, for he is good.\" — Psalm 107:1",
+                "\"Let the water teem with living creatures.\" (Genesis 1:20)",
+                "\"Follow me, and I will make you fishers of men.\" (Matthew 4:19)",
+                "\"Cast the net on the right side of the boat.\" (John 21:6)",
+                "\"Bring some of the fish you have just caught.\" (John 21:10)",
+                "\"They caught so many fish that their nets began to break.\" (Luke 5:6)",
+                "\"He blessed the five loaves and the two fish.\" (Luke 9:16)",
+                "\"The Lord is my shepherd; I shall not want.\" (Psalm 23:1)",
+                "\"For the love of money is a root of all kinds of evil.\" (1 Timothy 6:10)",
+                "\"You cannot serve both God and money.\" (Matthew 6:24)",
+                "\"Do not store up treasures on earth, where moth and rust destroy.\" (Matthew 6:19)",
+                "\"A generous person will prosper.\" (Proverbs 11:25)",
+                "\"Wealth gained hastily will dwindle.\" (Proverbs 13:11)",
+                "\"Trust in the Lord with all your heart.\" (Proverbs 3:5)",
+                "\"I can do all things through him who strengthens me.\" (Philippians 4:13)",
+                "\"Give thanks to the Lord, for he is good.\" (Psalm 107:1)",
             ];
             plain(PASSAGES[rng.random_range(0..PASSAGES.len())])
         }

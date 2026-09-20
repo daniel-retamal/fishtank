@@ -1,0 +1,52 @@
+# JOURNEY · a circuit that does something: a clock fires a Command Module that feeds the tank.
+# This is the whole Phase 3 promise in four fish-steps: part, wire, fire pin, script line.
+
+clear
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
+include scenes/buy-at-the-bench.play "Command Module" Hands
+run /shop
+key enter
+select Food
+key enter
+expect < 1 >
+key right 99
+expect < 100 >
+snap a hundred food on the counter
+key enter
+key esc
+key esc
+absent Price/unit
+expect food
+expect 100
+include scenes/buy-a-fish.play Botfish clk
+include scenes/buy-a-fish.play Botfish feeder
+
+run /consume inverter coil
+key enter
+run /consume command module
+key down
+key enter
+
+run /program "Clk"
+type clk
+key down
+type clk
+key enter
+
+run /program "Feeder"
+expect fire[1]
+key down 2
+type clk
+key down 2
+type /feed 1
+snap the fire pin and the script line
+key enter
+
+tick 120
+absent food: 100
+snap the module spent food from the supply on its own
+run /circuit
+expect fire ◂ clk
+snap the circuit shows the fire pin wired to the clock
+key esc

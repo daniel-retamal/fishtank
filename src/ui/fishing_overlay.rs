@@ -129,7 +129,7 @@ struct CatchPhase {
 impl CatchPhase {
     fn new(milk: MilkBuffs, rng: &mut impl RngExt) -> Self {
         Self {
-            wait_remaining: sample_exp(milk.bite_mean_wait_secs(), BITE_MIN_WAIT_SECS, rng),
+            wait_remaining: milk.bite_wait_secs(rng),
             biting: false,
             bite_elapsed: 0.0,
             bite_duration: milk.bite_duration_secs(),
@@ -437,6 +437,10 @@ impl MilkBuffs {
     fn bite_mean_wait_secs(&self) -> f32 {
         BITE_MEAN_WAIT_SECS
             + (BITE_MEAN_WAIT_BUFFED_SECS - BITE_MEAN_WAIT_SECS) * self.reaction_ramp()
+    }
+
+    pub fn bite_wait_secs(&self, rng: &mut impl RngExt) -> f32 {
+        sample_exp(self.bite_mean_wait_secs(), BITE_MIN_WAIT_SECS, rng)
     }
 }
 

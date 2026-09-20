@@ -1,0 +1,57 @@
+# JOURNEY · burn a design into one fish: capture a clock, get a Fabricator, etch the clock into a fresh botfish from the Foundry.
+# Etch spends the Fabricator, two wafers per fish and every part; the blueprint survives and the fish becomes a chip.
+
+clear
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
+include scenes/buy-at-the-bench.play "Blank Circuit Blueprint" Materials
+include scenes/buy-a-fish.play Botfish tick
+run /consume inverter coil
+key enter
+run /program "Tick"
+type tick
+key down
+type tick
+key enter
+absent listens
+
+run /consume blank circuit blueprint
+type clock
+key enter
+absent Name your
+
+include scenes/buy-a-fish.play Botfish neo
+run /foundry
+expect ─ Foundry
+expect E etch
+key e
+expect ─ Foundry
+absent botfishes
+snap etch cannot run without a Fabricator
+key esc
+absent ─ Foundry
+
+include scenes/buy-at-the-bench.play Fabricator Materials
+run /foundry
+expect Blank
+key e
+expect botfishes
+expect ENTER etch
+snap the picker offers every botfish
+key down
+expect Neo
+key enter
+absent ─ Foundry
+absent botfishes
+snap the clock is burned into Neo
+
+run /circuit
+expect Neo
+snap Neo is wired now
+key esc
+
+run /foundry
+expect Clock
+snap the blueprint survives the etch
+key esc
+absent ─ Foundry

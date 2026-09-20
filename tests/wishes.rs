@@ -1,14 +1,14 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use fishtank::{
     app::App,
+    economy::Rarity,
     entities::cow::CowVariant,
     fishes::{fish::Fish, species::FishSpecies},
     loot::{ConsumableKind, StockItem},
     tank::{Tank, TankKind},
     void_ritual::{
-        EXPAND_AMOUNT, GIVE_BAIT_QTY, GIVE_COFFEE_QTY, GIVE_JUNK_QTY, GIVE_NECRONOMICON_QTY,
-        GIVE_RESOURCE_AMOUNT, GiveTarget, MAX_WISH_RETRIES, VoidRitualState, WishAction, WishCtx,
-        parse_wish,
+        EXPAND_AMOUNT, GIVE_RESOURCE_AMOUNT, GiveTarget, MAX_WISH_RETRIES, VoidRitualState,
+        WishAction, WishCtx, parse_wish,
     },
 };
 
@@ -94,10 +94,9 @@ fn give_coffee_parses() {
     let c = ctx(&fish, &tanks, &grav);
     assert!(matches!(
         parse_wish("give coffee", &c),
-        Some(WishAction::Give(GiveTarget::Item {
-            stock: StockItem::Consumable(ConsumableKind::Coffee),
-            qty: GIVE_COFFEE_QTY
-        }))
+        Some(WishAction::Give(GiveTarget::Item(StockItem::Consumable(
+            ConsumableKind::Coffee
+        ))))
     ));
 }
 
@@ -109,10 +108,9 @@ fn give_bait_parses() {
     let c = ctx(&fish, &tanks, &grav);
     assert!(matches!(
         parse_wish("give bait", &c),
-        Some(WishAction::Give(GiveTarget::Item {
-            stock: StockItem::Consumable(ConsumableKind::Bait),
-            qty: GIVE_BAIT_QTY
-        }))
+        Some(WishAction::Give(GiveTarget::Item(StockItem::Consumable(
+            ConsumableKind::Bait
+        ))))
     ));
 }
 
@@ -124,10 +122,7 @@ fn give_junk_parses() {
     let c = ctx(&fish, &tanks, &grav);
     assert!(matches!(
         parse_wish("give junk", &c),
-        Some(WishAction::Give(GiveTarget::Item {
-            stock: StockItem::Junk,
-            qty: GIVE_JUNK_QTY
-        }))
+        Some(WishAction::Give(GiveTarget::Item(StockItem::Junk)))
     ));
 }
 
@@ -139,10 +134,9 @@ fn give_necronomicon_parses() {
     let c = ctx(&fish, &tanks, &grav);
     assert!(matches!(
         parse_wish("give necronomicon", &c),
-        Some(WishAction::Give(GiveTarget::Item {
-            stock: StockItem::Consumable(ConsumableKind::Necronomicon),
-            qty: GIVE_NECRONOMICON_QTY,
-        }))
+        Some(WishAction::Give(GiveTarget::Item(StockItem::Consumable(
+            ConsumableKind::Necronomicon
+        ))))
     ));
 }
 
@@ -484,7 +478,7 @@ fn execute_give_coffee_increases_coffee_inventory() {
     submit_wish(&mut app, "give coffee");
     assert_eq!(
         app.inventory.get(&StockItem::COFFEE).copied().unwrap_or(0),
-        before + GIVE_COFFEE_QTY
+        before + StockItem::COFFEE.gift_quantity()
     );
 }
 
@@ -495,7 +489,7 @@ fn execute_give_bait_increases_bait_inventory() {
     submit_wish(&mut app, "give bait");
     assert_eq!(
         app.inventory.get(&StockItem::BAIT).copied().unwrap_or(0),
-        before + GIVE_BAIT_QTY
+        before + StockItem::BAIT.gift_quantity()
     );
 }
 
@@ -506,7 +500,7 @@ fn execute_give_junk_increases_junk_inventory() {
     submit_wish(&mut app, "give junk");
     assert_eq!(
         app.inventory.get(&StockItem::Junk).copied().unwrap_or(0),
-        before + GIVE_JUNK_QTY
+        before + StockItem::Junk.gift_quantity()
     );
 }
 
@@ -524,7 +518,7 @@ fn execute_give_necronomicon_increases_necronomicon_inventory() {
             .get(&StockItem::NECRONOMICON)
             .copied()
             .unwrap_or(0),
-        before + GIVE_NECRONOMICON_QTY
+        before + StockItem::NECRONOMICON.gift_quantity()
     );
 }
 
@@ -1016,6 +1010,93 @@ fn command_give_cash_matches_wish_outcome() {
     let before = app.cash;
     submit_command(&mut app, "/give cash");
     assert_eq!(app.cash, before + GIVE_RESOURCE_AMOUNT);
+}
+
+fn held(app: &App, item: StockItem) -> u32 {
+    app.inventory.get(&item).copied().unwrap_or(0)
+}
+
+fn every_stock_item() -> Vec<StockItem> {
+    ConsumableKind::all()
+        .into_iter()
+        .map(StockItem::Consumable)
+        .chain([StockItem::Junk])
+        .collect()
+}
+
+#[test]
+fn every_stock_item_is_gifted_by_its_rarity_through_both_doors() {
+    for item in every_stock_item() {
+        let name = item.display_name().to_ascii_lowercase();
+        if name.trim().is_empty() {
+            continue;
+        }
+        let gift = item.rarity().gift_quantity();
+
+        let mut app = App::new();
+        let before = held(&app, item);
+        submit_command(&mut app, &format!("/give {name}"));
+        assert_eq!(
+            held(&app, item),
+            before + gift,
+            "/give {name} must grant a {:?} gift",
+            item.rarity()
+        );
+
+        let mut app = App::new();
+        let before = held(&app, item);
+        submit_wish(&mut app, &format!("give {name}"));
+        assert_eq!(
+            held(&app, item),
+            before + gift,
+            "the wish for {name} must agree with /give"
+        );
+    }
+}
+
+#[test]
+fn a_fabricator_is_gifted_like_every_other_rare_thing() {
+    let fabricator = StockItem::Consumable(ConsumableKind::Fabricator);
+    let rare_part = every_stock_item()
+        .into_iter()
+        .find(|item| {
+            matches!(item, StockItem::Consumable(ConsumableKind::Part(_)))
+                && item.rarity() == Rarity::Rare
+        })
+        .expect("the bench sells a Rare part");
+    let mut app = App::new();
+    submit_command(&mut app, "/give fabricator");
+    submit_command(
+        &mut app,
+        &format!("/give {}", rare_part.display_name().to_ascii_lowercase()),
+    );
+    assert_eq!(held(&app, fabricator), Rarity::Rare.gift_quantity());
+    assert_eq!(held(&app, fabricator), held(&app, rare_part));
+}
+
+#[test]
+fn anything_grants_two_of_the_boons_give_grants() {
+    let mut app = App::new();
+    let (cash, food) = (app.cash, app.food_supply);
+    let (coffee, bait) = (held(&app, StockItem::COFFEE), held(&app, StockItem::BAIT));
+    submit_wish(&mut app, "anything");
+    let deltas = [
+        (app.cash - cash, GIVE_RESOURCE_AMOUNT),
+        (app.food_supply - food, GIVE_RESOURCE_AMOUNT),
+        (
+            held(&app, StockItem::COFFEE) - coffee,
+            StockItem::COFFEE.gift_quantity(),
+        ),
+        (
+            held(&app, StockItem::BAIT) - bait,
+            StockItem::BAIT.gift_quantity(),
+        ),
+    ];
+    for (delta, boon) in deltas {
+        assert_eq!(delta % boon, 0, "anything grants whole boons only");
+    }
+    let boons: u32 = deltas.iter().map(|(delta, boon)| delta / boon).sum();
+    assert_eq!(boons, 2);
 }
 
 #[test]

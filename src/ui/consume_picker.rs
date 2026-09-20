@@ -5,11 +5,15 @@ use ratatui::{
     widgets::Widget,
 };
 
-use crate::colors::{BLACK, DARK_GRAY, STEEL, WHITE};
-use crate::loot::MilkVariant;
+use crate::colors::{BLACK, STEEL, WHITE};
+use crate::consumable::ConsumeTarget;
 use crate::ui::{
-    hints::{HINT_CLOSE, HINT_ENTER_CONSUME, HINT_NAV, HINT_SCROLL},
-    scroll_list, table,
+    grid::{self, Grid, HEADER_ROWS, HeaderStyle},
+    hint_bar::HintBar,
+    hints::{HINT_CLOSE, HINT_NAV, HINT_SCROLL},
+    layout::{FlexItem, Screen, Scroll, Scrollbar},
+    modal::{Frame, Modal},
+    table::visual_width,
 };
 
 pub struct ConsumePickerEntry {
@@ -20,26 +24,33 @@ pub struct ConsumePickerEntry {
     pub fish_idx: usize,
 }
 
+impl ConsumePickerEntry {
+    fn cells(&self) -> [&str; 3] {
+        [&self.fish_name, &self.species_display, &self.tank_name]
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ConsumePickerSource {
     FromInventory,
     FromCommand,
+    FromFoundry,
 }
 
 pub struct ConsumePickerState {
-    pub milk: MilkVariant,
-    pub item_name: String,
+    pub target: ConsumeTarget,
+    label: String,
     pub remaining: u32,
     pub entries: Vec<ConsumePickerEntry>,
     pub selected: usize,
-    pub scroll: usize,
+    scroll: Scroll,
     pub source: ConsumePickerSource,
 }
 
 impl ConsumePickerState {
     pub fn new(
-        milk: MilkVariant,
-        item_name: String,
+        target: ConsumeTarget,
+        label: String,
         remaining: u32,
         entries: Vec<ConsumePickerEntry>,
         source: ConsumePickerSource,
@@ -48,27 +59,28 @@ impl ConsumePickerState {
             return None;
         }
         Some(Self {
-            milk,
-            item_name,
+            target,
+            label,
             remaining,
             entries,
             selected: 0,
-            scroll: 0,
+            scroll: Scroll::default(),
             source,
         })
     }
 
-    pub fn scroll_up(&mut self) {
-        scroll_list::scroll_up(&mut self.selected, &mut self.scroll);
+    pub fn item_name(&self) -> &str {
+        &self.label
     }
 
-    pub fn scroll_down(&mut self, visible: usize) {
-        scroll_list::scroll_down(
-            &mut self.selected,
-            &mut self.scroll,
-            self.entries.len(),
-            visible,
-        );
+    pub fn scroll_up(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    pub fn scroll_down(&mut self) {
+        if self.selected + 1 < self.entries.len() {
+            self.selected += 1;
+        }
     }
 
     pub fn refresh_after_consume(
@@ -91,207 +103,81 @@ impl ConsumePickerState {
     }
 }
 
-const FRAME_ROWS: u16 = 6;
+const MIN_COLUMN_W: u16 = 3;
+const HEADERS: [&str; 3] = ["Name", "Species", "Fishtank"];
+const BACKGROUND: Color = Color::Reset;
 
 pub struct ConsumePickerOverlay<'a> {
     pub state: &'a ConsumePickerState,
-}
-
-impl ConsumePickerOverlay<'_> {
-    pub fn visible_rows(area_h: u16) -> usize {
-        area_h.saturating_sub(FRAME_ROWS) as usize
-    }
+    pub screen: Screen,
 }
 
 impl Widget for ConsumePickerOverlay<'_> {
-    fn render(self, area: Rect, buf: &mut Buffer) {
+    fn render(self, _area: Rect, buf: &mut Buffer) {
         let state = self.state;
         let n = state.entries.len();
-        let bg = Color::Reset;
-
-        let name_w = state
-            .entries
-            .iter()
-            .map(|e| table::visual_width(&e.fish_name))
-            .max()
-            .unwrap_or(4)
-            .max(table::visual_width("Name"));
-        let species_w = state
-            .entries
-            .iter()
-            .map(|e| table::visual_width(&e.species_display))
-            .max()
-            .unwrap_or(7)
-            .max(table::visual_width("Species"));
-        let tank_w = state
-            .entries
-            .iter()
-            .map(|e| table::visual_width(&e.tank_name))
-            .max()
-            .unwrap_or(8)
-            .max(table::visual_width("Fishtank"));
-        let content_inner_w = name_w + 1 + species_w + 1 + tank_w;
-
-        let visible_data_rows = n
-            .min(area.height.saturating_sub(FRAME_ROWS) as usize)
-            .max(1);
-        let scrollable = n > visible_data_rows;
-
-        let close_hint = HINT_CLOSE;
-        let consume_hint = HINT_ENTER_CONSUME;
-        let close_w = table::visual_width(close_hint);
-        let consume_w = table::visual_width(consume_hint);
-        let nav_max_w = if scrollable {
-            table::visual_width(&format!(" {} ({}/{})", HINT_SCROLL, n, n))
-        } else {
-            table::visual_width(&format!(" {}", HINT_NAV))
+        let columns: Vec<FlexItem> = (0..HEADERS.len())
+            .map(|column| {
+                grid::text_column(
+                    HEADERS[column],
+                    state
+                        .entries
+                        .iter()
+                        .map(|entry| visual_width(entry.cells()[column])),
+                    MIN_COLUMN_W,
+                )
+            })
+            .collect();
+        let title = state.target.header(state.item_name(), state.remaining);
+        let frame = Frame {
+            title: &title,
+            border: WHITE,
+            background: BACKGROUND,
         };
-        let footer_inner_w = nav_max_w + 2 + consume_w + 2 + close_w + 1;
+        let content = (Grid::natural_width(&columns), n as u16 + HEADER_ROWS);
+        let (modal, _) = Modal::open_fitting(buf, self.screen, &frame, content, |overflowing| {
+            let nav = if overflowing { HINT_SCROLL } else { HINT_NAV };
+            HintBar::new(HINT_CLOSE)
+                .counted(nav, overflowing.then_some((state.selected + 1, n)))
+                .action(state.target.confirm_hint())
+        });
 
-        let title = format!(" {} to the fishes ({}) ", state.item_name, state.remaining);
-        let title_w = table::visual_width(&title) + 2;
-
-        let inner_w = content_inner_w.max(footer_inner_w).max(title_w);
-        let overlay_w = (inner_w + 2) as u16;
-        let overlay_h = ((visible_data_rows + FRAME_ROWS as usize) as u16).min(area.height);
-
-        let Some(layout) = table::OverlayLayout::centered(area, overlay_w, overlay_h) else {
-            return;
-        };
-        layout.clear_bg(buf, bg);
-        layout.draw_border(buf, &title, WHITE, bg);
-
-        let (ox, oy) = (layout.ox, layout.oy);
-        let inner_x = layout.inner_x();
-        let sep_x = inner_x + name_w as u16;
-        let sep2_x = sep_x + 1 + species_w as u16;
-        let cols = Columns {
-            name_w,
-            species_w,
-            tank_w,
-            sep_x,
-            sep2_x,
-            inner_w,
-        };
-
-        draw_header(buf, inner_x, oy + 1, &cols, bg);
-        table::draw_box_separator(buf, ox, oy + 2, overlay_w, &[sep_x, sep2_x], WHITE, bg);
-
-        let data_start_y = oy + 3;
-        let data_end_y = oy + overlay_h.saturating_sub(3);
-
-        for row_y in data_start_y..data_end_y {
-            let idx = state.scroll + (row_y - data_start_y) as usize;
-            if idx >= n {
-                break;
-            }
-            let selected = idx == state.selected;
-            draw_row(
-                buf,
-                &state.entries[idx],
-                inner_x,
-                row_y,
-                &cols,
-                selected,
-                bg,
-            );
+        let grid = Grid::fit(modal.body.x, modal.body.width, &columns);
+        let (header_y, data) = grid::split_header(modal.body);
+        if let Some(y) = header_y {
+            let style = HeaderStyle {
+                text: Style::default()
+                    .fg(WHITE)
+                    .add_modifier(Modifier::BOLD)
+                    .bg(BACKGROUND),
+                rule: Style::default().fg(WHITE).bg(BACKGROUND),
+            };
+            grid::draw_header(buf, &grid, modal.rect, y, &HEADERS, &style);
         }
 
-        let nav_hint = if scrollable {
-            format!(" {} ({}/{})", HINT_SCROLL, state.selected + 1, n)
-        } else {
-            format!(" {}", HINT_NAV)
-        };
-
-        let footer_y = oy + overlay_h - 2;
-        let hint_style = Style::default().fg(DARK_GRAY).bg(bg);
-
-        let close_x = inner_x + inner_w as u16 - 1 - close_w as u16;
-        let center_x = inner_x + (inner_w as u16 - consume_w as u16) / 2;
-
-        buf.set_string(inner_x, footer_y, &nav_hint, hint_style);
-        buf.set_string(center_x, footer_y, consume_hint, hint_style);
-        buf.set_string(close_x, footer_y, close_hint, hint_style);
+        let shown = state
+            .scroll
+            .follow(&vec![1; n], state.selected, data.height as usize);
+        for (row, index) in shown.clone().enumerate() {
+            let selected = index == state.selected;
+            let row_bg = if selected { WHITE } else { BACKGROUND };
+            let fg = if selected { BLACK } else { STEEL };
+            let y = data.y + row as u16;
+            for (column, text) in state.entries[index].cells().iter().enumerate() {
+                grid::put(
+                    buf,
+                    grid.cell(column, y, 1),
+                    text,
+                    Style::default().fg(fg).bg(row_bg),
+                );
+            }
+            grid.draw_rules(buf, y, 1, Style::default().fg(WHITE).bg(row_bg));
+        }
+        Scrollbar {
+            x: modal.scrollbar_x(),
+            top: data.y,
+            height: data.height,
+        }
+        .draw(buf, shown, n, WHITE);
     }
-}
-
-struct Columns {
-    name_w: usize,
-    species_w: usize,
-    tank_w: usize,
-    sep_x: u16,
-    sep2_x: u16,
-    inner_w: usize,
-}
-
-fn draw_header(buf: &mut Buffer, x: u16, y: u16, cols: &Columns, bg: Color) {
-    let bold = Style::default()
-        .fg(WHITE)
-        .add_modifier(Modifier::BOLD)
-        .bg(bg);
-    let sep = Style::default().fg(WHITE).bg(bg);
-
-    for dx in 0..cols.inner_w as u16 {
-        buf[(x + dx, y)].set_bg(bg);
-    }
-
-    buf.set_string(x, y, center_text("Name", cols.name_w), bold);
-    buf[(cols.sep_x, y)].set_char('│').set_style(sep);
-    buf.set_string(
-        cols.sep_x + 1,
-        y,
-        center_text("Species", cols.species_w),
-        bold,
-    );
-    buf[(cols.sep2_x, y)].set_char('│').set_style(sep);
-    buf.set_string(
-        cols.sep2_x + 1,
-        y,
-        center_text("Fishtank", cols.tank_w),
-        bold,
-    );
-}
-
-fn draw_row(
-    buf: &mut Buffer,
-    entry: &ConsumePickerEntry,
-    x: u16,
-    y: u16,
-    cols: &Columns,
-    selected: bool,
-    base_bg: Color,
-) {
-    let row_bg = if selected { WHITE } else { base_bg };
-    let fg = if selected { BLACK } else { STEEL };
-    let text_style = Style::default().fg(fg).bg(row_bg);
-    let sep_style = Style::default().fg(WHITE).bg(row_bg);
-
-    for dx in 0..cols.inner_w as u16 {
-        buf[(x + dx, y)].set_bg(row_bg);
-    }
-
-    buf.set_string(x, y, center_text(&entry.fish_name, cols.name_w), text_style);
-    buf[(cols.sep_x, y)].set_char('│').set_style(sep_style);
-    buf.set_string(
-        cols.sep_x + 1,
-        y,
-        center_text(&entry.species_display, cols.species_w),
-        text_style,
-    );
-    buf[(cols.sep2_x, y)].set_char('│').set_style(sep_style);
-    buf.set_string(
-        cols.sep2_x + 1,
-        y,
-        center_text(&entry.tank_name, cols.tank_w),
-        text_style,
-    );
-}
-
-fn center_text(text: &str, width: usize) -> String {
-    let trunc = table::truncate_str(text, width);
-    let vw = table::visual_width(&trunc);
-    let total_pad = width.saturating_sub(vw);
-    let left = total_pad / 2;
-    let right = total_pad - left;
-    format!("{}{}{}", " ".repeat(left), trunc, " ".repeat(right))
 }

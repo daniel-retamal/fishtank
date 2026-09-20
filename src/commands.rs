@@ -23,17 +23,55 @@ impl BuyTarget {
 pub enum SellTarget {
     Fish(String),
     Tank(String),
+    Blueprint(String),
     Junk { qty: u32 },
     Coffee { qty: u32 },
     Bait { qty: u32 },
     Milk { variant: MilkVariant, qty: u32 },
-    Necronomicon { qty: u32 },
-    Computer { qty: u32 },
+    Seed { kind: ConsumableKind, qty: u32 },
+    Robotics { kind: ConsumableKind, qty: u32 },
 }
 
 impl SellTarget {
     pub fn is_unique(&self) -> bool {
-        matches!(self, SellTarget::Fish(_) | SellTarget::Tank(_))
+        matches!(
+            self,
+            SellTarget::Fish(_) | SellTarget::Tank(_) | SellTarget::Blueprint(_)
+        )
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NamedKind {
+    Fish,
+    Tank,
+    Blueprint,
+}
+
+impl NamedKind {
+    pub const ALL: &'static [NamedKind] = &[NamedKind::Fish, NamedKind::Tank, NamedKind::Blueprint];
+
+    pub fn keyword(self) -> &'static str {
+        match self {
+            NamedKind::Fish => "fish",
+            NamedKind::Tank => "tank",
+            NamedKind::Blueprint => "blueprint",
+        }
+    }
+
+    fn parse(word: &str) -> Option<Self> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|kind| kind.keyword().eq_ignore_ascii_case(word))
+    }
+
+    fn sell(self, name: String) -> SellTarget {
+        match self {
+            NamedKind::Fish => SellTarget::Fish(name),
+            NamedKind::Tank => SellTarget::Tank(name),
+            NamedKind::Blueprint => SellTarget::Blueprint(name),
+        }
     }
 }
 
@@ -52,8 +90,31 @@ pub struct CompletionCtx<'a> {
     pub has_cow_in_current: bool,
     pub entity_mutations: &'a [(&'a str, Vec<Mutation>)],
     pub graveyard_names: &'a [&'a str],
-    pub sellable_unique_names: &'a [String],
+    pub programmable_names: &'a [&'a str],
+    pub console_names: &'a [&'a str],
+    pub blueprint_names: &'a [&'a str],
+    pub arrangeable_names: &'a [&'a str],
+    pub sellable_fish_names: &'a [String],
+    pub sellable_tank_names: &'a [String],
     pub sellable_stackable_names: &'a [String],
+}
+
+impl CompletionCtx<'_> {
+    fn sellable(&self, kind: NamedKind) -> Vec<&str> {
+        match kind {
+            NamedKind::Fish => self
+                .sellable_fish_names
+                .iter()
+                .map(String::as_str)
+                .collect(),
+            NamedKind::Tank => self
+                .sellable_tank_names
+                .iter()
+                .map(String::as_str)
+                .collect(),
+            NamedKind::Blueprint => self.blueprint_names.to_vec(),
+        }
+    }
 }
 
 fn all_mutation_tokens() -> Vec<&'static str> {
@@ -77,27 +138,51 @@ fn entity_mutation_tokens(
     tokens
 }
 
+const FEED_ARG: &str = "<amount>";
+const FPS_ARG: &str = "<n>";
+const CLOCK_ARG: &str = "<stages>";
+const BLUEPRINT_ARG: &str = "<blueprint>";
+const FISH_ARG: &str = "<fish>";
+const ETCH_ARGS: &str = "<blueprint> <fish>";
+const ETCH_COMMAND: &str = "etch";
+const SELL_COMMAND: &str = "sell";
+const SELL_ARG: &str = "<item>";
+const NAME_ARG: &str = "<name>";
+const QUANTITY_ARG: &str = "<quantity>";
+
 static COMMAND_NAMES: &[&str] = &[
     "add",
     "bless",
     "buy",
+    "circuit",
+    "clock",
     "clone",
+    "console",
     "consume",
     "cowsay",
+    "etch",
     "exit",
     "expand",
     "feed",
     "fish",
     "fishtanks",
+    "flip",
+    "foundry",
     "fps",
+    "freeze",
     "give",
     "index",
     "inventory",
     "move",
     "mutate",
     "names",
+    "nets",
+    "nudge",
+    "print",
+    "program",
     "restore",
     "revive",
+    "say",
     "sell",
     "shop",
     "show",
@@ -107,6 +192,7 @@ static COMMAND_NAMES: &[&str] = &[
     "stats",
     "subtract",
     "switch",
+    "unfreeze",
     "voidspawn",
 ];
 
@@ -132,8 +218,9 @@ pub fn autocomplete(input: &str, ctx: &CompletionCtx) -> Option<Completion> {
             "add" => complete_add_subtract("add", rest),
             "buy" => complete_buy(rest),
             "consume" => complete_consume(rest, ctx.consumable_names),
-            "feed" => complete_feed(rest),
-            "fps" => complete_fps(rest),
+            "feed" => complete_single_arg(rest, FEED_ARG),
+            "fps" => complete_single_arg(rest, FPS_ARG),
+            "clock" => complete_single_arg(rest, CLOCK_ARG),
             "index" => complete_index(rest, ctx.tank_names),
             "move" => complete_move(rest, ctx.fish_names, ctx.tank_names, ctx.fish_in_tanks),
             "mutate" => complete_mutate(rest, ctx.fish_names, ctx.entity_mutations),
@@ -149,6 +236,14 @@ pub fn autocomplete(input: &str, ctx: &CompletionCtx) -> Option<Completion> {
             }
             "revive" => complete_name_arg("revive", rest, "<name>", ctx.graveyard_names),
             "expand" => complete_name_arg("expand", rest, "<tank>", ctx.tank_names),
+            "program" => complete_name_arg("program", rest, "<name>", ctx.programmable_names),
+            "console" => complete_name_arg("console", rest, NAME_ARG, ctx.console_names),
+            "print" => complete_name_arg("print", rest, BLUEPRINT_ARG, ctx.blueprint_names),
+            "etch" => complete_etch(rest, ctx),
+            "freeze" => complete_name_arg("freeze", rest, "<name>", ctx.programmable_names),
+            "unfreeze" => complete_name_arg("unfreeze", rest, "<name>", ctx.programmable_names),
+            "flip" => complete_name_arg("flip", rest, "<name>", ctx.arrangeable_names),
+            "nudge" => complete_name_arg("nudge", rest, "<name> <dx> <dy>", ctx.arrangeable_names),
             "give" => complete_give(rest),
             _ => None,
         },
@@ -214,26 +309,14 @@ fn complete_command(partial: &str, has_cow_in_current: bool) -> Option<Completio
     Some(Completion { ghost, tab_result })
 }
 
-fn complete_feed(rest: &str) -> Option<Completion> {
-    if rest.is_empty() {
-        Some(Completion {
-            ghost: "<amount>".to_string(),
-            tab_result: None,
-        })
-    } else {
-        None
+fn complete_single_arg(rest: &str, placeholder: &str) -> Option<Completion> {
+    if !rest.is_empty() {
+        return None;
     }
-}
-
-fn complete_fps(rest: &str) -> Option<Completion> {
-    if rest.is_empty() {
-        Some(Completion {
-            ghost: "<n>".to_string(),
-            tab_result: None,
-        })
-    } else {
-        None
-    }
+    Some(Completion {
+        ghost: placeholder.to_string(),
+        tab_result: None,
+    })
 }
 
 fn complete_add_subtract(cmd: &str, rest: &str) -> Option<Completion> {
@@ -552,6 +635,24 @@ fn complete_name_arg(
         }
     };
     Some(Completion { ghost, tab_result })
+}
+
+fn complete_etch(rest: &str, ctx: &CompletionCtx) -> Option<Completion> {
+    if rest.is_empty() {
+        return Some(Completion {
+            ghost: ETCH_ARGS.to_string(),
+            tab_result: None,
+        });
+    }
+    let Some((blueprint, fish_rest)) = split_first_arg(rest) else {
+        return complete_name_arg(ETCH_COMMAND, rest, ETCH_ARGS, ctx.blueprint_names);
+    };
+    let known = ctx
+        .blueprint_names
+        .iter()
+        .find(|name| name.eq_ignore_ascii_case(&blueprint))?;
+    let command = format!("{ETCH_COMMAND} \"{known}\"");
+    complete_name_arg(&command, &fish_rest, FISH_ARG, ctx.programmable_names)
 }
 
 fn complete_consume(rest: &str, consumable_names: &[&str]) -> Option<Completion> {
@@ -933,7 +1034,7 @@ fn buyable_item_names() -> Vec<String> {
         .iter()
         .map(|s| s.display_name().to_ascii_lowercase())
         .collect();
-    for &kind in TankKind::all() {
+    for kind in TankKind::all_buyable() {
         v.push(kind.display_name().to_ascii_lowercase());
     }
     v.push("food".to_string());
@@ -949,12 +1050,22 @@ fn resolve_stackable_sell(name_lower: &str, qty: u32) -> Option<SellTarget> {
         "junk" => Some(SellTarget::Junk { qty }),
         "coffee" => Some(SellTarget::Coffee { qty }),
         "bait" => Some(SellTarget::Bait { qty }),
-        "necronomicon" => Some(SellTarget::Necronomicon { qty }),
-        "computer" => Some(SellTarget::Computer { qty }),
         _ => MilkVariant::ALL
             .iter()
             .find(|&&v| v.display_name().to_ascii_lowercase() == name_lower)
-            .map(|&variant| SellTarget::Milk { variant, qty }),
+            .map(|&variant| SellTarget::Milk { variant, qty })
+            .or_else(|| {
+                ConsumableKind::seeds()
+                    .into_iter()
+                    .find(|kind| kind.lowercase_name() == name_lower)
+                    .map(|kind| SellTarget::Seed { kind, qty })
+            })
+            .or_else(|| {
+                ConsumableKind::robotics_stock()
+                    .into_iter()
+                    .find(|kind| kind.lowercase_name() == name_lower)
+                    .map(|kind| SellTarget::Robotics { kind, qty })
+            }),
     }
 }
 
@@ -976,7 +1087,7 @@ fn complete_buy(rest: &str) -> Option<Completion> {
         if rest_trimmed == name {
             let space = if rest.ends_with(' ') { "" } else { " " };
             return Some(Completion {
-                ghost: format!("{}<qty>", space),
+                ghost: format!("{}<quantity>", space),
                 tab_result: None,
             });
         }
@@ -985,7 +1096,7 @@ fn complete_buy(rest: &str) -> Option<Completion> {
             let after = &rest_lower[prefix_space.len()..];
             return if after.is_empty() {
                 Some(Completion {
-                    ghost: "<qty>".to_string(),
+                    ghost: "<quantity>".to_string(),
                     tab_result: None,
                 })
             } else {
@@ -1012,7 +1123,7 @@ fn complete_buy(rest: &str) -> Option<Completion> {
     let first = matches[0];
     let is_stackable = STACKABLE_BUY_NAMES.contains(&first);
     let ghost = if is_stackable {
-        format!("{} <qty>", &first[typed_len..])
+        format!("{} <quantity>", &first[typed_len..])
     } else {
         first[typed_len..].to_string()
     };
@@ -1031,10 +1142,10 @@ fn complete_buy(rest: &str) -> Option<Completion> {
 }
 
 fn complete_sell(rest: &str, ctx: &CompletionCtx) -> Option<Completion> {
-    let unique: Vec<&str> = ctx
-        .sellable_unique_names
+    let owned: Vec<(NamedKind, Vec<&str>)> = NamedKind::ALL
         .iter()
-        .map(String::as_str)
+        .map(|&kind| (kind, ctx.sellable(kind)))
+        .filter(|(_, names)| !names.is_empty())
         .collect();
     let stackable: Vec<&str> = ctx
         .sellable_stackable_names
@@ -1042,13 +1153,13 @@ fn complete_sell(rest: &str, ctx: &CompletionCtx) -> Option<Completion> {
         .map(String::as_str)
         .collect();
 
-    if unique.is_empty() && stackable.is_empty() {
+    if owned.is_empty() && stackable.is_empty() {
         return None;
     }
 
     if rest.is_empty() {
         return Some(Completion {
-            ghost: "<item>".to_string(),
+            ghost: SELL_ARG.to_string(),
             tab_result: None,
         });
     }
@@ -1056,12 +1167,20 @@ fn complete_sell(rest: &str, ctx: &CompletionCtx) -> Option<Completion> {
     let rest_lower = rest.to_ascii_lowercase();
     let rest_trimmed = rest_lower.trim_end();
 
+    for (kind, names) in &owned {
+        if let Some(after) = rest_lower.strip_prefix(&format!("{} ", kind.keyword())) {
+            let name = &rest[rest.len() - after.len()..];
+            let cmd = format!("{SELL_COMMAND} {}", kind.keyword());
+            return complete_name_arg(&cmd, name, NAME_ARG, names);
+        }
+    }
+
     for &name in &stackable {
         let name_lower = name.to_ascii_lowercase();
         if rest_trimmed == name_lower {
             let space = if rest.ends_with(' ') { "" } else { " " };
             return Some(Completion {
-                ghost: format!("{}<qty>", space),
+                ghost: format!("{space}{QUANTITY_ARG}"),
                 tab_result: None,
             });
         }
@@ -1070,7 +1189,7 @@ fn complete_sell(rest: &str, ctx: &CompletionCtx) -> Option<Completion> {
             let after = &rest_lower[prefix_space.len()..];
             return if after.is_empty() {
                 Some(Completion {
-                    ghost: "<qty>".to_string(),
+                    ghost: QUANTITY_ARG.to_string(),
                     tab_result: None,
                 })
             } else {
@@ -1079,48 +1198,43 @@ fn complete_sell(rest: &str, ctx: &CompletionCtx) -> Option<Completion> {
         }
     }
 
-    if unique
-        .iter()
-        .any(|&n| n.to_ascii_lowercase() == rest_trimmed)
-    {
-        return None;
+    let keywords: Vec<&str> = owned.iter().map(|(kind, _)| kind.keyword()).collect();
+    if keywords.contains(&rest_trimmed) {
+        return Some(Completion {
+            ghost: format!(" {NAME_ARG}"),
+            tab_result: Some(format!("/{SELL_COMMAND} {rest_trimmed} ")),
+        });
     }
 
     let typed_len = rest_trimmed.len();
-    let all: Vec<&str> = unique
+    let matches: Vec<&str> = keywords
         .iter()
-        .copied()
-        .chain(stackable.iter().copied())
-        .collect();
-    let matches: Vec<&str> = all
-        .iter()
+        .chain(stackable.iter())
         .copied()
         .filter(|&n| n.to_ascii_lowercase().starts_with(rest_trimmed))
         .collect();
 
-    if matches.is_empty() {
-        return None;
-    }
+    let first = *matches.first()?;
+    let is_keyword = keywords.contains(&first);
+    let argument = if is_keyword { NAME_ARG } else { QUANTITY_ARG };
+    let ghost = format!("{} {argument}", &first[typed_len..]);
 
-    let first = matches[0];
-    let is_stackable = stackable.iter().any(|&n| n.eq_ignore_ascii_case(first));
-    let ghost = if is_stackable {
-        format!("{} <qty>", &first[typed_len..])
-    } else {
-        first[typed_len..].to_string()
-    };
-
-    let tab_result = if matches.len() == 1 {
-        Some(format!("/sell {}", first))
+    let tab_result = if matches.len() == 1 && is_keyword {
+        format!("/{SELL_COMMAND} {first} ")
+    } else if matches.len() == 1 {
+        format!("/{SELL_COMMAND} {first}")
     } else {
         let cp = longest_common_prefix(&matches);
         if cp.len() > typed_len {
-            Some(format!("/sell {}", cp))
+            format!("/{SELL_COMMAND} {cp}")
         } else {
-            Some(format!("/sell {} ", first))
+            format!("/{SELL_COMMAND} {first} ")
         }
     };
-    Some(Completion { ghost, tab_result })
+    Some(Completion {
+        ghost,
+        tab_result: Some(tab_result),
+    })
 }
 
 fn parse_buy(rest: &str) -> Action {
@@ -1148,40 +1262,22 @@ fn parse_buy(rest: &str) -> Action {
     }
 }
 
-fn parse_sell(rest: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
-    if rest.is_empty() {
-        return Action::Unknown;
-    }
-
-    let rest_trimmed = rest.trim();
-    if rest_trimmed.starts_with('"') || rest_trimmed.starts_with('\'') {
-        let name = parse_rest_or_quoted(rest_trimmed);
-        if name.is_empty() {
+fn parse_sell(rest: &str) -> Action {
+    let rest = rest.trim();
+    if let Some((word, named)) = rest.split_once(char::is_whitespace)
+        && let Some(kind) = NamedKind::parse(word)
+    {
+        let name = parse_rest_or_quoted(named);
+        if name.trim().is_empty() {
             return Action::Unknown;
         }
-        if fish_names.iter().any(|&n| n.eq_ignore_ascii_case(&name)) {
-            return Action::Sell(SellTarget::Fish(name));
-        }
-        if tank_names.iter().any(|&n| n.eq_ignore_ascii_case(&name)) {
-            return Action::Sell(SellTarget::Tank(name));
-        }
-        return Action::Unknown;
+        return Action::Sell(kind.sell(name));
     }
-
-    let (name_part, qty) = split_trailing_qty(rest_trimmed);
-    if let Some(target) = resolve_stackable_sell(&name_part.to_ascii_lowercase(), qty) {
-        return Action::Sell(target);
+    let (name_part, qty) = split_trailing_qty(rest);
+    match resolve_stackable_sell(&name_part.to_ascii_lowercase(), qty) {
+        Some(target) => Action::Sell(target),
+        None => Action::Unknown,
     }
-
-    let words: Vec<&str> = rest_trimmed.split_whitespace().collect();
-    if let Some((_, display)) = greedy_name_words(&words, fish_names) {
-        return Action::Sell(SellTarget::Fish(display.to_string()));
-    }
-    if let Some((_, display)) = greedy_name_words(&words, tank_names) {
-        return Action::Sell(SellTarget::Tank(display.to_string()));
-    }
-
-    Action::Unknown
 }
 
 fn command_args_placeholder(cmd: &str) -> &'static str {
@@ -1190,15 +1286,21 @@ fn command_args_placeholder(cmd: &str) -> &'static str {
         "buy" => "<item>",
         "consume" => "<consumable>",
         "cowsay" => "\"<text>\"",
-        "feed" => "<amount>",
-        "fps" => "<n>",
+        "say" => "\"<text>\"",
+        "feed" => FEED_ARG,
+        "fps" => FPS_ARG,
+        "clock" => CLOCK_ARG,
         "index" | "show" | "switch" => "<name>",
-        "bless" | "clone" | "restore" | "revive" => "<name>",
+        "bless" | "clone" | "restore" | "revive" | "program" | "console" | "freeze"
+        | "unfreeze" | "flip" => "<name>",
+        "nudge" => "<name> <dx> <dy>",
+        "print" => BLUEPRINT_ARG,
+        "etch" => ETCH_ARGS,
         "expand" => "<tank>",
         "give" => "<thing>",
         "move" => "<entity> <tank>",
         "mutate" => "<name> <mutation>",
-        "sell" => "<item>",
+        "sell" => SELL_ARG,
         "spawn" => "<species> <name>",
         _ => "",
     }
@@ -1223,6 +1325,7 @@ fn longest_common_prefix<'a>(strings: &[&'a str]) -> &'a str {
 pub enum Action {
     Feed(usize),
     SetFps(f32),
+    SetClock(u32),
     Spawn(FishSpecies, String),
     Mutate(String, String),
     Show {
@@ -1243,6 +1346,7 @@ pub enum Action {
         name: String,
     },
     ToggleNames,
+    ToggleNets,
     ToggleStats,
     ModResource {
         name: String,
@@ -1254,8 +1358,11 @@ pub enum Action {
         tank: String,
     },
     Fishtanks,
+    Circuit,
+    Foundry,
     Exit,
     Cowsay(String),
+    Say(String),
     VoidSpawn,
     StartVoidWish {
         skip: bool,
@@ -1268,6 +1375,23 @@ pub enum Action {
     Bless,
     Expand(String),
     Restore(String),
+    Program(String),
+    Console(String),
+    Print(String),
+    Etch {
+        blueprint: String,
+        fish: String,
+    },
+    SetFrozen {
+        name: String,
+        frozen: bool,
+    },
+    Nudge {
+        name: String,
+        dx: i32,
+        dy: i32,
+    },
+    Flip(String),
     Buy(BuyTarget),
     Sell(SellTarget),
     Unknown,
@@ -1323,62 +1447,32 @@ fn parse_raw_arg(rest: &str) -> String {
 }
 
 fn parse_name_greedy(rest: &str, names: &[&str]) -> Option<String> {
+    split_name(rest, names).map(|(name, _)| name)
+}
+
+fn split_name(rest: &str, names: &[&str]) -> Option<(String, String)> {
     let rest = rest.trim();
     if rest.is_empty() {
         return None;
     }
     if rest.starts_with('"') || rest.starts_with('\'') {
-        let q = rest.chars().next().unwrap();
+        let quote = rest.chars().next().unwrap();
         let inner = &rest[1..];
-        let end = inner.find(q)?;
-        let name = &inner[..end];
-        if name.is_empty() {
-            return None;
-        }
-        return Some(name.to_string());
-    }
-    let words: Vec<&str> = rest.split_whitespace().collect();
-    let (_, display) = greedy_name_words(&words, names)?;
-    Some(display.to_string())
-}
-
-fn parse_name_and_all_flag(rest: &str, names: &[&str]) -> Option<(String, bool)> {
-    let rest = rest.trim();
-    if rest.starts_with('"') || rest.starts_with('\'') {
-        let q = rest.chars().next().unwrap();
-        let inner = &rest[1..];
-        let end = inner.find(q)?;
+        let end = inner.find(quote)?;
         let name = inner[..end].to_string();
         if name.is_empty() {
             return None;
         }
-        let after = inner[end + 1..].trim();
-        return Some((name, after.eq_ignore_ascii_case("all")));
+        return Some((name, inner[end + 1..].trim().to_string()));
     }
     let words: Vec<&str> = rest.split_whitespace().collect();
     let (consumed, display) = greedy_name_words(&words, names)?;
-    let remaining = words[consumed..].join(" ");
-    let all_flag = remaining.trim().eq_ignore_ascii_case("all");
-    Some((display.to_string(), all_flag))
+    Some((display.to_string(), words[consumed..].join(" ")))
 }
 
-fn parse_name_and_mutation(rest: &str, fish_names: &[&str]) -> Option<(String, String)> {
-    let rest = rest.trim();
-    if rest.starts_with('"') || rest.starts_with('\'') {
-        let q = rest.chars().next().unwrap();
-        let inner = &rest[1..];
-        let end = inner.find(q)?;
-        let name = inner[..end].to_string();
-        if name.is_empty() {
-            return None;
-        }
-        let mutation = inner[end + 1..].trim().to_string();
-        return Some((name, mutation));
-    }
-    let words: Vec<&str> = rest.split_whitespace().collect();
-    let (consumed, display) = greedy_name_words(&words, fish_names)?;
-    let mutation = words[consumed..].join(" ");
-    Some((display.to_string(), mutation))
+fn parse_name_and_all_flag(rest: &str, names: &[&str]) -> Option<(String, bool)> {
+    let (name, after) = split_name(rest, names)?;
+    Some((name, after.eq_ignore_ascii_case("all")))
 }
 
 fn parse_fish_tank_args(
@@ -1386,24 +1480,32 @@ fn parse_fish_tank_args(
     fish_names: &[&str],
     tank_names: &[&str],
 ) -> Option<(String, String)> {
-    let rest = rest.trim();
-    let (fish, tank_rest) = if rest.starts_with('"') || rest.starts_with('\'') {
-        let q = rest.chars().next().unwrap();
-        let inner = &rest[1..];
-        let end = inner.find(q)?;
-        let fish = inner[..end].to_string();
-        (fish, inner[end + 1..].to_string())
-    } else {
-        let words: Vec<&str> = rest.split_whitespace().collect();
-        let (consumed, display) = greedy_name_words(&words, fish_names)?;
-        let tank_rest = words[consumed..].join(" ");
-        (display.to_string(), tank_rest)
-    };
-    if fish.is_empty() {
-        return None;
-    }
-    let tank = parse_name_greedy(tank_rest.trim(), tank_names)?;
+    let (fish, tank_rest) = split_name(rest, fish_names)?;
+    let tank = parse_name_greedy(&tank_rest, tank_names)?;
     Some((fish, tank))
+}
+
+fn split_first_arg(rest: &str) -> Option<(String, String)> {
+    let rest = rest.trim_start();
+    if rest.starts_with('"') || rest.starts_with('\'') {
+        return split_name(rest, &[]);
+    }
+    let (word, after) = rest.split_once(' ')?;
+    Some((word.to_string(), after.to_string()))
+}
+
+fn parse_etch(rest: &str, fish_names: &[&str]) -> Option<Action> {
+    let (blueprint, fish_rest) = split_first_arg(rest)?;
+    let fish = parse_name_greedy(&fish_rest, fish_names)?;
+    Some(Action::Etch { blueprint, fish })
+}
+
+fn parse_nudge(rest: &str, fish_names: &[&str]) -> Option<Action> {
+    let (name, offsets) = split_name(rest, fish_names)?;
+    let mut words = offsets.split_whitespace();
+    let dx = words.next()?.parse::<i32>().ok()?;
+    let dy = words.next()?.parse::<i32>().ok()?;
+    Some(Action::Nudge { name, dx, dy })
 }
 
 pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
@@ -1423,7 +1525,7 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
             if rest.is_empty() {
                 return Action::Unknown;
             }
-            match parse_name_and_mutation(rest, fish_names) {
+            match split_name(rest, fish_names) {
                 Some((name, mutation)) => Action::Mutate(name, mutation),
                 None => Action::Unknown,
             }
@@ -1486,6 +1588,10 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
             rest.parse().map(Action::Feed).unwrap_or(Action::Unknown)
         }
         "fps" => rest.parse().map(Action::SetFps).unwrap_or(Action::Unknown),
+        "clock" => rest
+            .parse()
+            .map(Action::SetClock)
+            .unwrap_or(Action::Unknown),
         "add" | "subtract" => {
             let trimmed = rest.trim();
             let (resource, n_str) = match trimmed.rsplit_once(char::is_whitespace) {
@@ -1526,7 +1632,7 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
             }
         }
         "buy" => parse_buy(rest),
-        "sell" => parse_sell(rest, fish_names, tank_names),
+        "sell" => parse_sell(rest),
         "give" => match parse_give_target(rest) {
             Some(target) => Action::Give(target),
             None => Action::Unknown,
@@ -1536,6 +1642,28 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
         "bless" => Action::Bless,
         "expand" => name_command(rest, Action::Expand),
         "restore" => name_command(rest, Action::Restore),
+        "program" => match parse_name_greedy(rest, fish_names) {
+            Some(name) => Action::Program(name),
+            None => Action::Unknown,
+        },
+        "console" => match parse_name_greedy(rest, fish_names) {
+            Some(name) => Action::Console(name),
+            None => Action::Unknown,
+        },
+        "print" => name_command(rest, Action::Print),
+        "etch" => parse_etch(rest, fish_names).unwrap_or(Action::Unknown),
+        "nudge" => parse_nudge(rest, fish_names).unwrap_or(Action::Unknown),
+        "flip" => match parse_name_greedy(rest, fish_names) {
+            Some(name) => Action::Flip(name),
+            None => Action::Unknown,
+        },
+        "freeze" | "unfreeze" => match parse_name_greedy(rest, fish_names) {
+            Some(name) => Action::SetFrozen {
+                name,
+                frozen: cmd_lower == "freeze",
+            },
+            None => Action::Unknown,
+        },
         "fish" => {
             let flags: Vec<&str> = rest.split_whitespace().collect();
             Action::Fish {
@@ -1552,6 +1680,14 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
                 Action::Cowsay(text)
             }
         }
+        "say" => {
+            let text = parse_raw_arg(rest);
+            if text.is_empty() {
+                Action::Unknown
+            } else {
+                Action::Say(text)
+            }
+        }
         "voidspawn" => Action::VoidSpawn,
         "startfishabduction" => Action::StartFishAbduction,
         "startcowabduction" => Action::StartCowAbduction,
@@ -1562,9 +1698,12 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
             }
         }
         "fishtanks" => Action::Fishtanks,
+        "circuit" => Action::Circuit,
+        "foundry" => Action::Foundry,
         "inventory" => Action::Inventory,
         "shop" => Action::Shop,
         "names" => Action::ToggleNames,
+        "nets" => Action::ToggleNets,
         "stats" => Action::ToggleStats,
         _ => Action::Unknown,
     }
@@ -1594,6 +1733,60 @@ mod tests {
     fn parse_feed_invalid_arg_is_unknown() {
         let (fish, tanks) = no_names();
         assert!(matches!(parse("/feed abc", fish, tanks), Action::Unknown));
+    }
+
+    #[test]
+    fn parse_freeze_and_unfreeze_share_one_action() {
+        let fish: &[&str] = &["Neo"];
+        assert!(matches!(
+            parse("/freeze \"Neo\"", fish, &[]),
+            Action::SetFrozen { name, frozen: true } if name == "Neo"
+        ));
+        assert!(matches!(
+            parse("/unfreeze Neo", fish, &[]),
+            Action::SetFrozen { name, frozen: false } if name == "Neo"
+        ));
+    }
+
+    #[test]
+    fn parse_nudge_reads_both_offsets() {
+        let fish: &[&str] = &["Neo"];
+        assert!(matches!(
+            parse("/nudge \"Neo\" 3 -2", fish, &[]),
+            Action::Nudge { name, dx: 3, dy: -2 } if name == "Neo"
+        ));
+        assert!(matches!(
+            parse("/nudge Neo 0 1", fish, &[]),
+            Action::Nudge { dx: 0, dy: 1, .. }
+        ));
+    }
+
+    #[test]
+    fn parse_nudge_needs_two_whole_numbers() {
+        let fish: &[&str] = &["Neo"];
+        assert!(matches!(parse("/nudge Neo 3", fish, &[]), Action::Unknown));
+        assert!(matches!(
+            parse("/nudge Neo 3 up", fish, &[]),
+            Action::Unknown
+        ));
+        assert!(matches!(parse("/nudge Neo", fish, &[]), Action::Unknown));
+    }
+
+    #[test]
+    fn parse_flip_takes_a_known_fish() {
+        let fish: &[&str] = &["Neo"];
+        assert!(matches!(parse("/flip Neo", fish, &[]), Action::Flip(n) if n == "Neo"));
+        assert!(matches!(parse("/flip Nobody", fish, &[]), Action::Unknown));
+    }
+
+    #[test]
+    fn parse_freeze_needs_a_known_fish() {
+        let fish: &[&str] = &["Neo"];
+        assert!(matches!(
+            parse("/freeze Nobody", fish, &[]),
+            Action::Unknown
+        ));
+        assert!(matches!(parse("/freeze", fish, &[]), Action::Unknown));
     }
 
     #[test]
@@ -1676,6 +1869,12 @@ mod tests {
     fn parse_names() {
         let (fish, tanks) = no_names();
         assert!(matches!(parse("/names", fish, tanks), Action::ToggleNames));
+    }
+
+    #[test]
+    fn parse_nets() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(parse("/nets", fish, tanks), Action::ToggleNets));
     }
 
     #[test]
@@ -2154,21 +2353,49 @@ mod tests {
 
     #[test]
     fn parse_sell_fish_by_name() {
-        let fish: &[&str] = &["Nemo"];
-        let tanks: &[&str] = &[];
+        let (fish, tanks) = no_names();
         assert!(matches!(
-            parse("/sell Nemo", fish, tanks),
+            parse("/sell fish Nemo", fish, tanks),
             Action::Sell(SellTarget::Fish(ref n)) if n == "Nemo"
         ));
     }
 
     #[test]
     fn parse_sell_tank_by_name() {
-        let fish: &[&str] = &[];
-        let tanks: &[&str] = &["Ocean"];
+        let (fish, tanks) = no_names();
         assert!(matches!(
-            parse("/sell Ocean", fish, tanks),
+            parse("/sell Tank \"Ocean\"", fish, tanks),
             Action::Sell(SellTarget::Tank(ref n)) if n == "Ocean"
+        ));
+    }
+
+    #[test]
+    fn parse_sell_blueprint_by_name() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(
+            parse("/sell blueprint \"Ring Clock\"", fish, tanks),
+            Action::Sell(SellTarget::Blueprint(ref n)) if n == "Ring Clock"
+        ));
+    }
+
+    #[test]
+    fn parse_sell_never_guesses_the_kind_of_a_named_thing() {
+        let fish: &[&str] = &["Nemo"];
+        let tanks: &[&str] = &["Nemo"];
+        assert!(matches!(parse("/sell Nemo", fish, tanks), Action::Unknown));
+        assert!(matches!(
+            parse("/sell \"Nemo\"", fish, tanks),
+            Action::Unknown
+        ));
+    }
+
+    #[test]
+    fn parse_sell_a_kind_with_no_name_is_unknown() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(parse("/sell fish", fish, tanks), Action::Unknown));
+        assert!(matches!(
+            parse("/sell blueprint \"\"", fish, tanks),
+            Action::Unknown
         ));
     }
 
@@ -2215,12 +2442,67 @@ mod tests {
     }
 
     #[test]
-    fn parse_sell_necronomicon() {
+    fn parse_sell_a_tank_seed_by_its_name() {
         let (fish, tanks) = no_names();
         assert!(matches!(
             parse("/sell necronomicon 2", fish, tanks),
-            Action::Sell(SellTarget::Necronomicon { qty: 2 })
+            Action::Sell(SellTarget::Seed {
+                kind: ConsumableKind::Necronomicon,
+                qty: 2,
+            })
         ));
+    }
+
+    #[test]
+    fn every_tank_seed_that_has_a_name_sells_by_it_and_the_nameless_one_cannot_be_typed() {
+        let (fish, tanks) = no_names();
+        for seed in ConsumableKind::seeds() {
+            let name = seed.lowercase_name();
+            let line = format!("/sell {name}");
+            if name.trim().is_empty() {
+                assert!(
+                    matches!(parse(&line, fish, tanks), Action::Unknown),
+                    "a nameless item is found and sold from the menu, never typed"
+                );
+                continue;
+            }
+            let Action::Sell(SellTarget::Seed { kind, qty }) = parse(&line, fish, tanks) else {
+                panic!("{line} did not reach the seed it names");
+            };
+            assert!(kind == seed, "{line} reached the wrong seed");
+            assert_eq!(qty, 1);
+        }
+    }
+
+    #[test]
+    fn parse_sell_robotics_stock_by_its_spaced_name() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(
+            parse("/sell blank wafer 5", fish, tanks),
+            Action::Sell(SellTarget::Robotics {
+                kind: ConsumableKind::BlankWafer,
+                qty: 5,
+            })
+        ));
+        assert!(matches!(
+            parse("/sell blank circuit blueprint", fish, tanks),
+            Action::Sell(SellTarget::Robotics {
+                kind: ConsumableKind::BlankBlueprint,
+                qty: 1,
+            })
+        ));
+    }
+
+    #[test]
+    fn parse_sell_never_reaches_stock_that_is_on_no_shelf() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(parse("/sell food", fish, tanks), Action::Unknown));
+    }
+
+    #[test]
+    fn parse_foundry() {
+        let (fish, tanks) = no_names();
+        assert!(matches!(parse("/foundry", fish, tanks), Action::Foundry));
     }
 
     #[test]
@@ -2231,11 +2513,14 @@ mod tests {
 
     #[test]
     fn parse_sell_fish_quoted_multiword() {
-        let fish: &[&str] = &["Blue Tang"];
-        let tanks: &[&str] = &[];
+        let (fish, tanks) = no_names();
         assert!(matches!(
-            parse("/sell \"Blue Tang\"", fish, tanks),
+            parse("/sell fish \"Blue Tang\"", fish, tanks),
             Action::Sell(SellTarget::Fish(ref n)) if n == "Blue Tang"
+        ));
+        assert!(matches!(
+            parse("/sell fish Seed2's Clone", fish, tanks),
+            Action::Sell(SellTarget::Fish(ref n)) if n == "Seed2's Clone"
         ));
     }
 
@@ -2250,14 +2535,14 @@ mod tests {
     fn autocomplete_buy_food_shows_qty_ghost() {
         let result = autocomplete("/buy food", &CompletionCtx::default());
         let c = result.unwrap();
-        assert!(c.ghost.contains("<qty>"));
+        assert!(c.ghost.contains("<quantity>"));
     }
 
     #[test]
     fn autocomplete_buy_coffee_shows_qty_ghost() {
         let result = autocomplete("/buy coffee", &CompletionCtx::default());
         let c = result.unwrap();
-        assert!(c.ghost.contains("<qty>"));
+        assert!(c.ghost.contains("<quantity>"));
     }
 
     #[test]
@@ -2289,20 +2574,73 @@ mod tests {
             },
         );
         let c = result.unwrap();
-        assert!(c.ghost.contains("<qty>"));
+        assert!(c.ghost.contains("<quantity>"));
     }
 
     #[test]
-    fn autocomplete_sell_unique_name_completion() {
-        let result = autocomplete(
-            "/sell Ne",
-            &CompletionCtx {
-                sellable_unique_names: &["Nemo".to_string()],
-                ..Default::default()
-            },
+    fn autocomplete_sell_offers_the_kind_before_the_name() {
+        let fish = ["Nemo".to_string()];
+        let ctx = CompletionCtx {
+            sellable_fish_names: &fish,
+            ..Default::default()
+        };
+
+        let kind = autocomplete("/sell fi", &ctx).unwrap();
+        assert_eq!(kind.ghost, "sh <name>");
+        assert_eq!(kind.tab_result.as_deref(), Some("/sell fish "));
+        assert!(
+            autocomplete("/sell Ne", &ctx).is_none(),
+            "a bare name is not a sale"
         );
-        let c = result.unwrap();
-        assert!(c.ghost.contains("mo"));
+
+        let name = autocomplete("/sell fish Ne", &ctx).unwrap();
+        assert_eq!(name.ghost, "mo");
+        assert_eq!(name.tab_result.as_deref(), Some("/sell fish Nemo"));
+    }
+
+    #[test]
+    fn autocomplete_sell_only_offers_kinds_the_player_can_sell() {
+        let blueprints = ["Ring Clock"];
+        let ctx = CompletionCtx {
+            blueprint_names: &blueprints,
+            ..Default::default()
+        };
+
+        assert!(autocomplete("/sell ti", &ctx).is_none());
+        let quoted = autocomplete("/sell blueprint \"Ri", &ctx).unwrap();
+        assert_eq!(quoted.ghost, "ng Clock\"");
+        assert_eq!(
+            quoted.tab_result.as_deref(),
+            Some("/sell blueprint \"Ring Clock\"")
+        );
+    }
+
+    #[test]
+    fn console_takes_the_name_of_the_fish_it_hands_the_keyboard_to() {
+        let fish = ["Pad"];
+        assert!(matches!(
+            parse("/console \"Pad\"", &fish, &[]),
+            Action::Console(name) if name == "Pad"
+        ));
+        assert!(matches!(
+            parse("/console pad", &fish, &[]),
+            Action::Console(name) if name == "Pad"
+        ));
+        assert!(matches!(parse("/console", &fish, &[]), Action::Unknown));
+    }
+
+    #[test]
+    fn autocomplete_console_offers_only_fish_that_bind_a_key() {
+        let pads = ["Pad"];
+        let ctx = CompletionCtx {
+            console_names: &pads,
+            programmable_names: &["Pad", "Neo"],
+            ..Default::default()
+        };
+        assert_eq!(autocomplete("/console", &ctx).unwrap().ghost, " <name>");
+        let named = autocomplete("/console P", &ctx).unwrap();
+        assert_eq!(named.tab_result.as_deref(), Some("/console Pad"));
+        assert!(autocomplete("/console N", &ctx).is_none());
     }
 
     #[test]

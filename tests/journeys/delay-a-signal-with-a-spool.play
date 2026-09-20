@@ -1,0 +1,39 @@
+# JOURNEY · the Delay Spool, the other half of the fabric: a rail rises, and a spooled fish
+# repeats it one stage late. This is what makes an edge detector possible (§5).
+
+clear
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
+include scenes/buy-at-the-bench.play "Delay Spool" Fabric
+include scenes/buy-a-fish.play Botfish rail
+include scenes/buy-a-fish.play Botfish late
+
+run /fps 1
+run /clock 1
+
+run /consume inverter coil
+key enter
+run /consume delay spool
+key down
+key enter
+
+run /program "Rail"
+key down
+type on
+key enter
+
+run /program "Late"
+type on
+key down
+type late
+key enter
+
+tick 1
+run /circuit
+expect ●  Rail
+expect ○  Late
+snap the rail is already high while the spooled fish is still low
+tick 3
+expect ●  Late
+snap one stage later the spool repeats it
+key esc

@@ -4,6 +4,7 @@ use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use ratatui::style::Color;
 use unicode_width::UnicodeWidthChar;
 
+use super::botfish::{ANTENNA_LENGTH, ANTENNA_STALK, ANTENNA_TIP, BODY_COLOR, BotfishState};
 use super::fused::FusedComponent;
 use super::mutant::{Circadian, EXTRA_BODY_FOR_DOUBLE, MutantState, MutationRecord};
 use super::species::{
@@ -18,6 +19,7 @@ use crate::colors::{PINK, WHITE};
 use crate::consumable::{COFFEE_SPEED_MULT, COFFEE_SWAY_MULT, COFFEE_ZOOMIE_DT_MULT};
 use crate::entities::components::{Position, SwayState, Velocity, tick_sway};
 use crate::entities::glistening::{GlisteningMode, color_for_glisten, derive_glistening_palette};
+use crate::entities::speech::SpeechBubble;
 use crate::settings::Settings;
 use crate::sprite::{
     BodyExtension, EAR_LEFT, EAR_RIGHT, ExtensionVariant, Feet, ear_glyph, extension_row, feet_row,
@@ -26,7 +28,9 @@ use crate::sprite::{
 use crate::util::even_indices;
 
 const CHAR_SPREAD: f32 = 1.0;
+const PERCENT_WHOLE: u32 = 100;
 pub const EATING_DURATION: f32 = 0.15;
+const MOUTH_WIDTH: i32 = 1;
 const ZOOMIE_COOLDOWN_MIN: f32 = 120.0;
 const ZOOMIE_COOLDOWN_MAX: f32 = 180.0;
 const ZOOMIE_SPEED_MULTIPLIER: f32 = 11.0;
@@ -54,7 +58,7 @@ const NIGHTOWL_SINK_DY: f32 = 1.5;
 const FEET_ROW_COUNT: usize = 1;
 pub const ENGULF_WINDOW_SECS: f32 = 10.0;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     Left,
     Right,
@@ -116,12 +120,15 @@ pub struct Fish {
     pub size_category: SizeCategory,
     pub devil_marked: bool,
     pub unfish_state: Option<Box<UnfishState>>,
+    pub botfish_state: Option<Box<BotfishState>>,
     pub sell_price_bonus_pct: u8,
     pub abduction_lock: bool,
+    pub frozen: bool,
     pub engulf_timer: f32,
     pub blessing_timer: f32,
     pub blessing_glow: f32,
     pub pending_rad_mutations: u32,
+    pub speech: Option<SpeechBubble>,
     pub field_cache: Vec<Option<(String, Option<Color>)>>,
     direction_timer: u32,
     zoomie_timer: f32,
@@ -157,6 +164,13 @@ struct BodyFields {
     mutant: Option<Box<MutantState>>,
     display_width: usize,
     sway_speed: f32,
+}
+
+fn programmable_state(species: FishSpecies) -> Option<Box<BotfishState>> {
+    species
+        .config()
+        .programmable
+        .then(|| Box::new(BotfishState::new()))
 }
 
 fn init_body_fields(
@@ -206,6 +220,7 @@ impl Fish {
             roll_size_category(rng)
         };
         let fields = init_body_fields(species, size_cat, rng);
+        let botfish_state = programmable_state(species);
         let angle = rng.random::<f32>() * TAU;
         let dx = angle.cos() * fields.speed;
         let dy = angle.sin() * fields.speed * DY_FRACTION;
@@ -238,12 +253,15 @@ impl Fish {
             size_category: size_cat,
             devil_marked: false,
             unfish_state: None,
+            botfish_state,
             sell_price_bonus_pct: 0,
             abduction_lock: false,
+            frozen: false,
             engulf_timer: 0.0,
             blessing_timer: BLESSING_INTERVAL_SECS,
             blessing_glow: 0.0,
             pending_rad_mutations: 0,
+            speech: None,
             field_cache: Vec::new(),
         }
     }
@@ -278,12 +296,15 @@ impl Fish {
             size_category: SizeCategory::M,
             devil_marked: false,
             unfish_state: None,
+            botfish_state: programmable_state(species),
             sell_price_bonus_pct: 0,
             abduction_lock: false,
+            frozen: false,
             engulf_timer: 0.0,
             blessing_timer: BLESSING_INTERVAL_SECS,
             blessing_glow: 0.0,
             pending_rad_mutations: 0,
+            speech: None,
             field_cache: Vec::new(),
         }
     }
@@ -335,12 +356,15 @@ impl Fish {
             size_category: SizeCategory::M,
             devil_marked: false,
             unfish_state: Some(Box::new(UnfishState::new(kind, rng))),
+            botfish_state: None,
             sell_price_bonus_pct: 0,
             abduction_lock: false,
+            frozen: false,
             engulf_timer: 0.0,
             blessing_timer: BLESSING_INTERVAL_SECS,
             blessing_glow: 0.0,
             pending_rad_mutations: 0,
+            speech: None,
             field_cache: Vec::new(),
         }
     }
@@ -377,6 +401,62 @@ impl Fish {
     pub fn capture_persona(&self) -> Option<Box<UnfishState>> {
         let us = self.unfish_state.as_deref()?;
         us.kind.has_fused_behavior().then(|| Box::new(us.clone()))
+    }
+
+    pub fn capture_program(&self) -> Option<Box<BotfishState>> {
+        self.script().map(|bot| Box::new(bot.clone()))
+    }
+
+    pub fn fused_program(&self, donor: &Fish) -> Option<Box<BotfishState>> {
+        let Some(own) = self.script().filter(|own| own.is_wired()) else {
+            return donor.capture_program().or_else(|| self.capture_program());
+        };
+        let Some(theirs) = donor.script() else {
+            return self.capture_program();
+        };
+        Some(Box::new(own.fuse(theirs)))
+    }
+
+    pub fn is_programmable(&self) -> bool {
+        self.ability_stacks(FishSpecies::Botfish) > 0
+    }
+
+    pub fn is_wired(&self) -> bool {
+        self.script().is_some_and(|bot| bot.is_wired())
+    }
+
+    pub fn is_pinned(&self) -> bool {
+        self.abduction_lock || self.frozen
+    }
+
+    pub fn is_arrangeable(&self) -> bool {
+        self.is_programmable() && self.frozen
+    }
+
+    pub fn say(&mut self, text: String) -> bool {
+        if text.trim().is_empty() {
+            return false;
+        }
+        self.speech = Some(SpeechBubble::new(text));
+        true
+    }
+
+    pub fn script(&self) -> Option<&BotfishState> {
+        if let Some(bot) = self.botfish_state.as_deref() {
+            return Some(bot);
+        }
+        self.fused_components()
+            .iter()
+            .find_map(|c| c.program.as_deref())
+    }
+
+    pub fn script_mut(&mut self) -> Option<&mut BotfishState> {
+        if self.botfish_state.is_some() {
+            return self.botfish_state.as_deref_mut();
+        }
+        self.fused_components_mut()
+            .iter_mut()
+            .find_map(|c| c.program.as_deref_mut())
     }
 
     fn tick_passengers(&mut self, dt: f32, rng: &mut impl RngExt) {
@@ -461,6 +541,20 @@ impl Fish {
             .count() as u32
     }
 
+    pub fn mutation_count(&self) -> u32 {
+        self.mutations.as_ref().map_or(0, |record| record.count)
+    }
+
+    pub fn sell_value(&self) -> u32 {
+        if self.script().is_some_and(BotfishState::is_printed) {
+            return 0;
+        }
+        let base =
+            self.species
+                .sell_value(self.weight_g, self.size_category, self.mutation_count());
+        base + base * self.sell_price_bonus_pct as u32 / PERCENT_WHOLE
+    }
+
     pub fn circadian_state(&self) -> Circadian {
         if let Some(us) = self.unfish_state.as_ref() {
             return us.circadian;
@@ -505,6 +599,9 @@ impl Fish {
     }
 
     fn line_cells(&self) -> LineCells {
+        if let Some(bot) = self.botfish_state.as_ref() {
+            return (self.botfish_body_cells(bot.eye_color()), None);
+        }
         if self.unfish_state.is_some() {
             return self.segments_unfish();
         }
@@ -565,6 +662,9 @@ impl Fish {
     }
 
     pub fn line_sprite(&self) -> LineSprite {
+        if let Some(bot) = self.botfish_state.as_ref() {
+            return self.botfish_line_sprite(bot.eye_color(), bot.tip_color());
+        }
         if let Some((left, right)) = self.fused_render_halves() {
             return self.fused_line_sprite(&left, &right);
         }
@@ -579,6 +679,74 @@ impl Fish {
             rows.push(feet);
         }
         LineSprite { rows, body_row: 0 }
+    }
+
+    fn botfish_body_cells(&self, eye_color: Color) -> Vec<(char, Color)> {
+        let BodyTemplate::Fixed { left, right } = self.species.config().body else {
+            return Vec::new();
+        };
+        let variants = if self.facing_left() { left } else { right };
+        let line = variants.first().copied().unwrap_or("");
+        line.chars()
+            .map(|c| {
+                let color = if c == EYE_ROUND {
+                    eye_color
+                } else {
+                    BODY_COLOR
+                };
+                (c, color)
+            })
+            .collect()
+    }
+
+    pub fn body_span(&self) -> Option<(usize, usize)> {
+        if self.botfish_state.is_some() {
+            return self.botfish_body_span();
+        }
+        let (cells, span) = self.line_cells();
+        span.or_else(|| painted_span(&cells))
+    }
+
+    fn botfish_body_span(&self) -> Option<(usize, usize)> {
+        let cells = self.botfish_body_cells(BODY_COLOR);
+        let eye = cells.iter().position(|&(c, _)| c == EYE_ROUND)?;
+        let same_as =
+            |index: usize, glyph: char| cells.get(index).is_some_and(|&(c, _)| c == glyph);
+        if self.facing_left() {
+            let glyph = cells.get(eye + 1)?.0;
+            let hi = (eye + 1..cells.len())
+                .take_while(|&index| same_as(index, glyph))
+                .last()?;
+            return Some((eye + 1, hi));
+        }
+        let hi = eye.checked_sub(1)?;
+        let glyph = cells[hi].0;
+        let lo = (0..=hi)
+            .rev()
+            .take_while(|&index| same_as(index, glyph))
+            .last()?;
+        Some((lo, hi))
+    }
+
+    fn botfish_line_sprite(&self, eye_color: Color, tip_color: Color) -> LineSprite {
+        let body = self.botfish_body_cells(eye_color);
+        let width = body.len();
+        let center = width / 2;
+        let mut rows: Vec<Vec<(char, Color)>> = Vec::with_capacity(ANTENNA_LENGTH + 1);
+        for depth in (0..ANTENNA_LENGTH).rev() {
+            let mut row = vec![(crate::sprite::TRANSPARENT, Color::Reset); width];
+            if center < width {
+                row[center] = if depth == ANTENNA_LENGTH - 1 {
+                    (ANTENNA_TIP, tip_color)
+                } else {
+                    (ANTENNA_STALK, BODY_COLOR)
+                };
+            }
+            rows.push(row);
+        }
+        let body_row = rows.len();
+        rows.push(body);
+        LineSprite { rows, body_row }
     }
 
     pub fn is_double_now(&self) -> bool {
@@ -1394,6 +1562,13 @@ impl Fish {
         }
     }
 
+    pub fn eye_x(&self) -> i32 {
+        match self.facing {
+            Direction::Left => self.head_x() + MOUTH_WIDTH,
+            Direction::Right => self.head_x() - MOUTH_WIDTH,
+        }
+    }
+
     pub fn tick(
         &mut self,
         settings: &Settings,
@@ -1410,8 +1585,9 @@ impl Fish {
         if self.blessing_glow > 0.0 {
             self.blessing_glow = (self.blessing_glow - dt).max(0.0);
         }
+        SpeechBubble::fade(&mut self.speech, dt);
 
-        if self.abduction_lock {
+        if self.is_pinned() {
             tick_sway(&mut self.sway, self.sway_speed);
             if let Some(ref mut mutant) = self.mutant {
                 mutant.tick_eyes(dt);
@@ -1421,7 +1597,7 @@ impl Fish {
 
         match self.state {
             FishState::Idle => {
-                if self.species.config().can_zoomie {
+                if self.species.config().can_zoomie && !self.is_wired() {
                     let zoomie_dt =
                         dt * (1.0 + COFFEE_ZOOMIE_DT_MULT * coffee) * self.circadian_zoomie_mult();
                     self.zoomie_timer -= zoomie_dt;
@@ -1501,6 +1677,9 @@ impl Fish {
         if let Some(ref mut us) = self.unfish_state {
             let mut rng = rand::rng();
             us.tick(dt, &mut rng);
+        }
+        if let Some(ref mut bot) = self.botfish_state {
+            bot.tick_blink(dt);
         }
         self.tick_passengers(dt, &mut rand::rng());
     }
@@ -2035,12 +2214,10 @@ impl Fish {
             self.position.y = self.position.y.rem_euclid(tank_height as f32);
             return;
         }
-        let max_x = tank_width as f32 - self.display_width as f32;
-        let max_y = tank_height as f32 - 1.0;
-        let (top_margin, bottom_margin) = self.sprite_y_margins();
+        let (min_x, max_x, min_y, max_y) = self.position_bounds(tank_width, tank_height);
 
-        if self.position.x < 0.0 {
-            self.position.x = 0.0;
+        if self.position.x < min_x {
+            self.position.x = min_x;
             self.velocity.dx = self.velocity.dx.abs();
             if matches!(self.state, FishState::Idle | FishState::Zoomie { .. }) {
                 self.facing = Direction::Right;
@@ -2053,13 +2230,37 @@ impl Fish {
             }
         }
 
-        if self.position.y < top_margin {
-            self.position.y = top_margin;
+        if self.position.y < min_y {
+            self.position.y = min_y;
             self.velocity.dy = self.velocity.dy.abs();
-        } else if self.position.y > max_y - bottom_margin {
-            self.position.y = max_y - bottom_margin;
+        } else if self.position.y > max_y {
+            self.position.y = max_y;
             self.velocity.dy = -self.velocity.dy.abs();
         }
+    }
+
+    fn position_bounds(&self, tank_width: u16, tank_height: u16) -> (f32, f32, f32, f32) {
+        let (top_margin, bottom_margin) = self.sprite_y_margins();
+        (
+            0.0,
+            tank_width as f32 - self.display_width as f32,
+            top_margin,
+            (tank_height as f32 - 1.0) - bottom_margin,
+        )
+    }
+
+    pub fn nudge(&mut self, dx: i32, dy: i32, tank_width: u16, tank_height: u16) {
+        let (min_x, max_x, min_y, max_y) = self.position_bounds(tank_width, tank_height);
+        self.position.x = (self.position.x + dx as f32).clamp(min_x, max_x.max(min_x));
+        self.position.y = (self.position.y + dy as f32).clamp(min_y, max_y.max(min_y));
+    }
+
+    pub fn flip(&mut self) {
+        self.facing = match self.facing {
+            Direction::Left => Direction::Right,
+            Direction::Right => Direction::Left,
+        };
+        self.velocity.dx = -self.velocity.dx;
     }
 }
 
@@ -2328,6 +2529,58 @@ pub fn compute_display_width(species: FishSpecies, body_size: usize) -> usize {
         BodyTemplate::Fixed { left, .. } => {
             let variant = left.first().copied().unwrap_or("");
             unicode_width::UnicodeWidthStr::width(variant)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_constructor_that_makes_a_real_fish_gives_a_programmable_one_its_circuit() {
+        let mut rng = rand::rng();
+        for &species in crate::fishes::species::ALL_SPECIES {
+            let programmable = species.config().programmable;
+            let spawned = Fish::new(species, "Probe".to_string(), 0.0, 0.0, &mut rng);
+            let bought = Fish::new_for_display(species, &mut rng);
+            assert_eq!(
+                spawned.botfish_state.is_some(),
+                programmable,
+                "{} spawned without the circuit its config declares",
+                species.display_name()
+            );
+            assert_eq!(
+                bought.botfish_state.is_some(),
+                programmable,
+                "{} bought from the shop lost the circuit a spawned one keeps",
+                species.display_name()
+            );
+        }
+    }
+
+    #[test]
+    fn a_botfish_body_is_the_run_behind_its_eye_whichever_way_it_faces() {
+        let mut rng = rand::rng();
+        let mut bot = Fish::new(FishSpecies::Botfish, "Crt".to_string(), 0.0, 0.0, &mut rng);
+        for facing in [Direction::Left, Direction::Right] {
+            bot.facing = facing;
+            let side = if bot.facing_left() { "left" } else { "right" };
+            let cells = bot.segments();
+            let (lo, hi) = bot.body_span().expect("a botfish has a body");
+            let body: String = cells[lo..=hi].iter().map(|&(c, _)| c).collect();
+            assert_eq!(body.chars().count(), 5, "{side}: {body}");
+            assert!(
+                body.chars()
+                    .all(|c| c == body.chars().next().unwrap_or(' ')),
+                "{side}: the body is one run of one glyph, got {body}"
+            );
+            let eye = cells
+                .iter()
+                .position(|&(c, _)| c == EYE_ROUND)
+                .expect("an eye");
+            let beside = if bot.facing_left() { lo - 1 } else { hi + 1 };
+            assert_eq!(eye, beside, "{side}: the body starts right behind the eye");
         }
     }
 }

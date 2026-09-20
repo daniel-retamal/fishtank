@@ -1,5 +1,7 @@
 /target
+/target-test
 *.txt
 /.claude
 /.vscode
-CLAUDE.md
+*.md
+!README.md

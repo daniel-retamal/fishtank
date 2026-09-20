@@ -6,19 +6,22 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthChar;
 
-use crate::colors::{LIGHT_GREEN, PINK, WHITE, YELLOW};
+use crate::colors::{LIGHT_CYAN, LIGHT_GREEN, PINK, WHITE, YELLOW};
 use crate::sprite::{
     Cell, EAR_LEFT, EAR_RIGHT, Feet, TRANSPARENT, extension_row, feet_row, painted_span,
 };
 
 use crate::{
     entities::bubble::Bubble,
-    entities::cow::{Cow, build_speech_bubble, cow_sprite},
+    entities::cow::{Cow, cow_sprite},
     entities::food::Food,
     entities::glistening::{color_for_glisten, derive_glistening_palette},
     entities::plant::Seaweed,
+    entities::speech::{Side, Tail, build_bubble, build_speech_bubble, shift_into},
     entities::ufo::{Ufo, ufo_sprite},
+    fishes::botfish::BotfishState,
     fishes::fish::{Fish, line_extension_bands},
+    fishes::parts::Display,
     fishes::species::FishSpecies,
     fishes::unfish::{
         BALL_BASE, BALL_CENTER_ROW, BALL_EYE_COL, BALL_EYE_ROW, BALL_WIDTH, SKULL_CENTER_ROW,
@@ -46,22 +49,37 @@ use crate::{
     tanks::matrix::{MatrixBackground, trail_color},
     tanks::radioactive::{FLUID_COLOR, FluidChar, RadBarrel},
     tanks::void::{VOID_EYE_CENTER_X, VOID_EYE_VERTICAL_OFFSET, VoidBackground},
+    ui::overdraw,
     void_ritual::VOID_TEXT_BELOW_EYE_OFFSET,
 };
+
+const NET_COLOR: Color = LIGHT_CYAN;
 
 pub struct TankView<'a> {
     tank: &'a Tank,
     show_names: bool,
+    show_nets: bool,
     ritual_text: Option<[Option<String>; 2]>,
 }
 
 impl<'a> TankView<'a> {
-    pub fn new(tank: &'a Tank, show_names: bool) -> Self {
+    pub fn new(tank: &'a Tank) -> Self {
         Self {
             tank,
-            show_names,
+            show_names: false,
+            show_nets: false,
             ritual_text: None,
         }
+    }
+
+    pub fn with_names(mut self, show_names: bool) -> Self {
+        self.show_names = show_names;
+        self
+    }
+
+    pub fn with_nets(mut self, show_nets: bool) -> Self {
+        self.show_nets = show_nets;
+        self
     }
 
     pub fn with_ritual(mut self, text: [Option<String>; 2]) -> Self {
@@ -232,6 +250,9 @@ impl Widget for TankView<'_> {
         for fish in &self.tank.fish {
             render_fish(fish, area, buf);
         }
+        for fish in &self.tank.fish {
+            render_fish_surfaces(fish, area, buf);
+        }
         if let TankBackground::Coral { floor_algae, .. } = &self.tank.background {
             for fa in floor_algae {
                 if fa.base_x >= area.width as i32 {
@@ -250,6 +271,14 @@ impl Widget for TankView<'_> {
             for cow in &self.tank.cows {
                 render_cow_name(cow, area, buf);
             }
+        }
+        if self.show_nets {
+            for fish in &self.tank.fish {
+                render_fish_net(fish, self.show_names, area, buf);
+            }
+        }
+        for fish in &self.tank.fish {
+            render_fish_speech(fish, area, buf);
         }
         for cow in &self.tank.cows {
             render_cow_speech(cow, area, buf);
@@ -352,7 +381,7 @@ fn render_coral_line(
                     buf[(sx as u16, screen_y as u16)]
                         .set_char(ch)
                         .set_style(style);
-                } else if span.map_or(false, |(lo, hi)| col >= lo && col <= hi) {
+                } else if span.is_some_and(|(lo, hi)| col >= lo && col <= hi) {
                     buf[(sx as u16, screen_y as u16)]
                         .set_char(' ')
                         .set_style(Style::reset());
@@ -374,7 +403,7 @@ fn render_coral_line(
                     buf[(sx as u16, screen_y as u16)]
                         .set_char(ch)
                         .set_style(style);
-                } else if span.map_or(false, |(lo, hi)| col >= lo && col <= hi) {
+                } else if span.is_some_and(|(lo, hi)| col >= lo && col <= hi) {
                     buf[(sx as u16, screen_y as u16)]
                         .set_char(' ')
                         .set_style(Style::reset());
@@ -633,31 +662,35 @@ fn render_fish_name(fish: &Fish, area: Rect, buf: &mut Buffer) {
         return;
     }
 
-    let name_y_i32 = if fish.species == FishSpecies::Unfish {
-        if let Some(ref us) = fish.unfish_state {
-            if is_multi_row(us.kind) {
-                let center_row = unfish_center_row(us.kind);
-                area.y as i32 + fish.position.y as i32 - center_row - 1
-            } else {
-                area.y as i32 + fish.position.y as i32 - 1
-            }
-        } else {
-            area.y as i32 + fish.position.y as i32 - 1
-        }
-    } else {
-        area.y as i32 + fish.position.y as i32 - 1
-    };
+    let name_y = area.y as i32 + fish.position.y as i32 - sprite_rows_above_body(fish) - 1;
+    render_label(&fish.name, fish_center(fish), name_y, WHITE, area, buf);
+}
 
-    if name_y_i32 < area.y as i32 || name_y_i32 >= area.bottom() as i32 {
+fn sprite_rows_above_body(fish: &Fish) -> i32 {
+    if fish.species == FishSpecies::Unfish
+        && let Some(ref us) = fish.unfish_state
+        && is_multi_row(us.kind)
+    {
+        return unfish_center_row(us.kind);
+    }
+    fish.line_sprite().body_row as i32
+}
+
+fn fish_center(fish: &Fish) -> i32 {
+    fish.position.x as i32 + fish.display_width as i32 / 2
+}
+
+fn render_label(text: &str, center_x: i32, y: i32, color: Color, area: Rect, buf: &mut Buffer) {
+    let start = center_x - text.chars().count() as i32 / 2;
+    render_text(text, start, y, color, area, buf);
+}
+
+fn render_text(text: &str, start: i32, y: i32, color: Color, area: Rect, buf: &mut Buffer) {
+    if y < area.y as i32 || y >= area.bottom() as i32 {
         return;
     }
-    let name_y = name_y_i32 as u16;
-
-    let fish_center = fish.position.x as i32 + fish.display_width as i32 / 2;
-    let name_start = fish_center - fish.name.len() as i32 / 2;
-
-    for (i, ch) in fish.name.chars().enumerate() {
-        let x = name_start + i as i32;
+    for (i, ch) in text.chars().enumerate() {
+        let x = start + i as i32;
         if x < 0 {
             continue;
         }
@@ -665,9 +698,135 @@ fn render_fish_name(fish: &Fish, area: Rect, buf: &mut Buffer) {
         if abs_x >= area.right() {
             break;
         }
-        buf[(abs_x, name_y)]
+        overdraw(buf, abs_x, y as u16)
             .set_char(ch)
-            .set_style(Style::new().fg(WHITE).remove_modifier(Modifier::all()));
+            .set_style(Style::new().fg(color).remove_modifier(Modifier::all()));
+    }
+}
+
+fn rows_above_body(fish: &Fish, names_shown: bool) -> i32 {
+    sprite_rows_above_body(fish) + i32::from(names_shown)
+}
+
+fn render_fish_net(fish: &Fish, names_shown: bool, area: Rect, buf: &mut Buffer) {
+    if fish.is_invisible() {
+        return;
+    }
+    let Some(net) = fish.script().and_then(BotfishState::net_label) else {
+        return;
+    };
+    let net_y = area.y as i32 + fish.position.y as i32 - rows_above_body(fish, names_shown) - 1;
+    render_label(&net, fish_center(fish), net_y, NET_COLOR, area, buf);
+}
+
+fn render_fish_speech(fish: &Fish, area: Rect, buf: &mut Buffer) {
+    if fish.is_invisible() {
+        return;
+    }
+    let bubbles = fish_bubbles(fish);
+    if bubbles.is_empty() {
+        return;
+    }
+    let height = bubbles.iter().map(|bubble| bubble.len() as i32).sum();
+    let tail = fish_tail(fish, height, area);
+    let mut edge = tail.bubble_top(0);
+    for bubble in &bubbles {
+        let rows = bubble.len() as i32;
+        if tail.side == Side::Above {
+            edge -= rows;
+        }
+        render_fish_bubble(&tail, bubble, edge, area, buf);
+        if tail.side == Side::Below {
+            edge += rows;
+        }
+    }
+    for (x, y) in tail.cells() {
+        put_cell(buf, area, x, y, tail.glyph(), WHITE);
+    }
+}
+
+fn fish_tail(fish: &Fish, height: i32, area: Rect) -> Tail {
+    let eye = (
+        area.x as i32 + fish.eye_x(),
+        area.y as i32 + fish.position.y as i32,
+    );
+    let off_eye = |side| Tail::off_eye(eye, fish.facing_left(), side);
+    let (top, bottom) = (area.y as i32, area.bottom() as i32);
+    let side = Side::of(
+        height,
+        off_eye(Side::Above).room(top, bottom),
+        off_eye(Side::Below).room(top, bottom),
+    );
+    off_eye(side)
+}
+
+fn bubble_width(bubble: &[String]) -> i32 {
+    bubble
+        .iter()
+        .map(|line| line.chars().count() as i32)
+        .max()
+        .unwrap_or(0)
+}
+
+fn bubble_left(tail: &Tail, width: i32, area: Rect) -> i32 {
+    shift_into(
+        tail.bubble_left(width) - area.x as i32,
+        width,
+        area.width as i32,
+    )
+}
+
+fn fish_bubbles(fish: &Fish) -> Vec<Vec<String>> {
+    let panels = fish_displays(fish)
+        .into_iter()
+        .filter_map(|display| match display {
+            Display::Bubble(panel) => Some(build_bubble(&panel)),
+            Display::Body(_) => None,
+        });
+    let speech = fish
+        .speech
+        .as_ref()
+        .map(|speech| build_speech_bubble(&speech.text));
+    panels.chain(speech).collect()
+}
+
+fn fish_displays(fish: &Fish) -> Vec<Display> {
+    fish.script()
+        .map(BotfishState::displays)
+        .unwrap_or_default()
+}
+
+fn render_fish_surfaces(fish: &Fish, area: Rect, buf: &mut Buffer) {
+    if fish.is_invisible() {
+        return;
+    }
+    let mut y = area.y as i32 + fish.position.y as i32;
+    for display in fish_displays(fish) {
+        let Display::Body(rows) = display else {
+            continue;
+        };
+        for row in &rows {
+            let start = surface_x(fish, row.chars().count() as i32);
+            render_text(row, start, y, WHITE, area, buf);
+            y += 1;
+        }
+    }
+}
+
+fn surface_x(fish: &Fish, cells: i32) -> i32 {
+    let x = fish.position.x as i32;
+    let last = fish.display_width.saturating_sub(1);
+    let (lo, hi) = fish.body_span().unwrap_or((0, last));
+    if fish.facing_left() {
+        return x + lo as i32;
+    }
+    x + hi as i32 + 1 - cells
+}
+
+fn render_fish_bubble(tail: &Tail, bubble: &[String], top: i32, area: Rect, buf: &mut Buffer) {
+    let left = bubble_left(tail, bubble_width(bubble), area);
+    for (row, line) in bubble.iter().enumerate() {
+        render_text(line, left, top + row as i32, WHITE, area, buf);
     }
 }
 
@@ -1273,18 +1432,16 @@ fn render_matrix_background(bg: &MatrixBackground, area: Rect, buf: &mut Buffer)
         if ax < area.x as i32 || ax >= area.right() as i32 {
             continue;
         }
-        let head_row = col.head_y.round() as i32;
         for (dist, &ch) in col.chars.iter().enumerate() {
-            let y = head_row - dist as i32;
+            let y = col.head_row - dist as i32;
             if y < 0 || y >= area.height as i32 {
                 continue;
             }
-            let Some(color) = trail_color(dist) else {
-                continue;
-            };
-            buf[(ax as u16, area.y + y as u16)]
-                .set_char(ch)
-                .set_style(Style::new().fg(color).remove_modifier(Modifier::all()));
+            buf[(ax as u16, area.y + y as u16)].set_char(ch).set_style(
+                Style::new()
+                    .fg(trail_color(dist))
+                    .remove_modifier(Modifier::all()),
+            );
         }
     }
 }
@@ -1755,29 +1912,12 @@ fn render_cow_extension(
 }
 
 fn render_cow_name(cow: &Cow, area: Rect, buf: &mut Buffer) {
-    let base_x = cow.position.x as i32 + cow.display_width as i32 / 2;
-    let name_start = base_x - cow.name.len() as i32 / 2;
-    let name_y_i32 = area.y as i32 + cow.position.y as i32 - 1 - cow.sprite_top_offset() as i32;
-    if name_y_i32 < area.y as i32 || name_y_i32 >= area.bottom() as i32 {
-        return;
-    }
-    for (i, ch) in cow.name.chars().enumerate() {
-        let x = name_start + i as i32;
-        if x < 0 {
-            continue;
-        }
-        let abs_x = area.x + x as u16;
-        if abs_x >= area.right() {
-            break;
-        }
-        buf[(abs_x, name_y_i32 as u16)]
-            .set_char(ch)
-            .set_style(Style::new().fg(WHITE).remove_modifier(Modifier::all()));
-    }
+    let center_x = cow.position.x as i32 + cow.display_width as i32 / 2;
+    let name_y = area.y as i32 + cow.position.y as i32 - 1 - cow.sprite_top_offset() as i32;
+    render_label(&cow.name, center_x, name_y, WHITE, area, buf);
 }
 
 const SPEECH_TAIL_OFFSET_FROM_EYE: i32 = 3;
-const SPEECH_BUBBLE_TO_TAIL_OFFSET: i32 = 4;
 
 fn render_cow_speech(cow: &Cow, area: Rect, buf: &mut Buffer) {
     let Some(speech) = &cow.speech else { return };
@@ -1798,49 +1938,48 @@ fn render_cow_speech(cow: &Cow, area: Rect, buf: &mut Buffer) {
 fn draw_speech_bubble(cow: &Cow, text: &str, leftmost_eye_col: i32, area: Rect, buf: &mut Buffer) {
     let fg = cow.bubble_color();
     let bubble = build_speech_bubble(text);
-    let bubble_h = bubble.len() as i32;
     let cow_x = area.x as i32 + cow.position.x as i32;
     let cow_y = area.y as i32 + cow.position.y as i32;
     let sprite_top = cow_y - cow.sprite_top_offset() as i32;
-    let lower_tail_x = cow_x + leftmost_eye_col - SPEECH_TAIL_OFFSET_FROM_EYE;
-    let upper_tail_x = lower_tail_x - 1;
-    let lower_tail_y = cow_y + 1;
-    let upper_tail_y = cow_y;
-    let bubble_left_x = upper_tail_x - SPEECH_BUBBLE_TO_TAIL_OFFSET;
-    let bubble_top_y = sprite_top - bubble_h;
-    if bubble_top_y < area.y as i32 {
-        return;
-    }
+    let sprite_bottom = sprite_top + cow_sprite(cow).len() as i32 - 1;
+    let tail_x = cow_x + leftmost_eye_col - SPEECH_TAIL_OFFSET_FROM_EYE;
+    let tail_on = |side, y| Tail {
+        anchor: (tail_x, y),
+        facing_left: COW_FACES_LEFT,
+        side,
+    };
+    let above = tail_on(Side::Above, cow_y + 1);
+    let below = tail_on(Side::Below, sprite_bottom - 1);
+    let (top, bottom) = (area.y as i32, area.bottom() as i32);
+    let tail = match Side::of(
+        bubble.len() as i32,
+        above.room(top, bottom),
+        below.room(top, bottom),
+    ) {
+        Side::Above => above,
+        Side::Below => below,
+    };
+    let left = area.x as i32 + bubble_left(&tail, bubble_width(&bubble), area);
+    let bubble_top = tail.bubble_top(bubble.len() as i32);
     for (li, line) in bubble.iter().enumerate() {
-        let sy = bubble_top_y + li as i32;
         for (ci, ch) in line.chars().enumerate() {
-            let sx = bubble_left_x + ci as i32;
-            if sx < area.x as i32 || sx >= area.right() as i32 {
-                continue;
-            }
-            buf[(sx as u16, sy as u16)]
-                .set_char(ch)
-                .set_style(Style::new().fg(fg).remove_modifier(Modifier::all()));
+            put_cell(buf, area, left + ci as i32, bubble_top + li as i32, ch, fg);
         }
     }
-    if upper_tail_y >= area.y as i32
-        && upper_tail_y < area.bottom() as i32
-        && upper_tail_x >= area.x as i32
-        && upper_tail_x < area.right() as i32
-    {
-        buf[(upper_tail_x as u16, upper_tail_y as u16)]
-            .set_char('\\')
-            .set_style(Style::new().fg(fg).remove_modifier(Modifier::all()));
+    for (x, y) in tail.cells() {
+        put_cell(buf, area, x, y, tail.glyph(), fg);
     }
-    if lower_tail_y >= area.y as i32
-        && lower_tail_y < area.bottom() as i32
-        && lower_tail_x >= area.x as i32
-        && lower_tail_x < area.right() as i32
-    {
-        buf[(lower_tail_x as u16, lower_tail_y as u16)]
-            .set_char('\\')
-            .set_style(Style::new().fg(fg).remove_modifier(Modifier::all()));
+}
+
+fn put_cell(buf: &mut Buffer, area: Rect, x: i32, y: i32, ch: char, fg: Color) {
+    let inside_x = x >= area.x as i32 && x < area.right() as i32;
+    let inside_y = y >= area.y as i32 && y < area.bottom() as i32;
+    if !inside_x || !inside_y {
+        return;
     }
+    overdraw(buf, x as u16, y as u16)
+        .set_char(ch)
+        .set_style(Style::new().fg(fg).remove_modifier(Modifier::all()));
 }
 
 fn render_ufo(ufo: &Ufo, area: Rect, buf: &mut Buffer) {
@@ -1910,7 +2049,10 @@ mod tests {
         }
         let area = Rect::new(0, 0, w, h);
         let mut buf = Buffer::empty(area);
-        TankView::new(&tank, true).render(area, &mut buf);
+        TankView::new(&tank)
+            .with_names(true)
+            .with_nets(true)
+            .render(area, &mut buf);
     }
 
     #[test]

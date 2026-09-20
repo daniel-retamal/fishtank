@@ -1,0 +1,62 @@
+# JOURNEY · keep a memory cell: wire an SR latch, capture it, and mark q as an output at the Foundry.
+# A latch hears its own q, so §9.2 calls q internal; the export is what gives the blueprint an output pin.
+
+clear
+run /foundry
+absent ─ Foundry
+
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
+include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
+include scenes/buy-at-the-bench.play "Blank Circuit Blueprint" Materials
+include scenes/buy-a-fish.play Botfish q
+include scenes/buy-a-fish.play Botfish qn
+run /consume inverter coil
+key enter
+key down
+key enter
+run /program "Q"
+type r, qn
+key down
+type q
+key enter
+run /program "Qn"
+type s, q
+key down
+type qn
+key enter
+absent listens
+
+run /consume blank circuit blueprint
+expect Name your
+type latch
+key enter
+absent Name your
+
+run /foundry
+expect ─ Foundry
+expect r, s → -
+expect Fabricator
+snap the latch reads two inputs and no output
+type x
+expect ENTER save
+type q
+snap typing q into exports
+key enter
+expect r, s → q
+snap q is an output pin now
+key tab
+expect TAB list
+key down 20
+snap the preview scrolled down to the schematic
+key tab
+expect TAB preview
+key esc
+absent ─ Foundry
+
+run /inventory
+# the inventory is alphabetical and marks its row by style, not `>`, so it is walked by count: Bait, Coffee, Latch, Necronomicon.
+key down 2
+expect Latch (Circuit
+snap the blueprint is kept in the inventory
+key esc

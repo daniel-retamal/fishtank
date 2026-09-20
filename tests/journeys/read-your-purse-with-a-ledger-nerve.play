@@ -1,0 +1,32 @@
+# JOURNEY · the Ledger Nerve, the sense that reads money: over is cash above its threshold, so a fish
+# wired to it is a low-balance lamp in reverse. Its panel walks by count:
+# listens, drives, threshold, cash, tank_value, over, broke.
+
+clear
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Ledger Nerve" Senses
+include scenes/buy-a-fish.play Botfish ledger
+include scenes/buy-a-fish.play Botfish rich
+
+run /consume ledger nerve
+key enter
+absent to the botfishes
+
+run /program "Ledger"
+expect tank_value
+key down 5
+type flush
+snap the nerve raises flush while the purse is over its threshold
+key enter
+absent listens
+
+run /program "Rich"
+type flush
+key enter
+
+tick 3
+run /circuit
+expect ●  Rich
+snap what is left of the purse is still over a thousand, so Rich is lit
+key esc
+absent Circuit#

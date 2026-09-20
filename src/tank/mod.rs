@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use rand::RngExt;
 
@@ -12,6 +12,7 @@ use crate::entities::cow::{Cow, CowVariant, cow_display_width};
 use crate::entities::food::Food;
 use crate::entities::ufo::Ufo;
 use crate::fishes::fish::{Fish, FishState};
+use crate::fishes::parts::Part;
 use crate::fishes::species::FishSpecies;
 use crate::fishes::unfish::VOID_SPAWN_MEAN_SECS;
 use crate::loot::ConsumableKind;
@@ -21,10 +22,28 @@ use crate::tanks::candy::man_sway_offset;
 use crate::util::sample_exponential;
 
 mod background;
+mod blueprint;
+mod channels;
+mod fabric;
 mod mutations;
+mod netlist;
+mod relay;
 mod simulation;
+mod world;
 
 pub use background::TankBackground;
+pub use blueprint::{
+    Blueprint, BlueprintFish, BlueprintPins, Fabrication, FabricationQuote, FabricationRefusal,
+    Material, Workshop,
+};
+pub use channels::{ChannelRegistry, Wires};
+pub use fabric::StageBudget;
+pub use netlist::{Netlist, Settling};
+pub use relay::{Link, Transmission};
+pub use world::{
+    DAWN_HOUR, DAY_LENGTH_SECS, DUSK_HOUR, DayClock, HOUR_SECS, HOURS_PER_DAY, RAD_TANK_RADS,
+    Selector, SensedFish, Superlative, WorldSignal, WorldView,
+};
 
 pub enum TankEvent {
     PhantomCrossTank { fish_name: String },
@@ -37,7 +56,7 @@ pub enum TankEvent {
     UfoFinished,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TankKind {
     Base,
     CoralReef,
@@ -60,6 +79,8 @@ pub struct TankConfig {
     pub rarity: Rarity,
     pub bubble_rate_mult: f32,
     pub auto_mutate_all: bool,
+    pub robotics_loot: bool,
+    pub buyable: bool,
 }
 
 impl TankKind {
@@ -74,6 +95,8 @@ impl TankKind {
                 rarity: Rarity::Common,
                 bubble_rate_mult: 1.0,
                 auto_mutate_all: false,
+                buyable: true,
+                robotics_loot: false,
             },
             TankKind::CoralReef => TankConfig {
                 display_name: "Coralreeftank",
@@ -84,6 +107,8 @@ impl TankKind {
                 rarity: Rarity::Rare,
                 bubble_rate_mult: 1.0,
                 auto_mutate_all: false,
+                buyable: true,
+                robotics_loot: false,
             },
             TankKind::Hell => TankConfig {
                 display_name: "Helltank",
@@ -94,6 +119,8 @@ impl TankKind {
                 rarity: Rarity::Legendary,
                 bubble_rate_mult: 1.0,
                 auto_mutate_all: false,
+                buyable: false,
+                robotics_loot: false,
             },
             TankKind::Void => TankConfig {
                 display_name: "Voidtank",
@@ -104,6 +131,8 @@ impl TankKind {
                 rarity: Rarity::Legendary,
                 bubble_rate_mult: 1.0,
                 auto_mutate_all: false,
+                buyable: false,
+                robotics_loot: false,
             },
             TankKind::Alien => TankConfig {
                 display_name: "Alientank",
@@ -114,6 +143,8 @@ impl TankKind {
                 rarity: Rarity::Rare,
                 bubble_rate_mult: 1.0,
                 auto_mutate_all: false,
+                buyable: false,
+                robotics_loot: false,
             },
             TankKind::Haunted => TankConfig {
                 display_name: "Hauntedtank",
@@ -124,6 +155,8 @@ impl TankKind {
                 rarity: Rarity::Rare,
                 bubble_rate_mult: 1.0,
                 auto_mutate_all: false,
+                buyable: true,
+                robotics_loot: false,
             },
             TankKind::Candy => TankConfig {
                 display_name: "Candytank",
@@ -134,6 +167,8 @@ impl TankKind {
                 rarity: Rarity::Rare,
                 bubble_rate_mult: 1.0,
                 auto_mutate_all: false,
+                buyable: true,
+                robotics_loot: false,
             },
             TankKind::Desert => TankConfig {
                 display_name: "Desertank",
@@ -144,6 +179,8 @@ impl TankKind {
                 rarity: Rarity::Rare,
                 bubble_rate_mult: 1.0,
                 auto_mutate_all: false,
+                buyable: true,
+                robotics_loot: false,
             },
             TankKind::Rad => TankConfig {
                 display_name: "Radioactivetank",
@@ -154,6 +191,8 @@ impl TankKind {
                 rarity: Rarity::Legendary,
                 bubble_rate_mult: RAD_BUBBLE_RATE_MULT,
                 auto_mutate_all: true,
+                buyable: false,
+                robotics_loot: false,
             },
             TankKind::Matrix => TankConfig {
                 display_name: "Matrixtank",
@@ -164,10 +203,19 @@ impl TankKind {
                 rarity: Rarity::Legendary,
                 bubble_rate_mult: 1.0,
                 auto_mutate_all: false,
+                buyable: false,
+                robotics_loot: true,
             },
         }
     }
 
+    pub fn all_buyable() -> Vec<TankKind> {
+        Self::all()
+            .iter()
+            .copied()
+            .filter(|kind| kind.config().buyable)
+            .collect()
+    }
     pub fn display_name(self) -> &'static str {
         self.config().display_name
     }
@@ -275,6 +323,7 @@ pub struct Tank {
     pub cows: Vec<Cow>,
     pub food: Vec<Food>,
     pub background: TankBackground,
+    pub channels: ChannelRegistry,
     pub bubbles: Vec<Bubble>,
     pub width: u16,
     pub height: u16,
@@ -282,6 +331,8 @@ pub struct Tank {
     pub used_cow_names: HashSet<String>,
     pub pending_star_cash: u32,
     pub pending_graveyard: Vec<Fish>,
+    pub pending_loose_parts: Vec<Part>,
+    pending_signals: BTreeSet<WorldSignal>,
     pub extra_capacity: u32,
     pub cow_abduction_count: u32,
     bubble_spawner: BubbleSpawner,
@@ -304,6 +355,7 @@ impl Tank {
             cows: Vec::new(),
             food: Vec::new(),
             background,
+            channels: ChannelRegistry::new(),
             bubbles: Vec::new(),
             width: INITIAL_WIDTH,
             height: INITIAL_HEIGHT,
@@ -311,6 +363,8 @@ impl Tank {
             used_cow_names: HashSet::new(),
             pending_star_cash: 0,
             pending_graveyard: Vec::new(),
+            pending_loose_parts: Vec::new(),
+            pending_signals: BTreeSet::new(),
             extra_capacity: 0,
             cow_abduction_count: 0,
             bubble_spawner: BubbleSpawner::new(&mut rng),
@@ -382,6 +436,13 @@ impl Tank {
         }
     }
 
+    pub(super) fn admit(&mut self, mut fish: Fish, name: String) {
+        self.mark_if_hell(&mut fish);
+        self.used_names.insert(name);
+        self.fish.push(fish);
+        self.signal(WorldSignal::Birth);
+    }
+
     pub fn spawn_fish(
         &mut self,
         species: FishSpecies,
@@ -396,10 +457,8 @@ impl Tank {
         let y_max = (self.height as f32 - FISH_SPAWN_Y_MAX_OFFSET).max(FISH_SPAWN_Y_SAFE_MIN);
         let x = rng.random_range(FISH_SPAWN_X_MIN..x_max);
         let y = rng.random_range(FISH_SPAWN_Y_MIN..y_max);
-        let mut fish = Fish::new(species, actual_name.clone(), x, y, rng);
-        self.mark_if_hell(&mut fish);
-        self.used_names.insert(actual_name);
-        self.fish.push(fish);
+        let fish = Fish::new(species, actual_name.clone(), x, y, rng);
+        self.admit(fish, actual_name);
         true
     }
 
@@ -410,18 +469,16 @@ impl Tank {
         fish.position.x = rng.random_range(FISH_SPAWN_X_MIN..x_max);
         fish.position.y = rng.random_range(FISH_SPAWN_Y_MIN..y_max);
         fish.name = actual_name.clone();
-        self.mark_if_hell(&mut fish);
-        self.used_names.insert(actual_name);
-        self.fish.push(fish);
+        self.admit(fish, actual_name);
     }
 
-    pub fn feed(&mut self, count: usize, food_supply: &mut u32) {
+    pub fn feed(&mut self, count: usize, food_supply: &mut u32) -> bool {
         if self.width == 0 {
-            return;
+            return false;
         }
         let actual = count.min(*food_supply as usize);
         if actual == 0 {
-            return;
+            return false;
         }
         *food_supply -= actual as u32;
         let mut rng = rand::rng();
@@ -434,6 +491,7 @@ impl Tank {
             let x = (center_x + offset).clamp(0.0, self.width as f32 - 1.0);
             self.food.push(Food::new(x));
         }
+        true
     }
 
     pub fn tick(&mut self, settings: &Settings, coffee: u32) -> Vec<TankEvent> {

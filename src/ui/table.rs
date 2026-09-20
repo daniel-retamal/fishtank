@@ -4,8 +4,13 @@ use ratatui::{
     style::{Color, Modifier, Style},
 };
 
-use crate::colors::DARK_GRAY;
 use unicode_width::UnicodeWidthChar;
+
+use crate::ui::modal;
+
+pub const NOTHING: &str = "-";
+const TITLE_INSET: u16 = 2;
+const TITLE_MARGIN: u16 = 4;
 
 pub struct OverlayLayout {
     pub ox: u16,
@@ -27,28 +32,20 @@ impl OverlayLayout {
         })
     }
 
+    fn rect(&self) -> Rect {
+        Rect::new(self.ox, self.oy, self.w, self.h)
+    }
+
     pub fn clear_bg(&self, buf: &mut Buffer, bg: Color) {
-        for dy in 0..self.h {
-            for dx in 0..self.w {
-                buf[(self.ox + dx, self.oy + dy)].reset();
-                buf[(self.ox + dx, self.oy + dy)].set_bg(bg);
-            }
-        }
+        modal::clear(buf, self.rect(), bg);
     }
 
     pub fn draw_border(&self, buf: &mut Buffer, title: &str, fg: Color, bg: Color) {
-        draw_box_border(
-            buf,
-            Rect {
-                x: self.ox,
-                y: self.oy,
-                width: self.w,
-                height: self.h,
-            },
-            title,
-            fg,
-            bg,
-        );
+        draw_box_border(buf, self.rect(), title, fg, bg);
+    }
+
+    pub fn draw_title(&self, buf: &mut Buffer, title: &str, fg: Color, bg: Color) {
+        draw_box_title(buf, self.rect(), title, fg, bg);
     }
 
     pub fn inner_x(&self) -> u16 {
@@ -79,6 +76,20 @@ pub fn pad_right(s: &str, width: usize) -> String {
     }
 }
 
+const ELLIPSIS: char = '…';
+
+pub fn ellipsize(s: &str, max_width: usize) -> String {
+    if visual_width(s) <= max_width {
+        return s.to_string();
+    }
+    if max_width == 0 {
+        return String::new();
+    }
+    let mut clipped = truncate_str(s, max_width - 1);
+    clipped.push(ELLIPSIS);
+    clipped
+}
+
 pub fn truncate_str(s: &str, max_width: usize) -> String {
     let mut out = String::new();
     let mut w = 0;
@@ -99,7 +110,6 @@ pub fn draw_box_border(buf: &mut Buffer, area: Rect, title: &str, fg: Color, bg:
         return;
     }
     let s = Style::default().fg(fg).bg(bg);
-    let ts = Style::default().fg(fg).add_modifier(Modifier::BOLD).bg(bg);
     let right = ox + w - 1;
     let bottom = oy + h - 1;
 
@@ -117,27 +127,79 @@ pub fn draw_box_border(buf: &mut Buffer, area: Rect, title: &str, fg: Color, bg:
         buf[(right, oy + dy)].set_char('│').set_style(s);
     }
 
-    if !title.is_empty() && (title.len() as u16 + 4) < w {
-        buf.set_string(ox + 2, oy, title, ts);
-    }
+    draw_box_title(buf, area, title, fg, bg);
 }
 
-pub fn draw_hint_bar(
-    buf: &mut Buffer,
-    x: u16,
-    y: u16,
-    inner_w: u16,
-    left: &str,
-    right: &str,
-    bg: Color,
-) {
-    let s = Style::default().fg(DARK_GRAY).bg(bg);
-    buf.set_string(x, y, truncate_str(left, inner_w as usize), s);
-    let rw = visual_width(right) as u16;
-    let lw = visual_width(left) as u16;
-    if lw + rw + 2 <= inner_w {
-        buf.set_string(x + inner_w - rw, y, right, s);
+pub fn draw_box_title(buf: &mut Buffer, area: Rect, title: &str, fg: Color, bg: Color) {
+    let style = Style::default().fg(fg).add_modifier(Modifier::BOLD).bg(bg);
+    draw_title_with(buf, area, title, style);
+}
+
+pub fn draw_title_with(buf: &mut Buffer, area: Rect, title: &str, style: Style) {
+    let room = area.width.saturating_sub(TITLE_MARGIN) as usize;
+    if title.is_empty() || room == 0 {
+        return;
     }
+    buf.set_string(area.x + TITLE_INSET, area.y, ellipsize(title, room), style);
+}
+
+pub fn wrap_words(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut current_w = 0usize;
+    for word in text.split_whitespace() {
+        for piece in break_word(word, width) {
+            let piece_w = visual_width(&piece);
+            if current_w > 0 && current_w + 1 + piece_w > width {
+                lines.push(std::mem::take(&mut current));
+                current_w = 0;
+            }
+            if current_w > 0 {
+                current.push(' ');
+                current_w += 1;
+            }
+            current.push_str(&piece);
+            current_w += piece_w;
+        }
+    }
+    if !current.is_empty() || lines.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
+
+fn break_word(word: &str, width: usize) -> Vec<String> {
+    let mut pieces = Vec::new();
+    let mut piece = String::new();
+    let mut piece_w = 0;
+    for ch in word.chars() {
+        let ch_w = UnicodeWidthChar::width(ch).unwrap_or(1);
+        if piece_w + ch_w > width && !piece.is_empty() {
+            pieces.push(std::mem::take(&mut piece));
+            piece_w = 0;
+        }
+        piece.push(ch);
+        piece_w += ch_w;
+    }
+    if !piece.is_empty() {
+        pieces.push(piece);
+    }
+    pieces
+}
+
+pub fn scrolled_to_fit(s: &str, room: usize) -> &str {
+    let mut excess = visual_width(s).saturating_sub(room);
+    let mut start = 0;
+    for (index, ch) in s.char_indices() {
+        if excess == 0 {
+            start = index;
+            break;
+        }
+        excess = excess.saturating_sub(UnicodeWidthChar::width(ch).unwrap_or(1));
+        start = index + ch.len_utf8();
+    }
+    &s[start..]
 }
 
 pub fn draw_box_separator(
@@ -160,5 +222,23 @@ pub fn draw_box_separator(
         if cx > ox && cx < ox + w - 1 {
             buf[(cx, sep_y)].set_char('┼').set_style(style);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_ellipsis_marks_exactly_where_text_was_cut() {
+        assert_eq!(ellipsize("Inverter Coil", 8), "Inverte…");
+        assert_eq!(ellipsize("clk", 8), "clk", "text that fits is untouched");
+        assert_eq!(ellipsize("clk", 0), "");
+    }
+
+    #[test]
+    fn a_scrolled_field_keeps_the_end_of_its_text_in_view() {
+        assert_eq!(scrolled_to_fit("/clone {cheapest}", 8), "heapest}");
+        assert_eq!(scrolled_to_fit("short", 8), "short");
     }
 }

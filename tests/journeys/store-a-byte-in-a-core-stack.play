@@ -1,0 +1,72 @@
+# JOURNEY · write a word into a Core Stack and read it back off a Glyph Panel.
+# Ram's coil makes it a rail on d6, bit 6 of the bus d: the rail is the address (64), the word ('@' is 64)
+# and, as it rises, the write strobe. data_out reads word 64 every stage onto q; Lcd is a bare delay
+# from the rail onto its own panel's write, so the panel reads q a stage after the word landed.
+# Spent: Computer $8000 + two botfish $15400 + Core Stack $7700 + Glyph Panel $7700 + Inverter Coil $496
+# = $39296 of the $40000 a player starts with.
+# The install picker marks its row with style, not '>', so Lcd is walked to by count (Ram, then Lcd).
+
+clear
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
+include scenes/buy-at-the-bench.play "Core Stack" Peripherals
+include scenes/buy-at-the-bench.play "Glyph Panel" Peripherals
+include scenes/buy-a-fish.play Botfish ram
+include scenes/buy-a-fish.play Botfish lcd
+
+run /consume inverter coil
+key enter
+run /consume core stack
+expect Core Stack to the botfishes
+snap the install picker offers the Core Stack to the first botfish
+key enter
+run /consume glyph panel
+key down
+key enter
+absent to the botfishes
+
+run /freeze "Lcd"
+run /nudge "Lcd" 200 20
+run /nudge "Lcd" -15 0
+
+run /program "Ram"
+expect data_out[8]
+key down
+type d6
+key down
+type d
+key down
+type d
+key down
+type q
+key down
+type d6
+snap the rail is the address, the word and the write strobe
+key enter
+absent listens
+
+tick 4
+run /circuit
+expect data_out ▸ q
+snap the circuit reads the stack's wires back, data_out flowing onto q
+key esc
+absent Circuit#
+
+run /program "Lcd"
+expect width
+type d6
+key down
+type w
+key down 3
+type q
+key down
+type w
+snap the panel's fish delays the rail onto its own write and reads data_out
+key enter
+absent listens
+
+tick 10
+expect / @
+snap word 64 reads back off the panel
+tick 40
+expect / @

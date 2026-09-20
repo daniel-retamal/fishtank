@@ -5,24 +5,31 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::Widget,
 };
-use unicode_width::UnicodeWidthChar;
 
 use crate::colors::{LIGHT_RED, LIGHT_YELLOW, WHITE};
 use crate::fishes::fish::{Direction, Fish};
 use crate::fishes::species::FishSpecies;
-use crate::fishes::unfish::{BALL_HEIGHT, SKULL_HEIGHT, UnfishKind, is_multi_row};
 use crate::tank::TankKind;
 use crate::ui::{
+    draw_fish_centred,
     fields::{self, FieldKind},
-    hints::{HINT_CLOSE, HINT_RETURN},
-    render_fish_sprite, table, tank_view,
+    fish_art_height,
+    hint_bar::HintBar,
+    hints::{HINT_CLOSE, HINT_NAV, HINT_RETURN},
+    layout::{Screen, Scroll, Scrollbar},
+    panels::{PanelSpec, Panels, Reach},
+    table::{self, wrap_words},
 };
 
 const BACKGROUND: Color = Color::Reset;
+const TITLE: &str = " FishResource#show ";
 const FISH_PAD: u16 = 1;
 const FISH_INNER_HEIGHT: u16 = 3;
 const MIN_BODY_WIDTH: u16 = 38;
-const MIN_OVERLAY_HEIGHT: u16 = 7;
+const BODY_MIN_WIDTH_BESIDE: u16 = 18;
+const TEXT_PAD: u16 = 1;
+const SWATCH_W: u16 = 6;
+const FIELD_GAP_ROWS: usize = 1;
 const FIELD_COUNT_MIN: usize = 3;
 const FIELD_COUNT_MAX: usize = 6;
 
@@ -37,10 +44,23 @@ struct ShowField {
     swatch: Option<Color>,
 }
 
+impl ShowField {
+    fn lines(&self, text_w: u16) -> Vec<String> {
+        if self.swatch.is_some() {
+            return vec![String::new()];
+        }
+        wrap_words(&self.value, text_w as usize)
+    }
+
+    fn height(&self, text_w: u16) -> usize {
+        1 + self.lines(text_w).len()
+    }
+}
+
 pub struct ShowState {
     pub fish: Fish,
     fields: Vec<ShowField>,
-    pub scroll: usize,
+    scroll: Scroll,
     pub source: ShowSource,
 }
 
@@ -94,13 +114,12 @@ impl ShowState {
         }
 
         let is_unfish = fish.unfish_state.is_some();
-        if all {
-            for &kind in FieldKind::all() {
+        let mut push_kind =
+            |kind: FieldKind, rng: &mut dyn FnMut(FieldKind) -> fields::FieldValue| {
                 let (value, swatch) = if is_unfish {
                     (String::new(), None)
                 } else {
-                    let fv = fields::cached_field_value(fish, kind)
-                        .unwrap_or_else(|| fields::gen_field_value(kind, fish, all_names, rng));
+                    let fv = rng(kind);
                     (fv.text, fv.swatch)
                 };
                 show_fields.push(ShowField {
@@ -108,26 +127,24 @@ impl ShowState {
                     value,
                     swatch,
                 });
-            }
+            };
+        let kinds: Vec<FieldKind> = if all {
+            FieldKind::all().to_vec()
         } else {
             let count = rng.random_range(FIELD_COUNT_MIN..=FIELD_COUNT_MAX);
             let mut avail: Vec<FieldKind> = FieldKind::all().to_vec();
-            for _ in 0..count.min(avail.len()) {
-                let idx = rng.random_range(0..avail.len());
-                let kind = avail.remove(idx);
-                let (value, swatch) = if is_unfish {
-                    (String::new(), None)
-                } else {
-                    let fv = fields::cached_field_value(fish, kind)
-                        .unwrap_or_else(|| fields::gen_field_value(kind, fish, all_names, rng));
-                    (fv.text, fv.swatch)
-                };
-                show_fields.push(ShowField {
-                    label: kind.header(),
-                    value,
-                    swatch,
-                });
-            }
+            (0..count.min(avail.len()))
+                .map(|_| {
+                    let idx = rng.random_range(0..avail.len());
+                    avail.remove(idx)
+                })
+                .collect()
+        };
+        for kind in kinds {
+            push_kind(kind, &mut |kind| {
+                fields::cached_field_value(fish, kind)
+                    .unwrap_or_else(|| fields::gen_field_value(kind, fish, all_names, rng))
+            });
         }
 
         if let Some(ref mr) = fish.mutations {
@@ -144,7 +161,7 @@ impl ShowState {
                 swatch: None,
             });
             let history = if mr.history.is_empty() {
-                "—".to_string()
+                super::table::NOTHING.to_string()
             } else {
                 mr.history.join(", ")
             };
@@ -158,7 +175,7 @@ impl ShowState {
         Self {
             fish: display_fish,
             fields: show_fields,
-            scroll: 0,
+            scroll: Scroll::default(),
             source,
         }
     }
@@ -168,339 +185,153 @@ impl ShowState {
     }
 
     pub fn scroll_up(&mut self) {
-        if self.scroll > 0 {
-            self.scroll -= 1;
-        }
+        self.scroll.nudge(-1);
     }
 
-    pub fn scroll_down(&mut self, visible: usize) {
-        if self.scroll + visible < self.fields.len() {
-            self.scroll += 1;
-        }
+    pub fn scroll_down(&mut self) {
+        self.scroll.nudge(1);
     }
 
-    pub fn visible_count(overlay_h: u16) -> usize {
-        (overlay_h.saturating_sub(3) / 3) as usize
+    fn heights(&self, text_w: u16) -> Vec<usize> {
+        let last = self.fields.len().saturating_sub(1);
+        self.fields
+            .iter()
+            .enumerate()
+            .map(|(index, field)| {
+                field.height(text_w) + if index < last { FIELD_GAP_ROWS } else { 0 }
+            })
+            .collect()
     }
 
-    pub fn overlay_h(&self, area_h: u16, area_w: u16) -> u16 {
-        let fish_inner_w = self.fish.display_width as u16 + 2 * FISH_PAD;
-        let max_content_w = self
+    fn content_w(&self) -> u16 {
+        let widest = self
             .fields
             .iter()
             .flat_map(|f| [table::visual_width(f.label), table::visual_width(&f.value)])
             .max()
-            .unwrap_or(0);
-        let target_right_inner_w = MIN_BODY_WIDTH.max((max_content_w + 2) as u16);
-        let overlay_w = (fish_inner_w + 3 + target_right_inner_w).min(area_w);
-        let right_inner_w = overlay_w.saturating_sub(fish_inner_w + 3);
-        let available_content = right_inner_w.saturating_sub(2) as usize;
-        let total_field_rows: u16 = self
-            .fields
-            .iter()
-            .map(|f| {
-                let lines = if f.swatch.is_some() {
-                    1u16
-                } else {
-                    value_line_count(&f.value, available_content) as u16
-                };
-                1 + lines + 1
-            })
-            .sum();
-        let from_fields = total_field_rows.saturating_sub(1).saturating_add(4);
-        let from_fish = fish_display_inner_h(&self.fish) + 4;
-        from_fields
-            .max(from_fish)
-            .min(area_h)
-            .max(MIN_OVERLAY_HEIGHT)
+            .unwrap_or(0) as u16;
+        MIN_BODY_WIDTH.max(widest + TEXT_PAD * 2)
     }
 }
 
-fn fish_display_inner_h(fish: &Fish) -> u16 {
-    if let Some(ref us) = fish.unfish_state {
-        match us.kind {
-            UnfishKind::Ball => BALL_HEIGHT,
-            UnfishKind::Skull => SKULL_HEIGHT,
-            _ => FISH_INNER_HEIGHT,
-        }
-    } else {
-        FISH_INNER_HEIGHT
-    }
+fn side_size(fish: &Fish) -> (u16, u16) {
+    (
+        fish.display_width as u16 + FISH_PAD * 2,
+        fish_art_height(fish, FISH_INNER_HEIGHT),
+    )
 }
 
-fn hard_break_word(word: &str, max_w: usize) -> Vec<String> {
-    let mut lines = Vec::new();
-    let mut chunk = String::new();
-    let mut w = 0usize;
-    for c in word.chars() {
-        let cw = UnicodeWidthChar::width(c).unwrap_or(1);
-        if w + cw > max_w && !chunk.is_empty() {
-            lines.push(std::mem::take(&mut chunk));
-            w = 0;
-        }
-        chunk.push(c);
-        w += cw;
-    }
-    if !chunk.is_empty() {
-        lines.push(chunk);
-    }
-    lines
-}
-
-fn wrap_value(value: &str, max_w: usize) -> Vec<String> {
-    if max_w == 0 || value.is_empty() {
-        return vec![value.to_string()];
-    }
-    let mut lines: Vec<String> = Vec::new();
-    let mut current = String::new();
-    let mut current_w = 0usize;
-    for word in value.split_whitespace() {
-        let word_w = table::visual_width(word);
-        if current_w == 0 {
-            if word_w <= max_w {
-                current.push_str(word);
-                current_w = word_w;
-            } else {
-                lines.extend(hard_break_word(word, max_w));
-            }
-        } else if current_w + 1 + word_w <= max_w {
-            current.push(' ');
-            current.push_str(word);
-            current_w += 1 + word_w;
-        } else {
-            lines.push(std::mem::take(&mut current));
-            current_w = 0;
-            if word_w <= max_w {
-                current.push_str(word);
-                current_w = word_w;
-            } else {
-                lines.extend(hard_break_word(word, max_w));
-            }
-        }
-    }
-    if !current.is_empty() {
-        lines.push(current);
-    }
-    if lines.is_empty() {
-        lines.push(String::new());
-    }
-    lines
-}
-
-fn value_line_count(value: &str, max_w: usize) -> usize {
-    wrap_value(value, max_w).len()
+fn text_width(body_w: u16) -> u16 {
+    body_w.saturating_sub(TEXT_PAD * 2).max(1)
 }
 
 pub struct ShowOverlay<'a> {
     state: &'a ShowState,
+    screen: Screen,
 }
 
 impl<'a> ShowOverlay<'a> {
-    pub fn new(state: &'a ShowState) -> Self {
-        Self { state }
+    pub fn new(state: &'a ShowState, screen: Screen) -> Self {
+        Self { state, screen }
     }
 }
 
 impl Widget for ShowOverlay<'_> {
-    fn render(self, area: Rect, buf: &mut Buffer) {
+    fn render(self, _area: Rect, buf: &mut Buffer) {
         let state = self.state;
-
-        let fish_inner_h = fish_display_inner_h(&state.fish);
-        let fish_art_w = state.fish.display_width as u16;
-        let fish_inner_w = fish_art_w + 2 * FISH_PAD;
-
-        let max_content_w = state
-            .fields
-            .iter()
-            .flat_map(|f| [table::visual_width(f.label), table::visual_width(&f.value)])
-            .max()
-            .unwrap_or(0);
-        let target_right_inner_w = MIN_BODY_WIDTH.max((max_content_w + 2) as u16);
-        let overlay_w = (fish_inner_w + 3 + target_right_inner_w).min(area.width);
-        let right_inner_w = overlay_w.saturating_sub(fish_inner_w + 3);
-        let available_content = right_inner_w.saturating_sub(2) as usize;
-
-        if area.height < MIN_OVERLAY_HEIGHT || available_content == 0 {
-            return;
-        }
-
-        let total_field_rows: u16 = state
-            .fields
-            .iter()
-            .map(|f| {
-                let lines = if f.swatch.is_some() {
-                    1u16
-                } else {
-                    value_line_count(&f.value, available_content) as u16
-                };
-                1 + lines + 1
-            })
-            .sum();
-        let from_fields = total_field_rows.saturating_sub(1).saturating_add(4);
-        let from_fish = fish_inner_h + 4;
-        let overlay_h = from_fields
-            .max(from_fish)
-            .min(area.height)
-            .max(MIN_OVERLAY_HEIGHT);
-
-        let ox = area.x + area.width.saturating_sub(overlay_w) / 2;
-        let oy = area.y + (area.height - overlay_h) / 2;
-        let right = ox + overlay_w - 1;
-        let bottom = oy + overlay_h - 1;
-        let sep_x = ox + 1 + fish_inner_w;
-        let right_x = sep_x + 2;
-        let fish_bottom_y = oy + fish_inner_h + 1;
-        let field_end_y = oy + overlay_h - 4;
-
-        for dy in 0..=fish_inner_h + 1 {
-            for dx in 0..overlay_w {
-                buf[(ox + dx, oy + dy)].reset();
-            }
-        }
-        for dy in fish_inner_h + 2..overlay_h {
-            for dx in fish_inner_w + 1..overlay_w {
-                buf[(ox + dx, oy + dy)].reset();
-            }
-        }
-
         let border_color = match state.fish.species {
             FishSpecies::Cashfish => LIGHT_RED,
             FishSpecies::Holyfish => LIGHT_YELLOW,
             FishSpecies::Mutantfish => state.fish.color,
             _ => WHITE,
         };
-        let border_style = Style::default().fg(border_color).bg(BACKGROUND);
-        let title_style = Style::default()
-            .fg(WHITE)
-            .add_modifier(Modifier::BOLD)
-            .bg(BACKGROUND);
-
-        buf[(ox, oy)].set_char('┌').set_style(border_style);
-        buf[(right, oy)].set_char('┐').set_style(border_style);
-        for dx in 1..overlay_w - 1 {
-            buf[(ox + dx, oy)].set_char('─').set_style(border_style);
-        }
-        let title = " FishResource#show ";
-        if (title.len() as u16 + 4) < overlay_w {
-            buf.set_string(ox + 2, oy, title, title_style);
-        }
-
-        for dy in 1..overlay_h - 1 {
-            buf[(right, oy + dy)].set_char('│').set_style(border_style);
-        }
-
-        for dy in 1..=fish_inner_h {
-            buf[(ox, oy + dy)].set_char('│').set_style(border_style);
-        }
-
-        buf[(ox, fish_bottom_y)]
-            .set_char('└')
-            .set_style(border_style);
-        for dx in 1..=fish_inner_w {
-            buf[(ox + dx, fish_bottom_y)]
-                .set_char('─')
-                .set_style(border_style);
-        }
-        buf[(sep_x, fish_bottom_y)]
-            .set_char('┤')
-            .set_style(border_style);
-
-        for dy in 1..overlay_h - 1 {
-            let y = oy + dy;
-            if y != fish_bottom_y {
-                buf[(sep_x, y)].set_char('│').set_style(border_style);
-            }
-        }
-
-        buf[(sep_x, bottom)].set_char('└').set_style(border_style);
-        for x in sep_x + 1..right {
-            buf[(x, bottom)].set_char('─').set_style(border_style);
-        }
-        buf[(right, bottom)].set_char('┘').set_style(border_style);
-
-        let extra = fish_inner_w.saturating_sub(fish_art_w);
-        let fish_art_x = ox + 1 + extra / 2;
-        if let Some(ref us) = state.fish.unfish_state
-            && is_multi_row(us.kind)
-        {
-            tank_view::render_multi_row_unfish_at(
-                &state.fish,
-                fish_art_x as i32,
-                (oy + 1) as i32,
-                area,
-                buf,
-            );
-        } else {
-            let fish_art_y = oy + 1 + fish_inner_h / 2;
-            let sprite = state.fish.line_sprite();
-            render_fish_sprite(buf, &sprite, fish_art_x, fish_art_y, fish_art_w, BACKGROUND);
-        }
-
-        let white_bold = Style::default()
-            .fg(WHITE)
-            .add_modifier(Modifier::BOLD)
-            .bg(BACKGROUND);
-        let white = Style::default().fg(WHITE).bg(BACKGROUND);
-
-        let mut y = oy + 1;
-        let mut rendered_count = 0usize;
-        for field in state.fields.iter().skip(state.scroll) {
-            if y > field_end_y {
-                break;
-            }
-            buf.set_string(
-                right_x,
-                y,
-                table::truncate_str(field.label, available_content),
-                white_bold,
-            );
-
-            if let Some(swatch) = field.swatch {
-                let vy = y + 1;
-                if vy <= field_end_y {
-                    let sw = 6u16.min(right_inner_w.saturating_sub(2));
-                    for dx in 0..sw {
-                        buf[(right_x + dx, vy)]
-                            .set_char(' ')
-                            .set_fg(swatch)
-                            .set_bg(swatch);
-                    }
-                }
-                y += 3;
-            } else {
-                let wrapped = wrap_value(&field.value, available_content);
-                for (li, line) in wrapped.iter().enumerate() {
-                    let vy = y + 1 + li as u16;
-                    if vy > field_end_y {
-                        break;
-                    }
-                    buf.set_string(right_x, vy, line, white);
-                }
-                y += 1 + wrapped.len() as u16 + 1;
-            }
-            rendered_count += 1;
-        }
-
-        let footer_y = oy + overlay_h - 2;
-        let last_visible = state.scroll + rendered_count;
-        let actually_scrollable = state.scroll > 0 || last_visible < state.fields.len();
-        let left_footer = if actually_scrollable {
-            format!("↑↓ navigate ({}/{})", last_visible, state.fields.len())
-        } else {
-            String::new()
-        };
-        let right_footer = match state.source {
+        let close = match state.source {
             ShowSource::FromIndex => HINT_RETURN,
             ShowSource::FromCommand => HINT_CLOSE,
         };
-        table::draw_hint_bar(
+        let rows_for = |body_w: u16| state.heights(text_width(body_w)).iter().sum::<usize>() as u16;
+        let spec_for = |hints| PanelSpec {
+            title: TITLE,
+            title_style: Style::default()
+                .fg(WHITE)
+                .add_modifier(Modifier::BOLD)
+                .bg(BACKGROUND),
+            border: Style::default().fg(border_color).bg(BACKGROUND),
+            background: BACKGROUND,
+            side: side_size(&state.fish),
+            body_w: state.content_w(),
+            body_min_w: BODY_MIN_WIDTH_BESIDE,
+            body_rows: &rows_for,
+            hints,
+            reach: Reach::Tab,
+        };
+        let calm = HintBar::new(close);
+        let measured = Panels::measure(self.screen, &spec_for(&calm));
+        let heights = state.heights(text_width(measured.body.width));
+        let total_rows: usize = heights.iter().sum();
+        let overflowing = total_rows > measured.body.height as usize;
+        let hints = HintBar::new(close).action_if(overflowing, HINT_NAV);
+        let panels = Panels::open(buf, self.screen, &spec_for(&hints));
+
+        draw_fish_centred(buf, &state.fish, panels.side, BACKGROUND);
+
+        let text_w = text_width(panels.body.width);
+        let heights = state.heights(text_w);
+        let room = panels.body.height as usize;
+        let last_start = (0..heights.len())
+            .find(|&start| heights[start..].iter().sum::<usize>() <= room)
+            .unwrap_or(heights.len().saturating_sub(1));
+        let first = state.scroll.settle(last_start);
+        let x = panels.body.x + TEXT_PAD;
+        let bold = Style::default()
+            .fg(WHITE)
+            .add_modifier(Modifier::BOLD)
+            .bg(BACKGROUND);
+        let plain = Style::default().fg(WHITE).bg(BACKGROUND);
+        let mut y = panels.body.y;
+        let bottom = panels.body.bottom();
+        let mut shown = 0;
+        for field in state.fields.iter().skip(first) {
+            if y >= bottom {
+                break;
+            }
+            buf.set_stringn(
+                x,
+                y,
+                table::ellipsize(field.label, text_w as usize),
+                text_w as usize,
+                bold,
+            );
+            for (row, line) in field.lines(text_w).iter().enumerate() {
+                let line_y = y + 1 + row as u16;
+                if line_y >= bottom {
+                    break;
+                }
+                if let Some(swatch) = field.swatch {
+                    for dx in 0..SWATCH_W.min(text_w) {
+                        buf[(x + dx, line_y)].set_char(' ').set_bg(swatch);
+                    }
+                    continue;
+                }
+                buf.set_stringn(x, line_y, line, text_w as usize, plain);
+            }
+            y += (field.height(text_w) + FIELD_GAP_ROWS) as u16;
+            shown += 1;
+        }
+        let rows_before: usize = heights[..first].iter().sum();
+        Scrollbar {
+            x: panels.right_x(),
+            top: panels.body.y,
+            height: panels.body.height,
+        }
+        .draw(
             buf,
-            right_x,
-            footer_y,
-            right_inner_w.saturating_sub(1),
-            &left_footer,
-            right_footer,
-            BACKGROUND,
+            rows_before..(rows_before + room).min(total_rows),
+            heights.iter().sum(),
+            border_color,
         );
+        if shown == 0 {
+            state.scroll.reset();
+        }
     }
 }

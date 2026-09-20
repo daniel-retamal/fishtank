@@ -4,5 +4,6 @@ pub mod cow;
 pub mod food;
 pub mod glistening;
 pub mod plant;
+pub mod speech;
 pub mod star;
 pub mod ufo;

@@ -6,7 +6,7 @@ use ratatui::{
 
 use crate::colors::{BLACK, WHITE};
 use crate::ui::input_action::InputAction;
-use crate::ui::table::truncate_str;
+use crate::ui::table::{scrolled_to_fit, truncate_str, visual_width};
 
 pub struct TextInput {
     pub value: String,
@@ -25,6 +25,11 @@ impl TextInput {
             value: String::new(),
             cursor: 0,
         }
+    }
+
+    pub fn with_value(value: String) -> Self {
+        let cursor = value.len();
+        Self { value, cursor }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -114,6 +119,10 @@ fn next_char_boundary(s: &str, pos: usize) -> usize {
     p
 }
 
+const PROMPT: &str = "> ";
+const CURSOR_CELLS: usize = 1;
+const MIN_FIELD_W: u16 = PROMPT.len() as u16 + CURSOR_CELLS as u16;
+
 pub fn draw_text_cursor(
     buf: &mut Buffer,
     input: &TextInput,
@@ -123,25 +132,22 @@ pub fn draw_text_cursor(
     w: u16,
     bg: Color,
 ) {
-    if w < 3 {
+    if w < MIN_FIELD_W {
         return;
     }
 
     let s_white = Style::default().fg(WHITE).bg(bg);
 
-    buf[(x, y)].set_char('>').set_style(s_white);
-    buf[(x + 1, y)].set_char(' ').set_style(s_white);
+    buf.set_string(x, y, PROMPT, s_white);
 
-    let base_x = x + 2;
+    let base_x = x + PROMPT.len() as u16;
     let cp = input.cursor;
     let text = input.as_str();
     let at_end = cp == text.len();
-    let cursor_col = base_x + cp as u16;
-
-    if cp > 0 && base_x < x + w {
-        let avail = (x + w - base_x) as usize;
-        buf.set_string(base_x, y, truncate_str(&text[..cp], avail), s_white);
-    }
+    let room = (x + w - base_x) as usize;
+    let before = scrolled_to_fit(&text[..cp], room.saturating_sub(CURSOR_CELLS));
+    buf.set_string(base_x, y, before, s_white);
+    let cursor_col = base_x + visual_width(before) as u16;
 
     if cursor_col < x + w {
         let ch = if at_end {
@@ -171,5 +177,39 @@ pub fn draw_text_cursor(
                 s_white,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::layout::Rect;
+
+    const FIELD_W: u16 = 12;
+    const LONG_LINE: &str = "/clone {cheapest mutantfish}";
+
+    fn drawn(input: &TextInput) -> String {
+        let area = Rect::new(0, 0, FIELD_W, 1);
+        let mut buf = Buffer::empty(area);
+        draw_text_cursor(&mut buf, input, true, 0, 0, FIELD_W, Color::Reset);
+        (0..FIELD_W)
+            .map(|x| buf[(x, 0)].symbol().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn a_line_longer_than_its_field_scrolls_to_keep_the_cursor_in_view() {
+        let input = TextInput::with_value(LONG_LINE.to_string());
+        let row = drawn(&input);
+        assert!(
+            row.starts_with("> ") && row.trim_end().ends_with("tfish}"),
+            "the end of the line is what you are typing: {row:?}"
+        );
+    }
+
+    #[test]
+    fn a_short_line_is_drawn_from_its_start() {
+        let input = TextInput::with_value("/feed 1".to_string());
+        assert!(drawn(&input).starts_with("> /feed 1"));
     }
 }

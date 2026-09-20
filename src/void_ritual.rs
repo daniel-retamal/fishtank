@@ -40,13 +40,6 @@ pub const VOID_RITUAL_MEAN_SECS: f32 = 3600.0;
 pub const NOTHING_ALPHA: f32 = 0.05;
 pub const RITUAL_MEAN_FLOOR_SECS: f32 = 10.0;
 
-pub const GIVE_COFFEE_QTY: u32 = 937;
-pub const GIVE_BAIT_QTY: u32 = 625;
-pub const GIVE_JUNK_QTY: u32 = 1000;
-pub const GIVE_NECRONOMICON_QTY: u32 = 1;
-pub const GIVE_DEMON_CORE_QTY: u32 = 1;
-pub const GIVE_COMPUTER_QTY: u32 = 1;
-pub const GIVE_MILK_QTY: u32 = 15;
 pub const GIVE_RESOURCE_AMOUNT: u32 = 5000;
 pub const EXPAND_AMOUNT: u32 = 75;
 
@@ -100,7 +93,7 @@ pub fn ritual_mean_secs(nothing_stacks: u32) -> f32 {
 pub enum GiveTarget {
     Cash,
     Food,
-    Item { stock: StockItem, qty: u32 },
+    Item(StockItem),
     Fish(FishSpecies),
     Tank(TankKind),
     Cow(Option<CowVariant>),
@@ -235,22 +228,11 @@ pub fn parse_give_target(rest: &str) -> Option<GiveTarget> {
     match trimmed {
         "cash" => return Some(GiveTarget::Cash),
         "food" => return Some(GiveTarget::Food),
-        "junk" => {
-            return Some(GiveTarget::Item {
-                stock: StockItem::Junk,
-                qty: GIVE_JUNK_QTY,
-            });
-        }
         _ => {}
     }
 
-    for kind in crate::loot::ConsumableKind::all() {
-        if kind.lowercase_name() == trimmed {
-            return Some(GiveTarget::Item {
-                stock: StockItem::Consumable(kind),
-                qty: give_qty_for(kind),
-            });
-        }
+    if let Some(stock) = StockItem::from_display_name(trimmed) {
+        return Some(GiveTarget::Item(stock));
     }
 
     if let Some(species) = ALL_SPECIES
@@ -269,35 +251,16 @@ pub fn parse_give_target(rest: &str) -> Option<GiveTarget> {
 }
 
 pub fn random_give_target(rng: &mut impl rand::RngExt) -> GiveTarget {
-    use crate::loot::{ConsumableKind, StockItem};
     match rng.random_range(0..6u32) {
         0 => GiveTarget::Cash,
         1 => GiveTarget::Food,
-        2 => GiveTarget::Item {
-            stock: StockItem::Consumable(ConsumableKind::Coffee),
-            qty: GIVE_COFFEE_QTY,
-        },
-        3 => GiveTarget::Item {
-            stock: StockItem::Consumable(ConsumableKind::Bait),
-            qty: GIVE_BAIT_QTY,
-        },
+        2 => GiveTarget::Item(StockItem::COFFEE),
+        3 => GiveTarget::Item(StockItem::BAIT),
         4 => {
             let buyable = FishSpecies::all_buyable();
             GiveTarget::Fish(buyable[rng.random_range(0..buyable.len())])
         }
         _ => GiveTarget::Cow(None),
-    }
-}
-
-fn give_qty_for(kind: crate::loot::ConsumableKind) -> u32 {
-    use crate::loot::ConsumableKind as CK;
-    match kind {
-        CK::Coffee => GIVE_COFFEE_QTY,
-        CK::Bait => GIVE_BAIT_QTY,
-        CK::Milk(_) => GIVE_MILK_QTY,
-        CK::Necronomicon => GIVE_NECRONOMICON_QTY,
-        CK::DemonCore => GIVE_DEMON_CORE_QTY,
-        CK::Computer => GIVE_COMPUTER_QTY,
     }
 }
 

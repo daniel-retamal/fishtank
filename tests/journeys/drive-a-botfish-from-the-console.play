@@ -1,0 +1,55 @@
+# JOURNEY · hand the keyboard to a botfish: a Reflex Arc and a Command Module bought at the bench and
+# installed on one fish, the Arc's fire line wired to the module's fire in the panel, /console hands the
+# keys over, a tapped SPACE makes the fish say glup glup, q is only a key, ESC gives the editor back.
+# Budget: Computer $8,000 + botfish $7,700 + Reflex Arc $7,700 + Command Module $1,400 = $24,800 of
+# $40,000. Each extra acting fish (botfish + module) is $9,100, so two fit ($33,900) and three do not.
+# Panel fields: listens, drives, Command Module fire, eight Reflex Arc keys, its eight pins, trigger, 1..8.
+# One botfish, so the install picker's ENTER picks it.
+
+clear
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Reflex Arc" Peripherals
+include scenes/buy-at-the-bench.play "Command Module" Hands
+include scenes/buy-a-fish.play Botfish pad
+
+run /consume reflex arc
+expect Reflex Arc to the botfishes
+key enter
+absent to the botfishes
+run /consume command module
+key enter
+absent to the botfishes
+
+run /freeze "Pad"
+run /nudge "Pad" 200 20
+run /nudge "Pad" -15 0
+
+run /program "Pad"
+expect listens
+key down 2
+expect Command Module
+type glup
+key down 13
+expect right[1]
+type glup
+key down 5
+type /say "glup glup"
+snap the Arc's fire line and the module's fire share one channel, and the script speaks
+key enter
+absent listens
+
+run /console "Pad"
+expect console Pad
+expect SPACE fire
+expect ESC leave
+snap the console bar replaces the editor and names every key it listens for
+type q
+expect console Pad
+key space
+release space
+tick 40
+expect glup glup
+snap a tapped SPACE fired the module and Pad says glup glup
+key esc
+absent console Pad
+absent ESC leave

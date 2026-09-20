@@ -13,6 +13,7 @@ pub mod settings;
 pub mod sprite;
 pub mod tank;
 pub mod tanks;
+pub mod testing;
 pub mod ui;
 pub mod util;
 pub mod void_ritual;

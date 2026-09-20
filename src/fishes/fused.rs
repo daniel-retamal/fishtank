@@ -1,4 +1,5 @@
 use crate::entities::cow::{Cow, CowVariant};
+use crate::fishes::botfish::BotfishState;
 use crate::fishes::fish::Fish;
 use crate::fishes::species::FishSpecies;
 use crate::fishes::unfish::{UnfishKind, UnfishState};
@@ -45,6 +46,7 @@ pub struct FusedComponent {
     pub name: String,
     pub weight_g: u32,
     pub persona: Option<Box<UnfishState>>,
+    pub program: Option<Box<BotfishState>>,
     pub snapshot: Option<Snapshot>,
 }
 
@@ -55,6 +57,7 @@ impl FusedComponent {
             name,
             weight_g,
             persona: None,
+            program: None,
             snapshot: None,
         }
     }
@@ -65,6 +68,7 @@ impl FusedComponent {
             name,
             weight_g,
             persona: None,
+            program: None,
             snapshot: None,
         }
     }
@@ -75,6 +79,7 @@ impl FusedComponent {
             name,
             weight_g: 0,
             persona: None,
+            program: None,
             snapshot: None,
         }
     }
