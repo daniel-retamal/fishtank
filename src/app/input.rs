@@ -1485,13 +1485,13 @@ impl App {
     pub(super) fn build_sellable_stackable_names(&self) -> Vec<String> {
         let mut v = Vec::new();
         if self.inventory.get(&StockItem::Junk).copied().unwrap_or(0) > 0 {
-            v.push("Junk".to_string());
+            v.push(StockItem::Junk.display_name().to_string());
         }
         if self.inventory.get(&StockItem::COFFEE).copied().unwrap_or(0) > 0 {
-            v.push("Coffee".to_string());
+            v.push(StockItem::COFFEE.display_name().to_string());
         }
         if self.inventory.get(&StockItem::BAIT).copied().unwrap_or(0) > 0 {
-            v.push("Bait".to_string());
+            v.push(StockItem::BAIT.display_name().to_string());
         }
         for &variant in MilkVariant::ALL {
             let stock = StockItem::Consumable(ConsumableKind::Milk(variant));

@@ -165,8 +165,8 @@ impl BuyCategory {
     pub fn display_name(self) -> &'static str {
         match self {
             BuyCategory::Fishes => "Fishes",
-            BuyCategory::Coffee => "Coffee",
-            BuyCategory::Bait => "Bait",
+            BuyCategory::Coffee => ConsumableKind::Coffee.display_name(),
+            BuyCategory::Bait => ConsumableKind::Bait.display_name(),
             BuyCategory::Food => "Food",
             BuyCategory::Fishtank => "Fishtank",
             BuyCategory::Robotics => "Robotics",

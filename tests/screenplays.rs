@@ -73,6 +73,7 @@ fn every_robotics_catch_card_draws_whole() {
         "Catch · Blank Circuit Blueprint",
         ConsumableKind::BlankBlueprint,
     ));
+    reel.push(card("Catch · Fabricator", ConsumableKind::Fabricator));
     reel.push(card(
         "Control · Coffee, an older card",
         ConsumableKind::Coffee,
@@ -89,11 +90,17 @@ fn every_robotics_catch_card_draws_whole() {
 
 #[test]
 fn a_catch_card_on_a_small_screen_wraps_its_art_above_the_text_and_keeps_its_hint() {
-    let catches: [Catch; 3] = [
+    let catches: [Catch; 5] = [
         ("fish", || LootKind::Fish(FishSpecies::Salmon)),
         ("cash", || LootKind::Cash(CashValue::Hundred)),
         ("computer", || {
             LootKind::Item(ItemKind::Consumable(ConsumableKind::Computer))
+        }),
+        ("fabricator", || {
+            LootKind::Item(ItemKind::Consumable(ConsumableKind::Fabricator))
+        }),
+        ("blank blueprint", || {
+            LootKind::Item(ItemKind::Consumable(ConsumableKind::BlankBlueprint))
         }),
     ];
     let mut reel = Reel::new();

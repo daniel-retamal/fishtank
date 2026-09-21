@@ -7,6 +7,8 @@ use fishtank::{
 
 const HEAVEN: &str = "Heaventank";
 const HOME: &str = "Fishtank";
+const DEAD: &str = "Dead";
+const ALIVE: &str = "Alive";
 
 fn heaven(tui: &Tui) -> Option<&Tank> {
     tui.app.tanks.iter().find(|t| t.kind == TankKind::Heaven)
@@ -244,7 +246,7 @@ fn the_heaventank_index_lists_the_dead_and_every_other_index_stays_among_the_liv
     let screen = tui.screen();
     screen.expect_find("Status");
     screen.expect_find("Ann");
-    screen.expect_find("Dead");
+    screen.expect_find(DEAD);
     screen.expect_absent("Bob");
     tui.key(crossterm::event::KeyCode::Esc);
 
@@ -252,7 +254,8 @@ fn the_heaventank_index_lists_the_dead_and_every_other_index_stays_among_the_liv
     let screen = tui.screen();
     screen.expect_find("Bob");
     screen.expect_absent("Ann");
-    screen.expect_absent("Status");
+    screen.expect_absent(DEAD);
+    screen.expect_absent(ALIVE);
 }
 
 #[test]
@@ -265,8 +268,8 @@ fn a_holy_fish_that_lives_in_heaven_shows_as_alive_beside_the_dead() {
     tui.run("/spawn holyfish \"Gabriel\"");
     tui.run(&format!("/index \"{HEAVEN}\""));
     let screen = tui.screen();
-    screen.expect_find("Alive");
-    screen.expect_find("Dead");
+    screen.expect_find(ALIVE);
+    screen.expect_find(DEAD);
 }
 
 #[test]

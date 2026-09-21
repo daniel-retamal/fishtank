@@ -22,6 +22,7 @@ const DEVILS_LUCK_CASH_BONUS: u32 = 30;
 const CASH_TIER_SHIFT: u32 = 12;
 const CASH_CENTER_IDX: usize = 3;
 
+const JUNK_NAME: &str = "Junk";
 const JUNK_WEIGHT: u32 = 21;
 const COFFEE_WEIGHT: u32 = 21;
 const BAIT_WEIGHT: u32 = 20;
@@ -104,6 +105,19 @@ impl JunkSprite {
     }
 }
 
+const PLAIN_MILK_NAME: &str = "Milk";
+const PLAIN_MILK_DESCRIPTION: &str = "The Pale continues to consume. The liquid in front of you has their face. Bless yourself in the same ivory fire. Better fishing";
+const CHOCOLATE_MILK_NAME: &str = "Chocolate Milk";
+const CHOCOLATE_MILK_DESCRIPTION: &str = "Hyper-dense lipid-maximizing slurry. Overrides the baseline biological density caps for absolute mass extraction. Numbers must go up. Increase fish's weight";
+const STRAWBERRY_MILK_NAME: &str = "Strawberry Milk";
+const STRAWBERRY_MILK_DESCRIPTION: &str = "Imbues the organism with a Cursed Economic Paradigm (CEP). Compounding artificial market inflation through pastel-tier commodification. Bump sell price";
+const VANILLA_MILK_NAME: &str = "Vanilla Milk";
+const VANILLA_MILK_DESCRIPTION: &str = "Corporate-mandated structural amnesia? The prosaic absolute bleaches the sins in the flesh? What has it lost? Cleanses all fish mutations?";
+const ALIEN_MILK_NAME: &str = "Alien Milk";
+const ALIEN_MILK_DESCRIPTION: &str = "Cellular-restructuring xeno-pathway fluid enabler. The flesh rejects terrestrial biology, embracing the emerald hue. The sky opens up. Alien transformation";
+const IRRADIATED_MILK_NAME: &str = "Irradiated Milk";
+const IRRADIATED_MILK_DESCRIPTION: &str = "Rage against the carcase. Entfesselt Sein Fleisch. Let the self dissolve, for a brief moment, in the unnverving experience of letting go. Random mutations";
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MilkVariant {
     Plain,
@@ -126,12 +140,12 @@ impl MilkVariant {
 
     pub fn display_name(self) -> &'static str {
         match self {
-            MilkVariant::Plain => "Milk",
-            MilkVariant::Chocolate => "Chocolate Milk",
-            MilkVariant::Strawberry => "Strawberry Milk",
-            MilkVariant::Vanilla => "Vanilla Milk",
-            MilkVariant::Alien => "Alien Milk",
-            MilkVariant::Irradiated => "Irradiated Milk",
+            MilkVariant::Plain => PLAIN_MILK_NAME,
+            MilkVariant::Chocolate => CHOCOLATE_MILK_NAME,
+            MilkVariant::Strawberry => STRAWBERRY_MILK_NAME,
+            MilkVariant::Vanilla => VANILLA_MILK_NAME,
+            MilkVariant::Alien => ALIEN_MILK_NAME,
+            MilkVariant::Irradiated => IRRADIATED_MILK_NAME,
         }
     }
 
@@ -148,24 +162,12 @@ impl MilkVariant {
 
     pub fn description(self) -> &'static str {
         match self {
-            MilkVariant::Plain => {
-                "The Pale continues to consume. The liquid in front of you has their face. Bless yourself in the same ivory fire. Better fishing"
-            }
-            MilkVariant::Chocolate => {
-                "Hyper-dense lipid-maximizing slurry. Overrides the baseline biological density caps for absolute mass extraction. Numbers must go up. Increase fish's weight"
-            }
-            MilkVariant::Strawberry => {
-                "Imbues the organism with a Cursed Economic Paradigm (CEP). Compounding artificial market inflation through pastel-tier commodification. Bump sell price"
-            }
-            MilkVariant::Vanilla => {
-                "Corporate-mandated structural amnesia? The prosaic absolute bleaches the sins in the flesh? What has it lost? Cleanses all fish mutations?"
-            }
-            MilkVariant::Alien => {
-                "Cellular-restructuring xeno-pathway fluid enabler. The flesh rejects terrestrial biology, embracing the emerald hue. The sky opens up. Alien transformation"
-            }
-            MilkVariant::Irradiated => {
-                "Rage against the carcase. Entfesselt Sein Fleisch. Let the self dissolve, for a brief moment, in the unnverving experience of letting go. Random mutations"
-            }
+            MilkVariant::Plain => PLAIN_MILK_DESCRIPTION,
+            MilkVariant::Chocolate => CHOCOLATE_MILK_DESCRIPTION,
+            MilkVariant::Strawberry => STRAWBERRY_MILK_DESCRIPTION,
+            MilkVariant::Vanilla => VANILLA_MILK_DESCRIPTION,
+            MilkVariant::Alien => ALIEN_MILK_DESCRIPTION,
+            MilkVariant::Irradiated => IRRADIATED_MILK_DESCRIPTION,
         }
     }
 
@@ -181,35 +183,59 @@ impl MilkVariant {
     }
 }
 
+const COFFEE_NAME: &str = "Coffee";
+const COFFEE_BUY_PRICE: u32 = 10;
+const COFFEE_SELL_PRICE: u32 = resale_price(COFFEE_BUY_PRICE);
+const COFFEE_PANEL_INNER_W: u16 = 8;
+const COFFEE_HOOK_COL: u16 = 4;
+const COFFEE_HOOK_ROW: u16 = 2;
+const COFFEE_ACTIVE_LABEL: &str = "caffeinated";
+const COFFEE_DESCRIPTION: &str = "Work-communion-enabling percolated Breverage. Allows terminal-humanii connection. Gives fishes something to believe in. Faster reeling";
+const BAIT_NAME: &str = "Bait";
+const BAIT_BUY_PRICE: u32 = 15;
+const BAIT_SELL_PRICE: u32 = resale_price(BAIT_BUY_PRICE);
+const BAIT_PANEL_INNER_W: u16 = 9;
+const BAIT_HOOK_COL: u16 = 3;
+const BAIT_HOOK_ROW: u16 = 0;
+const BAIT_ACTIVE_LABEL: &str = "baiting";
+const BAIT_DESCRIPTION: &str = "Lesser-blood sacrifice for higher-entropy lifeforms. Bait Mindset. Even they wish for the Heavens. Get better fishes";
 const MILK_SELL_PRICE: u32 = 60;
+const NECRONOMICON_NAME: &str = "Necronomicon";
 const NECRONOMICON_PANEL_INNER_W: u16 = 16;
+const NECRONOMICON_HOOK_COL: u16 = 12;
+const NECRONOMICON_HOOK_ROW: u16 = 0;
 const NECRONOMICON_DESCRIPTION: &str = "An Image [or Picture] of the Law of the Dead. Image and pre-image. Summons a Gate to Hell, The Helltank. The devil has a lot of cash";
+const DEMON_CORE_NAME: &str = "Demon Core";
 const DEMON_CORE_PANEL_INNER_W: u16 = 18;
 const DEMON_CORE_HOOK_COL: u16 = 13;
 const DEMON_CORE_HOOK_ROW: u16 = 1;
 const DEMON_CORE_DESCRIPTION: &str = "A heavy metal heart quietly rotting with anger. Your <player_species> <species_main_appendage> yearns for its burn. Bring forth its shimmering nightmare in the Radioactivetank. Unchain your biology";
+const COMPUTER_NAME: &str = "Computer";
 const COMPUTER_HOOK_ROW: u16 = 2;
 const COMPUTER_DESCRIPTION: &str = "The monster whose influence has changed history, leaving none of it left. The Angelii are speaking, listen. Connect to the terminal and see the Matrixtank.";
+const BLANK_WAFER_NAME: &str = "Blank Wafer";
 const BLANK_WAFER_BUY_PRICE: u32 = 50;
 pub const BLANK_WAFER_SELL_PRICE: u32 = resale_price(BLANK_WAFER_BUY_PRICE);
+const FABRICATOR_NAME: &str = "Fabricator";
 const FABRICATOR_BUY_PRICE: u32 = 400;
 const FABRICATOR_SELL_PRICE: u32 = resale_price(FABRICATOR_BUY_PRICE);
-const FABRICATOR_DESCRIPTION: &str = "A single-use fabricator. Prints a Circuit Blueprint into fresh botfish at the Foundry, spending a Blank Wafer per fish and every part the design uses. Foundry stock.";
+const FABRICATOR_DESCRIPTION: &str = "The factory, shrunk to fit one miracle. It believes every design it is shown. Prints a blueprint into fresh botfish. Foundry stock.";
 const BLANK_WAFER_DESCRIPTION: &str = "Uncut silence, ground until it holds your face. It has never been told what it is and it is waiting. Every circuit you will ever love begins as this nothing. Foundry stock.";
 const RESALE_PERCENT: u32 = 80;
 const PERCENT: u32 = 100;
+const BLANK_BLUEPRINT_NAME: &str = "Blank Circuit Blueprint";
 const BLANK_BLUEPRINT_BUY_PRICE: u32 = 60;
 const BLANK_BLUEPRINT_SELL_PRICE: u32 = resale_price(BLANK_BLUEPRINT_BUY_PRICE);
-const BLANK_BLUEPRINT_DESCRIPTION: &str = "A blank circuit blueprint. Captures the wired botfish of this tank into a named blueprint. Foundry stock.";
+const BLANK_BLUEPRINT_DESCRIPTION: &str = "Vellum that has learned to look. Lay it over a tank and it keeps the wiring and forgets the fish. Captures a design. Foundry stock.";
 pub const CIRCUIT_BLUEPRINT_NAME: &str = "Circuit Blueprint";
 pub const CIRCUIT_BLUEPRINT_SELL_PRICE: u32 = BLANK_BLUEPRINT_SELL_PRICE;
-pub const CIRCUIT_BLUEPRINT_DESCRIPTION: &str =
-    "A captured circuit. Print or etch it at the Foundry.";
+pub const CIRCUIT_BLUEPRINT_DESCRIPTION: &str = "An idea with its wiring showing. It can be born again anywhere, as often as you can pay. Print or etch it at the Foundry.";
 
 const fn resale_price(buy_price: u32) -> u32 {
     buy_price * RESALE_PERCENT / PERCENT
 }
 const BLUEPRINT_COLOR: Color = BLUE;
+const APPLIANCE_COLOR: Color = CREAM;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum NameTarget {
@@ -313,17 +339,17 @@ impl ConsumableKind {
 
     pub fn display_name(self) -> &'static str {
         match self {
-            ConsumableKind::Coffee => "Coffee",
-            ConsumableKind::Bait => "Bait",
+            ConsumableKind::Coffee => COFFEE_NAME,
+            ConsumableKind::Bait => BAIT_NAME,
             ConsumableKind::Milk(m) => m.display_name(),
-            ConsumableKind::Necronomicon => "Necronomicon",
-            ConsumableKind::DemonCore => "Demon Core",
-            ConsumableKind::Computer => "Computer",
+            ConsumableKind::Necronomicon => NECRONOMICON_NAME,
+            ConsumableKind::DemonCore => DEMON_CORE_NAME,
+            ConsumableKind::Computer => COMPUTER_NAME,
             ConsumableKind::VoidSeed => VOID_SEED_NAME,
-            ConsumableKind::BlankWafer => "Blank Wafer",
+            ConsumableKind::BlankWafer => BLANK_WAFER_NAME,
             ConsumableKind::Part(part) => part.display_name(),
-            ConsumableKind::Fabricator => "Fabricator",
-            ConsumableKind::BlankBlueprint => "Blank Circuit Blueprint",
+            ConsumableKind::Fabricator => FABRICATOR_NAME,
+            ConsumableKind::BlankBlueprint => BLANK_BLUEPRINT_NAME,
         }
     }
 
@@ -366,8 +392,8 @@ impl ConsumableKind {
 
     pub fn panel_inner_w(self) -> u16 {
         match self {
-            ConsumableKind::Coffee => 8,
-            ConsumableKind::Bait => 9,
+            ConsumableKind::Coffee => COFFEE_PANEL_INNER_W,
+            ConsumableKind::Bait => BAIT_PANEL_INNER_W,
             ConsumableKind::Milk(_) => MILK_PANEL_INNER_W_LOCAL,
             ConsumableKind::Necronomicon => NECRONOMICON_PANEL_INNER_W,
             ConsumableKind::DemonCore => DEMON_CORE_PANEL_INNER_W,
@@ -382,10 +408,10 @@ impl ConsumableKind {
 
     pub fn hook_col(self) -> u16 {
         match self {
-            ConsumableKind::Coffee => 4,
-            ConsumableKind::Bait => 3,
+            ConsumableKind::Coffee => COFFEE_HOOK_COL,
+            ConsumableKind::Bait => BAIT_HOOK_COL,
             ConsumableKind::Milk(_) => MILK_HOOK_COL,
-            ConsumableKind::Necronomicon => 12,
+            ConsumableKind::Necronomicon => NECRONOMICON_HOOK_COL,
             ConsumableKind::DemonCore => DEMON_CORE_HOOK_COL,
             ConsumableKind::Computer => computer_art().hook_col(),
             ConsumableKind::VoidSeed => void_seed_art().hook_col(),
@@ -398,10 +424,10 @@ impl ConsumableKind {
 
     pub fn hook_row(self) -> u16 {
         match self {
-            ConsumableKind::Coffee => 2,
-            ConsumableKind::Bait => 0,
+            ConsumableKind::Coffee => COFFEE_HOOK_ROW,
+            ConsumableKind::Bait => BAIT_HOOK_ROW,
             ConsumableKind::Milk(_) => MILK_HOOK_ROW,
-            ConsumableKind::Necronomicon => 0,
+            ConsumableKind::Necronomicon => NECRONOMICON_HOOK_ROW,
             ConsumableKind::DemonCore => DEMON_CORE_HOOK_ROW,
             ConsumableKind::Computer => computer_art().hook_row(),
             ConsumableKind::VoidSeed => void_seed_art().hook_row(),
@@ -414,8 +440,8 @@ impl ConsumableKind {
 
     pub fn active_label(self) -> Option<&'static str> {
         match self {
-            ConsumableKind::Coffee => Some("caffeinated"),
-            ConsumableKind::Bait => Some("baiting"),
+            ConsumableKind::Coffee => Some(COFFEE_ACTIVE_LABEL),
+            ConsumableKind::Bait => Some(BAIT_ACTIVE_LABEL),
             ConsumableKind::Milk(_)
             | ConsumableKind::Necronomicon
             | ConsumableKind::DemonCore
@@ -449,8 +475,8 @@ impl ConsumableKind {
             return kind.buy_price();
         }
         match self {
-            ConsumableKind::Coffee => 10,
-            ConsumableKind::Bait => 15,
+            ConsumableKind::Coffee => COFFEE_BUY_PRICE,
+            ConsumableKind::Bait => BAIT_BUY_PRICE,
             ConsumableKind::Part(part) => part.price(),
             ConsumableKind::BlankWafer => BLANK_WAFER_BUY_PRICE,
             ConsumableKind::Fabricator => FABRICATOR_BUY_PRICE,
@@ -468,8 +494,8 @@ impl ConsumableKind {
             return resale_price(self.buy_price());
         }
         match self {
-            ConsumableKind::Coffee => 8,
-            ConsumableKind::Bait => 12,
+            ConsumableKind::Coffee => COFFEE_SELL_PRICE,
+            ConsumableKind::Bait => BAIT_SELL_PRICE,
             ConsumableKind::Milk(_) => MILK_SELL_PRICE,
             ConsumableKind::Part(part) => resale_price(part.price()),
             ConsumableKind::BlankWafer => BLANK_WAFER_SELL_PRICE,
@@ -488,12 +514,8 @@ impl ConsumableKind {
 
     pub fn description(self) -> &'static str {
         match self {
-            ConsumableKind::Coffee => {
-                "Work-communion-enabling percolated Breverage. Allows terminal-humanii connection. Gives fishes something to believe in. Faster reeling"
-            }
-            ConsumableKind::Bait => {
-                "Lesser-blood sacrifice for higher-entropy lifeforms. Bait Mindset. Even they wish for the Heavens. Get better fishes"
-            }
+            ConsumableKind::Coffee => COFFEE_DESCRIPTION,
+            ConsumableKind::Bait => BAIT_DESCRIPTION,
             ConsumableKind::Milk(m) => m.description(),
             ConsumableKind::Necronomicon => NECRONOMICON_DESCRIPTION,
             ConsumableKind::DemonCore => DEMON_CORE_DESCRIPTION,
@@ -735,7 +757,7 @@ fn computer_art() -> HookedArt {
 }
 
 pub fn computer_sprite_rows() -> Vec<Vec<(char, Color)>> {
-    computer_art().rows(CREAM)
+    computer_art().rows(APPLIANCE_COLOR)
 }
 
 const BLANK_WAFER_SPRITE_LINES: &[&str] = &[
@@ -774,14 +796,15 @@ pub fn void_seed_sprite_rows() -> Vec<Vec<(char, Color)>> {
 }
 
 const BLANK_BLUEPRINT_SPRITE_LINES: &[&str] = &[
-    r"   ,--------.",
-    r"  / .  .  . /|",
-    r" /________ / |",
-    r" |  .  .  | /",
-    r" |________|/",
+    r"+--+--+--+-.",
+    r"|  |  |  |  \",
+    r"+--+--+--+--+",
+    r"|  |  |  |  |",
+    r"+--+--+--+--+",
 ];
 
-const BLANK_BLUEPRINT_HOOK_ROW: u16 = (BLANK_BLUEPRINT_SPRITE_LINES.len() / 2) as u16;
+const BLANK_BLUEPRINT_DOG_EAR_ROW: u16 = 1;
+const BLANK_BLUEPRINT_HOOK_ROW: u16 = BLANK_BLUEPRINT_DOG_EAR_ROW;
 
 fn blank_blueprint_art() -> HookedArt {
     HookedArt::new(BLANK_BLUEPRINT_SPRITE_LINES, BLANK_BLUEPRINT_HOOK_ROW)
@@ -792,21 +815,22 @@ pub fn blank_blueprint_sprite_rows() -> Vec<Vec<(char, Color)>> {
 }
 
 const FABRICATOR_SPRITE_LINES: &[&str] = &[
-    r" _________",
-    r"|[=======]|",
-    r"|  _____  |",
-    r"| |_____| |",
-    r"|_________|",
+    r" _______ _",
+    r"| .---. |o|",
+    r"| |><>| |||",
+    r"| '---' |_|",
+    r"'-------'",
 ];
 
-const FABRICATOR_HOOK_ROW: u16 = (FABRICATOR_SPRITE_LINES.len() / 2) as u16;
+const FABRICATOR_LEVER_ROW: u16 = 1;
+const FABRICATOR_HOOK_ROW: u16 = FABRICATOR_LEVER_ROW;
 
 fn fabricator_art() -> HookedArt {
     HookedArt::new(FABRICATOR_SPRITE_LINES, FABRICATOR_HOOK_ROW)
 }
 
 pub fn fabricator_sprite_rows() -> Vec<Vec<(char, Color)>> {
-    fabricator_art().rows(ORANGE)
+    fabricator_art().rows(APPLIANCE_COLOR)
 }
 
 const PART_HOOK_ROW: u16 = 2;
@@ -924,7 +948,7 @@ pub enum ItemKind {
 impl ItemKind {
     pub fn display_name(&self) -> &str {
         match self {
-            ItemKind::Junk(_) => "Junk",
+            ItemKind::Junk(_) => JUNK_NAME,
             ItemKind::Consumable(kind) => ConsumableKind::display_name(*kind),
         }
     }
@@ -946,7 +970,7 @@ impl StockItem {
     pub fn display_name(self) -> &'static str {
         match self {
             StockItem::Consumable(kind) => ConsumableKind::display_name(kind),
-            StockItem::Junk => "Junk",
+            StockItem::Junk => JUNK_NAME,
         }
     }
 
