@@ -534,6 +534,10 @@ impl Fish {
             .count() as u32
     }
 
+    pub fn is_holy(&self) -> bool {
+        self.ability_stacks(FishSpecies::Holyfish) > 0
+    }
+
     pub fn auto_mutate_stacks(&self) -> u32 {
         self.ability_components()
             .iter()

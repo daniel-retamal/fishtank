@@ -10,34 +10,13 @@ use crate::colors::{
 };
 use crate::entities::components::{BlinkTimer, SwayState, tick_sway};
 use crate::sprite::opaque_line;
+use crate::tanks::gate::{Gate, GateStyle};
 use crate::util::sample_exponential;
 
-pub const GATE_COLOR: Color = GRAY;
-pub const GATE_FLOOR_COLOR: Color = GREEN_DARK;
-pub const GATE_FLOOR_CHAR: char = '~';
-pub const BARS_PER_BLOCK: usize = 16;
-pub const GATE_BAR_W: i32 = 3;
-pub const GATE_BLOCK_W: i32 = 7;
-pub const GATE_BAR_PIPE_ROWS: usize = 7;
-pub const GATE_BLOCK_ROWS: usize = 18;
-
-const BAR_HOLE_MASK_LEN: usize = 512;
-const BLOCK_COL2_MASK_LEN: usize = 32;
-const BAR_PIPE_HOLE_DENOM: usize = 24;
-const BLOCK_COL2_WEIGHT_EQ: usize = 6;
-const BLOCK_COL2_WEIGHT_DASH: usize = 3;
-const BLOCK_COL2_WEIGHT_SPACE: usize = 8;
-
-pub const GATE_BAR_TILE: &[&str] = &[
-    " ! ", "_I_", "-|-", "_|_", "-|-", " | ", " | ", " | ", " | ", " | ", " | ", " | ", "_|_",
-    "-|-", "_|_", "-|-", "-|-",
-];
-
-pub const GATE_BLOCK_TILE: &[&str] = &[
-    " ,___, ", " |=  | ", "_|=  |_", "-|-  |-", "_|   |_", "-|   |-", " |=  | ", " |   | ",
-    " |-  | ", " |   | ", " |=  | ", " |   | ", " |   | ", "_|   |_", "-|=  |-", "_|   |_",
-    "-|=  |-", "-|-  |-",
-];
+const GATE_STYLE: GateStyle = GateStyle {
+    bars: GRAY,
+    floor: GREEN_DARK,
+};
 
 const GRAVE_MIN_WIDTH: i32 = 13;
 const GRAVE_NAME_PAD: i32 = 1;
@@ -394,46 +373,11 @@ pub struct HauntedBackground {
     pub ghosts: Vec<Ghost>,
     bat_timer: f32,
     ghost_timer: f32,
-    pub bar_hole_mask: Vec<[bool; GATE_BAR_PIPE_ROWS]>,
-    pub block_col2_mask: Vec<[char; GATE_BLOCK_ROWS]>,
+    pub gate: Gate,
 }
 
 impl HauntedBackground {
     pub fn new(rng: &mut impl RngExt) -> Self {
-        let mut bar_hole_mask: Vec<[bool; GATE_BAR_PIPE_ROWS]> =
-            Vec::with_capacity(BAR_HOLE_MASK_LEN);
-        for _ in 0..BAR_HOLE_MASK_LEN {
-            let mut entry = [false; GATE_BAR_PIPE_ROWS];
-            for slot in &mut entry {
-                *slot = rng.random_range(0..BAR_PIPE_HOLE_DENOM) == 0;
-            }
-            bar_hole_mask.push(entry);
-        }
-
-        let mut block_col2_mask: Vec<[char; GATE_BLOCK_ROWS]> =
-            Vec::with_capacity(BLOCK_COL2_MASK_LEN);
-        for _ in 0..BLOCK_COL2_MASK_LEN {
-            let mut entry = [' '; GATE_BLOCK_ROWS];
-            for (i, row_char) in entry.iter_mut().enumerate() {
-                let col2 = GATE_BLOCK_TILE[i].chars().nth(2).unwrap_or(' ');
-                *row_char = if matches!(col2, '=' | '-' | ' ') {
-                    let total =
-                        BLOCK_COL2_WEIGHT_EQ + BLOCK_COL2_WEIGHT_DASH + BLOCK_COL2_WEIGHT_SPACE;
-                    let r = rng.random_range(0..total);
-                    if r < BLOCK_COL2_WEIGHT_EQ {
-                        '='
-                    } else if r < BLOCK_COL2_WEIGHT_EQ + BLOCK_COL2_WEIGHT_DASH {
-                        '-'
-                    } else {
-                        ' '
-                    }
-                } else {
-                    col2
-                };
-            }
-            block_col2_mask.push(entry);
-        }
-
         Self {
             graves: Vec::new(),
             pumpkins: Vec::new(),
@@ -441,8 +385,7 @@ impl HauntedBackground {
             ghosts: Vec::new(),
             bat_timer: sample_exponential(rng, BAT_PACK_MEAN_SECS),
             ghost_timer: rng.random_range(GHOST_SPAWN_MIN..GHOST_SPAWN_MAX),
-            bar_hole_mask,
-            block_col2_mask,
+            gate: Gate::ruined(GATE_STYLE, rng),
         }
     }
 

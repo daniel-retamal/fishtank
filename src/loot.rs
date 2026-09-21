@@ -1308,7 +1308,7 @@ mod tests {
             (TankKind::Candy, FishSpecies::Candyfish),
             (TankKind::Hell, FishSpecies::Cashfish),
             (TankKind::Rad, FishSpecies::Mutantfish),
-            (TankKind::Void, FishSpecies::Holyfish),
+            (TankKind::Heaven, FishSpecies::Holyfish),
             (TankKind::Matrix, FishSpecies::Botfish),
         ];
         for &kind in TankKind::all() {
@@ -1342,7 +1342,7 @@ mod tests {
                 .into_iter()
                 .any(|seed| seed.summons_tank() == Some(kind));
             assert!(
-                kind.config().buyable || grown || kind == TankKind::Alien,
+                kind.config().buyable || grown || kind.config().unique || kind == TankKind::Alien,
                 "{} lives in a tank nobody can get",
                 species.display_name()
             );

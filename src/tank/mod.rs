@@ -4,7 +4,7 @@ use rand::RngExt;
 
 use ratatui::style::Color;
 
-use crate::colors::{CYAN, GREEN, LIGHT_GREEN, PINK, RED, WHITE};
+use crate::colors::{CYAN, GREEN, LIGHT_GREEN, LIGHT_YELLOW, PINK, RED, WHITE};
 
 use crate::economy::{Purchasable, Rarity, Sellable};
 use crate::entities::bubble::{Bubble, BubbleSpawner};
@@ -68,6 +68,7 @@ pub enum TankKind {
     Desert,
     Rad,
     Matrix,
+    Heaven,
 }
 
 pub struct TankConfig {
@@ -81,6 +82,8 @@ pub struct TankConfig {
     pub auto_mutate_all: bool,
     pub robotics_loot: bool,
     pub buyable: bool,
+    pub unique: bool,
+    pub holy_only: bool,
 }
 
 impl TankKind {
@@ -97,6 +100,8 @@ impl TankKind {
                 auto_mutate_all: false,
                 buyable: true,
                 robotics_loot: false,
+                unique: false,
+                holy_only: false,
             },
             TankKind::CoralReef => TankConfig {
                 display_name: "Coralreeftank",
@@ -109,6 +114,8 @@ impl TankKind {
                 auto_mutate_all: false,
                 buyable: true,
                 robotics_loot: false,
+                unique: false,
+                holy_only: false,
             },
             TankKind::Hell => TankConfig {
                 display_name: "Helltank",
@@ -121,6 +128,8 @@ impl TankKind {
                 auto_mutate_all: false,
                 buyable: false,
                 robotics_loot: false,
+                unique: false,
+                holy_only: false,
             },
             TankKind::Void => TankConfig {
                 display_name: "Voidtank",
@@ -133,6 +142,8 @@ impl TankKind {
                 auto_mutate_all: false,
                 buyable: false,
                 robotics_loot: false,
+                unique: false,
+                holy_only: false,
             },
             TankKind::Alien => TankConfig {
                 display_name: "Alientank",
@@ -145,6 +156,8 @@ impl TankKind {
                 auto_mutate_all: false,
                 buyable: false,
                 robotics_loot: false,
+                unique: false,
+                holy_only: false,
             },
             TankKind::Haunted => TankConfig {
                 display_name: "Hauntedtank",
@@ -157,6 +170,8 @@ impl TankKind {
                 auto_mutate_all: false,
                 buyable: true,
                 robotics_loot: false,
+                unique: false,
+                holy_only: false,
             },
             TankKind::Candy => TankConfig {
                 display_name: "Candytank",
@@ -169,6 +184,8 @@ impl TankKind {
                 auto_mutate_all: false,
                 buyable: true,
                 robotics_loot: false,
+                unique: false,
+                holy_only: false,
             },
             TankKind::Desert => TankConfig {
                 display_name: "Desertank",
@@ -181,6 +198,8 @@ impl TankKind {
                 auto_mutate_all: false,
                 buyable: true,
                 robotics_loot: false,
+                unique: false,
+                holy_only: false,
             },
             TankKind::Rad => TankConfig {
                 display_name: "Radioactivetank",
@@ -193,6 +212,8 @@ impl TankKind {
                 auto_mutate_all: true,
                 buyable: false,
                 robotics_loot: false,
+                unique: false,
+                holy_only: false,
             },
             TankKind::Matrix => TankConfig {
                 display_name: "Matrixtank",
@@ -205,6 +226,22 @@ impl TankKind {
                 auto_mutate_all: false,
                 buyable: false,
                 robotics_loot: true,
+                unique: false,
+                holy_only: false,
+            },
+            TankKind::Heaven => TankConfig {
+                display_name: "Heaventank",
+                buy_price: 0,
+                sell_price: 0,
+                capacity: 100,
+                bubble_color: LIGHT_YELLOW,
+                rarity: Rarity::Legendary,
+                bubble_rate_mult: 1.0,
+                auto_mutate_all: false,
+                buyable: false,
+                robotics_loot: false,
+                unique: true,
+                holy_only: true,
             },
         }
     }
@@ -269,8 +306,14 @@ impl TankKind {
             TankKind::Desert,
             TankKind::Rad,
             TankKind::Matrix,
+            TankKind::Heaven,
         ]
     }
+}
+
+pub enum Exile {
+    Fish(Box<Fish>),
+    Cow(Box<Cow>),
 }
 
 pub struct ActiveConsumable {
@@ -332,6 +375,7 @@ pub struct Tank {
     pub pending_star_cash: u32,
     pub pending_graveyard: Vec<Fish>,
     pub pending_loose_parts: Vec<Part>,
+    pub pending_exiles: Vec<Exile>,
     pending_signals: BTreeSet<WorldSignal>,
     pub extra_capacity: u32,
     pub cow_abduction_count: u32,
@@ -364,6 +408,7 @@ impl Tank {
             pending_star_cash: 0,
             pending_graveyard: Vec::new(),
             pending_loose_parts: Vec::new(),
+            pending_exiles: Vec::new(),
             pending_signals: BTreeSet::new(),
             extra_capacity: 0,
             cow_abduction_count: 0,
@@ -436,7 +481,23 @@ impl Tank {
         }
     }
 
+    pub fn welcomes(&self, fish: &Fish) -> bool {
+        if !self.kind.config().holy_only {
+            return true;
+        }
+        fish.is_holy() && !fish.devil_marked
+    }
+
+    pub fn welcomes_cows(&self) -> bool {
+        !self.kind.config().holy_only
+    }
+
     pub(super) fn admit(&mut self, mut fish: Fish, name: String) {
+        if !self.welcomes(&fish) {
+            fish.name = name;
+            self.pending_exiles.push(Exile::Fish(Box::new(fish)));
+            return;
+        }
         self.mark_if_hell(&mut fish);
         self.used_names.insert(name);
         self.fish.push(fish);
@@ -458,8 +519,42 @@ impl Tank {
         let x = rng.random_range(FISH_SPAWN_X_MIN..x_max);
         let y = rng.random_range(FISH_SPAWN_Y_MIN..y_max);
         let fish = Fish::new(species, actual_name.clone(), x, y, rng);
+        if !self.welcomes(&fish) {
+            return false;
+        }
         self.admit(fish, actual_name);
         true
+    }
+
+    pub fn take_fish(&mut self, index: usize) -> Fish {
+        let fish = self.fish.remove(index);
+        self.used_names.remove(&fish.name);
+        fish
+    }
+
+    fn admit_cow(&mut self, cow: Cow) {
+        if !self.welcomes_cows() {
+            self.pending_exiles.push(Exile::Cow(Box::new(cow)));
+            return;
+        }
+        self.used_cow_names.insert(cow.name.clone());
+        self.cows.push(cow);
+    }
+
+    pub fn receive_soul(&mut self, fish: Fish) -> bool {
+        let (width, height) = (self.width, self.height);
+        self.background
+            .receive_soul(fish, width, height, &mut rand::rng())
+    }
+
+    pub fn release_soul(&mut self, name: &str) -> bool {
+        let (width, height) = (self.width, self.height);
+        self.background
+            .release_soul(name, width, height, &mut rand::rng())
+    }
+
+    pub fn souls(&self) -> Vec<&Fish> {
+        self.background.souls()
     }
 
     pub fn place_fish(&mut self, mut fish: Fish, name: String, rng: &mut impl RngExt) {
@@ -609,7 +704,6 @@ impl Tank {
     pub fn spawn_cow(&mut self, variant: CowVariant, rng: &mut impl RngExt) -> String {
         let name = self.unique_cow_name("Vaquita");
         let cow = Cow::new(name.clone(), variant, 0.0, 0.0, rng);
-        self.used_cow_names.insert(name.clone());
         let cow_floor = (self.height as f32) - (Cow::sprite_height() as f32);
         let max_x = (self.width as i32 - cow_display_width(&cow) as i32).max(0);
         let x = if max_x > 0 {
@@ -617,7 +711,7 @@ impl Tank {
         } else {
             0.0
         };
-        self.cows.push(Cow {
+        self.admit_cow(Cow {
             position: crate::entities::components::Position {
                 x,
                 y: cow_floor.max(0.0),
@@ -628,8 +722,7 @@ impl Tank {
     }
 
     pub fn place_cow_dropped(&mut self, mut cow: Cow) {
-        let actual = self.unique_cow_name(&cow.name);
-        cow.name = actual.clone();
+        cow.name = self.unique_cow_name(&cow.name);
         let cow_floor = (self.height as f32) - (Cow::sprite_height() as f32);
         cow.position.y = cow_floor.max(0.0);
         let max_x = (self.width as i32 - cow.display_width as i32).max(0) as f32;
@@ -639,13 +732,11 @@ impl Tank {
         if cow.position.x < 0.0 {
             cow.position.x = 0.0;
         }
-        self.used_cow_names.insert(actual);
-        self.cows.push(cow);
+        self.admit_cow(cow);
     }
 
     pub fn place_cow(&mut self, mut cow: Cow, rng: &mut impl RngExt) {
-        let actual = self.unique_cow_name(&cow.name);
-        cow.name = actual.clone();
+        cow.name = self.unique_cow_name(&cow.name);
         let cow_floor = (self.height as f32) - (Cow::sprite_height() as f32);
         let max_x = (self.width as i32 - cow.display_width as i32).max(0);
         cow.position.x = if max_x > 0 {
@@ -654,8 +745,7 @@ impl Tank {
             0.0
         };
         cow.position.y = cow_floor.max(0.0);
-        self.used_cow_names.insert(actual);
-        self.cows.push(cow);
+        self.admit_cow(cow);
     }
 
     pub fn cow_count_by_variant(&self, variant: CowVariant) -> u32 {

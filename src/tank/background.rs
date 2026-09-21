@@ -7,11 +7,13 @@ use crate::colors::{
 };
 use crate::entities::components::extend_spaced;
 use crate::entities::plant::{Plant, Seaweed};
+use crate::fishes::fish::Fish;
 use crate::tanks::alien::{AlienBackground, extend_alien_pyramids, extend_alien_tentacles};
 use crate::tanks::candy::{CandyBackground, extend_candy_decos, extend_candy_plants};
 use crate::tanks::coral::{CoralStructure, FloorAlgae, extend_coral_reef};
 use crate::tanks::desert::{DesertSky, extend_desert_cacti};
 use crate::tanks::haunted::{HauntedBackground, extend_haunted};
+use crate::tanks::heaven::HeavenBackground;
 use crate::tanks::hell::{HellBackground, HellPlant, extend_hell_plants};
 use crate::tanks::matrix::{MatrixBackground, extend_matrix};
 use crate::tanks::radioactive::{RadBackground, extend_rad};
@@ -70,6 +72,9 @@ pub enum TankBackground {
     },
     Matrix {
         bg: MatrixBackground,
+    },
+    Heaven {
+        bg: HeavenBackground,
     },
 }
 
@@ -180,6 +185,9 @@ impl TankBackground {
                 let bg = MatrixBackground::new(INITIAL_WIDTH as i32, rng);
                 TankBackground::Matrix { bg }
             }
+            TankKind::Heaven => TankBackground::Heaven {
+                bg: HeavenBackground::new(INITIAL_WIDTH, rng),
+            },
         }
     }
 
@@ -222,6 +230,7 @@ impl TankBackground {
             TankBackground::Desert { bg } => bg.tick(dt, rng, width, height),
             TankBackground::Rad { bg } => bg.tick(dt, rng),
             TankBackground::Matrix { bg } => bg.tick(dt, height, rng),
+            TankBackground::Heaven { bg } => bg.tick(dt, rng, width, height),
         }
     }
 
@@ -286,6 +295,7 @@ impl TankBackground {
             TankBackground::Matrix { bg } => {
                 extend_matrix(&mut bg.columns, width as i32, rng);
             }
+            TankBackground::Heaven { bg } => bg.extend(width, rng),
         }
     }
 
@@ -300,6 +310,40 @@ impl TankBackground {
     pub fn clear_grave_name(&mut self, name: &str) {
         if let TankBackground::Haunted { bg } = self {
             bg.clear_grave_name(name);
+        }
+    }
+
+    pub fn receive_soul(
+        &mut self,
+        fish: Fish,
+        width: u16,
+        height: u16,
+        rng: &mut impl RngExt,
+    ) -> bool {
+        let TankBackground::Heaven { bg } = self else {
+            return false;
+        };
+        bg.souls.receive(fish, width, height, rng);
+        true
+    }
+
+    pub fn release_soul(
+        &mut self,
+        name: &str,
+        width: u16,
+        height: u16,
+        rng: &mut impl RngExt,
+    ) -> bool {
+        let TankBackground::Heaven { bg } = self else {
+            return false;
+        };
+        bg.souls.release(name, width, height, rng)
+    }
+
+    pub fn souls(&self) -> Vec<&Fish> {
+        match self {
+            TankBackground::Heaven { bg } => bg.souls.all().collect(),
+            _ => Vec::new(),
         }
     }
 

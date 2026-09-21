@@ -114,6 +114,7 @@ impl App {
         } else {
             self.handle_command_input(event);
         }
+        self.settle_exiles();
         if is_key_press {
             self.reset_blink();
         }
@@ -481,15 +482,7 @@ impl App {
     }
 
     fn keep_catch(&mut self, tank_idx: usize, fish: Fish, name: String) {
-        let target_idx = if !self.tanks[tank_idx].is_full() {
-            tank_idx
-        } else {
-            self.tanks
-                .iter()
-                .position(|t| !t.is_full())
-                .unwrap_or(tank_idx)
-        };
-        self.tanks[target_idx].place_fish(fish, name, &mut rand::rng());
+        let target_idx = self.land_fish(tank_idx, fish, name);
         self.tanks[target_idx].signal(WorldSignal::Catch);
     }
 
@@ -1355,14 +1348,13 @@ impl App {
                                         if let Some(pos) =
                                             tank.fish.iter().position(|f| f.name == fish_name)
                                         {
-                                            tank.used_names.remove(&fish_name);
-                                            sold = Some(tank.fish.remove(pos));
+                                            sold = Some(tank.take_fish(pos));
                                             tank.signal(WorldSignal::Sale);
                                             break;
                                         }
                                     }
                                     if let Some(fish) = sold {
-                                        self.graveyard.push(fish);
+                                        self.bury(fish);
                                     }
                                 }
                                 SellEntry::Junk { .. } => {
@@ -1465,25 +1457,13 @@ impl App {
     }
 
     fn place_purchased_fish(&mut self, fish: Fish, name: String) {
-        let mut rng = rand::rng();
-        let target_idx = if !self.tanks[self.current_tank].is_full() {
-            self.current_tank
-        } else {
-            self.tanks
-                .iter()
-                .position(|t| !t.is_full())
-                .unwrap_or(self.current_tank)
-        };
-        self.tanks[target_idx].place_fish(fish, name, &mut rng);
+        self.land_fish(self.current_tank, fish, name);
     }
 
     pub(super) fn sellable_tanks_with_price(&self) -> Vec<(String, u32)> {
-        if self.tanks.len() <= 1 {
-            return vec![];
-        }
-        self.tanks
-            .iter()
-            .filter(|t| t.fish.is_empty())
+        (0..self.tanks.len())
+            .filter(|&index| self.can_sell_tank(index))
+            .map(|index| &self.tanks[index])
             .map(|t| (t.name.clone(), t.kind.sell_price()))
             .collect()
     }
@@ -1683,6 +1663,9 @@ impl App {
             WishAction::Revive { fish_name } => {
                 self.revive_fish(&fish_name);
             }
+            WishAction::Kill { fish_name } => {
+                self.kill_fish(&fish_name);
+            }
             WishAction::Clone { fish_name } => {
                 self.clone_entity(&fish_name);
             }
@@ -1719,14 +1702,9 @@ impl App {
         else {
             return false;
         };
-        let fish = self.graveyard.remove(pos);
+        let fish = self.exhume(pos);
         let name = fish.name.clone();
-        let ct = self.current_tank;
-        let mut rng = rand::rng();
-        self.tanks[ct].place_fish(fish, name.clone(), &mut rng);
-        for tank in &mut self.tanks {
-            tank.clear_grave_name(&name);
-        }
+        self.land_fish(self.current_tank, fish, name);
         true
     }
 
@@ -1875,12 +1853,9 @@ impl App {
             return;
         }
         let pos = candidates[rng.random_range(0..candidates.len())];
-        let fish = self.graveyard.remove(pos);
+        let fish = self.exhume(pos);
         let name = fish.name.clone();
-        self.tanks[tank_idx].place_fish(fish, name.clone(), rng);
-        for tank in &mut self.tanks {
-            tank.clear_grave_name(&name);
-        }
+        self.land_fish(tank_idx, fish, name);
     }
 
     fn expand_tank(&mut self, tank_name: &str) -> bool {
@@ -1933,13 +1908,18 @@ impl App {
                 true
             }
             GiveTarget::Fish(species) => {
-                if self.tanks[tank_idx].is_full() {
+                let fish = Fish::new(species, String::new(), 0.0, 0.0, &mut rand::rng());
+                let target_idx = self.landing_tank(tank_idx, |tank| tank.welcomes(&fish));
+                if self.tanks[target_idx].is_full() {
                     return false;
                 }
-                let mut rng = rand::rng();
-                self.tanks[tank_idx].spawn_fish(species, species.un_name(), &mut rng)
+                self.tanks[target_idx].place_fish(fish, species.un_name(), &mut rand::rng());
+                true
             }
             GiveTarget::Tank(kind) => {
+                if kind.config().unique {
+                    return false;
+                }
                 let un_name = kind.un_name();
                 let actual_name = names::unique_name_in(&self.used_tank_names, &un_name);
                 self.used_tank_names.insert(actual_name.clone());
@@ -1989,9 +1969,11 @@ impl App {
                 .iter()
                 .position(|f| f.name.eq_ignore_ascii_case(fish))
                 .unwrap();
-            let fish_obj = self.tanks[source_idx].fish.remove(fish_pos);
+            if !self.tanks[target_idx].welcomes(&self.tanks[source_idx].fish[fish_pos]) {
+                return false;
+            }
+            let fish_obj = self.tanks[source_idx].take_fish(fish_pos);
             let fish_name = fish_obj.name.clone();
-            self.tanks[source_idx].used_names.remove(&fish_name);
             let mut rng = rand::rng();
             self.tanks[target_idx].place_fish(fish_obj, fish_name, &mut rng);
             return true;
@@ -2007,10 +1989,11 @@ impl App {
         else {
             return false;
         };
-        if self.tanks[target_idx]
-            .cows
-            .iter()
-            .any(|c| c.name.eq_ignore_ascii_case(fish))
+        if !self.tanks[target_idx].welcomes_cows()
+            || self.tanks[target_idx]
+                .cows
+                .iter()
+                .any(|c| c.name.eq_ignore_ascii_case(fish))
         {
             return false;
         }
@@ -2075,7 +2058,7 @@ impl App {
         true
     }
 
-    fn fish_location(&self, name: &str) -> Option<(usize, usize)> {
+    pub(super) fn fish_location(&self, name: &str) -> Option<(usize, usize)> {
         self.tanks.iter().enumerate().find_map(|(ti, tank)| {
             tank.fish
                 .iter()
@@ -2532,6 +2515,7 @@ impl App {
             }
             commands::Action::Give(target) => self.execute_give(target, self.current_tank),
             commands::Action::Revive(name) => self.revive_fish(&name),
+            commands::Action::Kill(name) => self.kill_fish(&name),
             commands::Action::Clone(name) => self.clone_entity(&name),
             commands::Action::Bless => {
                 self.perform_blessing(self.current_tank);
@@ -2564,13 +2548,17 @@ impl App {
                         for fish in &mut self.tanks[idx].fish {
                             fields::populate_field_cache(fish, &all_names, &mut rng);
                         }
-                        let fish_with_tanks: Vec<(&str, &Fish)> = self.tanks[idx]
-                            .fish
-                            .iter()
-                            .map(|f| (self.tanks[idx].name.as_str(), f))
+                        let tank = &self.tanks[idx];
+                        let fish_with_tanks: Vec<(&str, &Fish)> =
+                            tank.fish.iter().map(|f| (tank.name.as_str(), f)).collect();
+                        let souls: Vec<(&str, &Fish)> = tank
+                            .souls()
+                            .into_iter()
+                            .map(|f| (tank.name.as_str(), f))
                             .collect();
                         self.set_overlay(Overlay::Index(IndexState::new(
                             &fish_with_tanks,
+                            &souls,
                             all,
                             false,
                         )));
@@ -2586,7 +2574,12 @@ impl App {
                         .iter()
                         .flat_map(|t| t.fish.iter().map(|f| (t.name.as_str(), f)))
                         .collect();
-                    self.set_overlay(Overlay::Index(IndexState::new(&fish_with_tanks, all, true)));
+                    self.set_overlay(Overlay::Index(IndexState::new(
+                        &fish_with_tanks,
+                        &[],
+                        all,
+                        true,
+                    )));
                 }
                 true
             }
@@ -2869,8 +2862,7 @@ impl App {
                 .position(|f| f.name.eq_ignore_ascii_case(name))
             {
                 let price = tank.fish[pos].sell_value();
-                tank.used_names.remove(&tank.fish[pos].name);
-                sold = Some((tank.fish.remove(pos), price));
+                sold = Some((tank.take_fish(pos), price));
                 tank.signal(WorldSignal::Sale);
                 break;
             }
@@ -2878,7 +2870,7 @@ impl App {
         let Some((fish, price)) = sold else {
             return false;
         };
-        self.graveyard.push(fish);
+        self.bury(fish);
         self.cash += price;
         true
     }
@@ -2891,7 +2883,7 @@ impl App {
         else {
             return false;
         };
-        if !self.tanks[pos].fish.is_empty() || self.tanks.len() <= 1 {
+        if !self.can_sell_tank(pos) {
             return false;
         }
         let price = self.tanks[pos].kind.sell_price();
@@ -2944,6 +2936,7 @@ fn bot_action_allowed(action: &commands::Action) -> bool {
             | Mutate(..)
             | Give(_)
             | Revive(_)
+            | Kill(_)
             | Clone(_)
             | Bless
             | Expand(_)

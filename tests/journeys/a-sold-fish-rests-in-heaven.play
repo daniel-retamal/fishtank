@@ -1,0 +1,25 @@
+# JOURNEY · death: the first fish that dies opens the Heaventank, and the dead hang on its wall.
+# Selling is a death. Heaven is never bought: it appears by itself, and you stay where you were.
+
+clear
+include scenes/buy-a-fish.play Merluza Ann
+run /sell fish "Ann"
+run /fishtanks
+expect Heaventank
+snap heaven appeared on its own after the first death
+key esc
+
+run /switch "Heaventank"
+run /names
+tick 20
+snap the dead drift behind the clouds and the gate
+run /names
+
+run /index "Heaventank"
+expect Ann
+expect Dead
+snap the heaven index lists the dead
+key esc
+
+run /index
+absent Dead

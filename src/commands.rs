@@ -173,6 +173,7 @@ static COMMAND_NAMES: &[&str] = &[
     "give",
     "index",
     "inventory",
+    "kill",
     "move",
     "mutate",
     "names",
@@ -235,6 +236,11 @@ pub fn autocomplete(input: &str, ctx: &CompletionCtx) -> Option<Completion> {
                 complete_name_arg("restore", rest, "<name>", &entity_names(ctx.fish_in_tanks))
             }
             "revive" => complete_name_arg("revive", rest, "<name>", ctx.graveyard_names),
+            "kill" => {
+                let living: Vec<&str> =
+                    ctx.sellable_fish_names.iter().map(String::as_str).collect();
+                complete_name_arg("kill", rest, "<name>", &living)
+            }
             "expand" => complete_name_arg("expand", rest, "<tank>", ctx.tank_names),
             "program" => complete_name_arg("program", rest, "<name>", ctx.programmable_names),
             "console" => complete_name_arg("console", rest, NAME_ARG, ctx.console_names),
@@ -684,6 +690,9 @@ fn give_target_names() -> Vec<String> {
         v.push(species.config().name.to_ascii_lowercase());
     }
     for &kind in TankKind::all() {
+        if kind.config().unique {
+            continue;
+        }
         v.push(kind.display_name().to_ascii_lowercase());
     }
     v.push("cow".to_string());
@@ -1291,7 +1300,7 @@ fn command_args_placeholder(cmd: &str) -> &'static str {
         "fps" => FPS_ARG,
         "clock" => CLOCK_ARG,
         "index" | "show" | "switch" => "<name>",
-        "bless" | "clone" | "restore" | "revive" | "program" | "console" | "freeze"
+        "bless" | "clone" | "restore" | "revive" | "kill" | "program" | "console" | "freeze"
         | "unfreeze" | "flip" => "<name>",
         "nudge" => "<name> <dx> <dy>",
         "print" => BLUEPRINT_ARG,
@@ -1371,6 +1380,7 @@ pub enum Action {
     StartCowAbduction,
     Give(GiveTarget),
     Revive(String),
+    Kill(String),
     Clone(String),
     Bless,
     Expand(String),
@@ -1638,6 +1648,7 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
             None => Action::Unknown,
         },
         "revive" => name_command(rest, Action::Revive),
+        "kill" => name_command(rest, Action::Kill),
         "clone" => name_command(rest, Action::Clone),
         "bless" => Action::Bless,
         "expand" => name_command(rest, Action::Expand),

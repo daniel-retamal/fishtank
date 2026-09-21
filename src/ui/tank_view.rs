@@ -38,11 +38,12 @@ use crate::{
     tanks::desert::{
         DesertSky, SUN_H_WAVE_AMPLITUDE, SUN_H_WAVE_SPREAD, SUN_LINES, SUN_ORBIT_RY, sun_cell_color,
     },
-    tanks::haunted::{
-        BARS_PER_BLOCK, BAT_COLOR, BAT_SPRITE, Bat, GATE_BAR_PIPE_ROWS, GATE_BAR_TILE, GATE_BAR_W,
-        GATE_BLOCK_ROWS, GATE_BLOCK_TILE, GATE_BLOCK_W, GATE_COLOR, GATE_FLOOR_CHAR,
-        GATE_FLOOR_COLOR, GRAVE_TRANSPARENT, Ghost, HauntedBackground,
+    tanks::gate::{
+        BARS_PER_BLOCK, BarHoles, BlockMarks, GATE_BAR_PIPE, GATE_BAR_TILE, GATE_BAR_W,
+        GATE_BLOCK_MARK_COL, GATE_BLOCK_TILE, GATE_BLOCK_W, GATE_FLOOR_CHAR, Gate,
     },
+    tanks::haunted::{BAT_COLOR, BAT_SPRITE, Bat, GRAVE_TRANSPARENT, Ghost},
+    tanks::heaven::{Angel, Cloud, HeavenBackground, SOUL_COLOR},
     tanks::hell::{
         FACE_COLOR, H_WAVE_AMPLITUDE, H_WAVE_ROW_SPREAD, HellBackground, RANDOM_FACE_COLOR,
     },
@@ -155,7 +156,7 @@ impl Widget for TankView<'_> {
                 }
             }
             TankBackground::Haunted { bg } => {
-                render_haunted_gate(area, buf, Some(bg));
+                render_gate(&bg.gate, area, buf);
                 let bottom_y = area.y as i32 + area.height as i32 - 1;
                 for grave in &bg.graves {
                     if grave.base_x >= area.width as i32 {
@@ -229,6 +230,9 @@ impl Widget for TankView<'_> {
             TankBackground::Matrix { bg } => {
                 render_matrix_background(bg, area, buf);
             }
+            TankBackground::Heaven { bg } => {
+                render_heaven_background(bg, self.show_names, area, buf);
+            }
         }
         for bubble in &self.tank.bubbles {
             render_bubble(bubble, area, buf);
@@ -239,6 +243,11 @@ impl Widget for TankView<'_> {
             }
             for ghost in &bg.ghosts {
                 render_ghost(ghost, area, buf);
+            }
+        }
+        if let TankBackground::Heaven { bg } = &self.tank.background {
+            for angel in &bg.angels {
+                render_angel(angel, area, buf);
             }
         }
         for cow in &self.tank.cows {
@@ -652,18 +661,22 @@ fn render_food(food: &Food, area: Rect, buf: &mut Buffer) {
 }
 
 fn render_fish_name(fish: &Fish, area: Rect, buf: &mut Buffer) {
+    render_fish_label(fish, WHITE, area, buf);
+}
+
+fn render_fish_label(fish: &Fish, color: Color, area: Rect, buf: &mut Buffer) {
     if fish.is_invisible() {
         return;
     }
     if let Some(ref us) = fish.unfish_state
         && us.kind == UnfishKind::Worm
     {
-        render_worm_name_portal(fish, area, buf);
+        render_worm_name_portal(fish, color, area, buf);
         return;
     }
 
     let name_y = area.y as i32 + fish.position.y as i32 - sprite_rows_above_body(fish) - 1;
-    render_label(&fish.name, fish_center(fish), name_y, WHITE, area, buf);
+    render_label(&fish.name, fish_center(fish), name_y, color, area, buf);
 }
 
 fn sprite_rows_above_body(fish: &Fish) -> i32 {
@@ -1346,7 +1359,7 @@ fn draw_portal_row(row: &[Cell], origin_x: i32, unwrapped_y: i32, area: Rect, bu
     }
 }
 
-fn render_worm_name_portal(fish: &Fish, area: Rect, buf: &mut Buffer) {
+fn render_worm_name_portal(fish: &Fish, color: Color, area: Rect, buf: &mut Buffer) {
     let tank_h = area.height as i32;
     let tank_w = area.width as i32;
     let name_y_wrapped = (fish.position.y as i32 - 1).rem_euclid(tank_h);
@@ -1361,7 +1374,7 @@ fn render_worm_name_portal(fish: &Fish, area: Rect, buf: &mut Buffer) {
         let screen_x = area.x as i32 + tank_x;
         buf[(screen_x as u16, name_sy)]
             .set_char(ch)
-            .set_style(Style::new().fg(WHITE).remove_modifier(Modifier::all()));
+            .set_style(Style::new().fg(color).remove_modifier(Modifier::all()));
     }
 }
 
@@ -1664,34 +1677,34 @@ fn render_desert_stars(bg: &DesertSky, area: Rect, buf: &mut Buffer) {
     }
 }
 
-fn render_haunted_gate(area: Rect, buf: &mut Buffer, bg: Option<&HauntedBackground>) {
+fn render_gate(gate: &Gate, area: Rect, buf: &mut Buffer) {
     let floor_y = area.y as i32 + area.height as i32 - 1;
     let floor_style = Style::new()
-        .fg(GATE_FLOOR_COLOR)
+        .fg(gate.style.floor)
         .remove_modifier(Modifier::all());
     for x in area.x..area.right() {
         buf[(x, floor_y as u16)]
             .set_char(GATE_FLOOR_CHAR)
             .set_style(floor_style);
     }
-
+    let style = Style::new()
+        .fg(gate.style.bars)
+        .remove_modifier(Modifier::all());
     let mut col = 0i32;
     let mut bars_drawn = 0usize;
-    let mut global_bar = 0usize;
-    let mut global_block = 0usize;
+    let mut bar = 0usize;
+    let mut block = 0usize;
     while col < area.width as i32 {
         if bars_drawn < BARS_PER_BLOCK {
-            let holes = bg.map(|b| &b.bar_hole_mask[global_bar % b.bar_hole_mask.len()]);
-            draw_gate_bar_tile(col, floor_y, area, buf, holes);
+            draw_gate_bar_tile(col, floor_y, area, buf, style, gate.bar_holes(bar));
             col += GATE_BAR_W;
             bars_drawn += 1;
-            global_bar += 1;
+            bar += 1;
         } else {
-            let col2 = bg.map(|b| &b.block_col2_mask[global_block % b.block_col2_mask.len()]);
-            draw_gate_block_tile(col, floor_y, area, buf, col2);
+            draw_gate_block_tile(col, floor_y, area, buf, style, gate.block_marks(block));
             col += GATE_BLOCK_W;
             bars_drawn = 0;
-            global_block += 1;
+            block += 1;
         }
     }
 }
@@ -1701,42 +1714,21 @@ fn draw_gate_bar_tile(
     floor_y: i32,
     area: Rect,
     buf: &mut Buffer,
-    holes: Option<&[bool; GATE_BAR_PIPE_ROWS]>,
+    style: Style,
+    holes: Option<&BarHoles>,
 ) {
     let n = GATE_BAR_TILE.len() as i32;
-    let style = Style::new().fg(GATE_COLOR).remove_modifier(Modifier::all());
     let mut pipe_idx = 0usize;
     for (i, &line) in GATE_BAR_TILE.iter().enumerate() {
-        let is_pipe = line == " | ";
-        let local_pipe_idx = if is_pipe {
-            let idx = pipe_idx;
+        if line == GATE_BAR_PIPE {
+            let hidden = holes.is_some_and(|h| h[pipe_idx]);
             pipe_idx += 1;
-            Some(idx)
-        } else {
-            None
-        };
-        let hidden = local_pipe_idx
-            .and_then(|idx| holes.map(|h| h[idx]))
-            .unwrap_or(false);
-        if hidden {
-            continue;
+            if hidden {
+                continue;
+            }
         }
         let screen_y = floor_y - 1 - (n - 1 - i as i32);
-        if screen_y < area.y as i32 || screen_y >= area.bottom() as i32 {
-            continue;
-        }
-        for (c, ch) in line.chars().enumerate() {
-            if ch == ' ' {
-                continue;
-            }
-            let sx = area.x as i32 + col + c as i32;
-            if sx < area.x as i32 || sx >= area.right() as i32 {
-                continue;
-            }
-            buf[(sx as u16, screen_y as u16)]
-                .set_char(ch)
-                .set_style(style);
-        }
+        draw_gate_line(line.chars(), col, screen_y, area, buf, style);
     }
 }
 
@@ -1745,33 +1737,97 @@ fn draw_gate_block_tile(
     floor_y: i32,
     area: Rect,
     buf: &mut Buffer,
-    col2_mask: Option<&[char; GATE_BLOCK_ROWS]>,
+    style: Style,
+    marks: &BlockMarks,
 ) {
     let n = GATE_BLOCK_TILE.len() as i32;
-    let style = Style::new().fg(GATE_COLOR).remove_modifier(Modifier::all());
     for (i, &line) in GATE_BLOCK_TILE.iter().enumerate() {
         let screen_y = floor_y - 1 - (n - 1 - i as i32);
-        if screen_y < area.y as i32 || screen_y >= area.bottom() as i32 {
-            continue;
-        }
-        for (c, ch) in line.chars().enumerate() {
-            let draw_ch = if c == 2 {
-                col2_mask.map_or(ch, |m| m[i])
+        let marked = line.chars().enumerate().map(|(c, ch)| {
+            if c == GATE_BLOCK_MARK_COL {
+                marks[i]
             } else {
                 ch
-            };
-            if draw_ch == ' ' {
-                continue;
             }
-            let sx = area.x as i32 + col + c as i32;
-            if sx < area.x as i32 || sx >= area.right() as i32 {
-                continue;
-            }
-            buf[(sx as u16, screen_y as u16)]
-                .set_char(draw_ch)
-                .set_style(style);
+        });
+        draw_gate_line(marked, col, screen_y, area, buf, style);
+    }
+}
+
+fn draw_gate_line(
+    line: impl Iterator<Item = char>,
+    col: i32,
+    screen_y: i32,
+    area: Rect,
+    buf: &mut Buffer,
+    style: Style,
+) {
+    if screen_y < area.y as i32 || screen_y >= area.bottom() as i32 {
+        return;
+    }
+    for (c, ch) in line.enumerate() {
+        if ch == ' ' {
+            continue;
+        }
+        let sx = area.x as i32 + col + c as i32;
+        if sx < area.x as i32 || sx >= area.right() as i32 {
+            continue;
+        }
+        buf[(sx as u16, screen_y as u16)]
+            .set_char(ch)
+            .set_style(style);
+    }
+}
+
+fn render_heaven_background(bg: &HeavenBackground, show_names: bool, area: Rect, buf: &mut Buffer) {
+    render_souls(bg, area, buf);
+    if show_names {
+        for soul in bg.souls.drifting() {
+            render_fish_label(soul, SOUL_COLOR, area, buf);
         }
     }
+    for cloud in &bg.clouds {
+        render_cloud(cloud, area, buf);
+    }
+    render_gate(&bg.gate, area, buf);
+}
+
+fn render_souls(bg: &HeavenBackground, area: Rect, buf: &mut Buffer) {
+    let mut canvas = Buffer::empty(area);
+    for soul in bg.souls.drifting() {
+        render_fish(soul, area, &mut canvas);
+    }
+    let style = Style::new().fg(SOUL_COLOR).remove_modifier(Modifier::all());
+    for y in area.top()..area.bottom() {
+        for x in area.left()..area.right() {
+            let symbol = canvas[(x, y)].symbol();
+            if symbol == " " {
+                continue;
+            }
+            buf[(x, y)].set_symbol(symbol).set_style(style);
+        }
+    }
+}
+
+fn render_cloud(cloud: &Cloud, area: Rect, buf: &mut Buffer) {
+    let top = area.y as i32 + cloud.top(area.height);
+    render_opaque_grid_from(&cloud.rows(), cloud.x.floor() as i32, top, area, buf);
+}
+
+fn render_angel(angel: &Angel, area: Rect, buf: &mut Buffer) {
+    let top = area.y as i32 + angel.y.floor() as i32;
+    render_opaque_grid_from(&angel.rows(), angel.x.floor() as i32, top, area, buf);
+}
+
+fn render_opaque_grid_from(
+    grid: &[Vec<(char, Color)>],
+    base_x: i32,
+    top_y: i32,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    let bottom_y = top_y + grid.len() as i32 - 1;
+    render_opaque_grid(grid, base_x, bottom_y, area, buf);
 }
 
 fn render_opaque_grid(
@@ -2039,7 +2095,132 @@ fn render_ritual_text(lines: &[Option<String>; 2], area: Rect, buf: &mut Buffer)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::colors::LIGHT_YELLOW;
+    use crate::sprite::opaque_line;
+    use crate::tanks::heaven::{ANGEL, ANGEL_COLOR};
     use std::f32::consts::PI;
+
+    fn heaven_with_soul(name: &str) -> Tank {
+        let mut tank = Tank::new("Heaventank".to_string(), TankKind::Heaven, &[]);
+        tank.resize(80, 30, &[]);
+        let fish = Fish::new(
+            FishSpecies::Salmon,
+            name.to_string(),
+            0.0,
+            0.0,
+            &mut rand::rng(),
+        );
+        tank.receive_soul(fish);
+        tank
+    }
+
+    fn render_tank(tank: &Tank, names: bool) -> Buffer {
+        let area = Rect::new(0, 0, tank.width, tank.height);
+        let mut buf = Buffer::empty(area);
+        TankView::new(tank).with_names(names).render(area, &mut buf);
+        buf
+    }
+
+    fn row_text(buf: &Buffer, y: u16) -> String {
+        (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect()
+    }
+
+    fn park_soul(tank: &mut Tank, x: f32, y: f32) {
+        let TankBackground::Heaven { bg } = &mut tank.background else {
+            panic!("a heaven");
+        };
+        bg.clouds.clear();
+        bg.angels.clear();
+        let soul = bg.souls.drifting_mut().next().expect("a soul");
+        soul.position.x = x;
+        soul.position.y = y;
+    }
+
+    fn heaven(tank: &mut Tank) -> &mut HeavenBackground {
+        let TankBackground::Heaven { bg } = &mut tank.background else {
+            panic!("a heaven");
+        };
+        bg
+    }
+
+    #[test]
+    fn a_dead_fish_and_its_name_are_dark_gray_at_their_own_level() {
+        let mut tank = heaven_with_soul("Ann");
+        park_soul(&mut tank, 30.0, 5.0);
+        let buf = render_tank(&tank, true);
+        let name_col = row_text(&buf, 4)
+            .find("Ann")
+            .expect("the name floats above its soul");
+        assert_eq!(buf[(name_col as u16, 4)].fg, SOUL_COLOR);
+        let body: Vec<u16> = (0..buf.area.width)
+            .filter(|&x| buf[(x, 5)].symbol() != " ")
+            .collect();
+        assert!(!body.is_empty(), "the soul is drawn");
+        assert!(
+            body.iter().all(|&x| buf[(x, 5)].fg == SOUL_COLOR),
+            "every cell of a dead fish is dark gray"
+        );
+    }
+
+    #[test]
+    fn a_cloud_and_the_gate_cover_a_soul() {
+        let mut tank = heaven_with_soul("Ann");
+        park_soul(&mut tank, 30.0, 5.0);
+        let bare = render_tank(&tank, false);
+        assert!(
+            row_text(&bare, 5).contains('<'),
+            "the soul shows on an empty sky"
+        );
+
+        let low_cloud_altitude = 3.0 / f32::from(tank.height);
+        heaven(&mut tank).clouds = (0..10)
+            .map(|x| Cloud::covering(x as f32 * 8.0, low_cloud_altitude))
+            .collect();
+        let clouded = render_tank(&tank, false);
+        assert!(
+            !row_text(&clouded, 5).contains('<'),
+            "a cloud is drawn over the dead: {}",
+            row_text(&clouded, 5)
+        );
+
+        park_soul(&mut tank, 30.0, 27.0);
+        let gated = render_tank(&tank, false);
+        let bar_x = (30..45).find(|&x| gated[(x, 27)].symbol() == "|");
+        assert!(
+            bar_x.is_some(),
+            "the gate's bars stand in front of a low soul"
+        );
+        assert_eq!(gated[(bar_x.unwrap(), 27)].fg, LIGHT_YELLOW);
+    }
+
+    #[test]
+    fn an_angel_is_solid_bright_yellow_and_hides_the_gate_behind_it() {
+        let mut tank = heaven_with_soul("Ann");
+        park_soul(&mut tank, 70.0, 2.0);
+        let (x, y) = (10u16, 20u16);
+        heaven(&mut tank)
+            .angels
+            .push(Angel::at(f32::from(x), f32::from(y)));
+        let buf = render_tank(&tank, false);
+        for (row, line) in ANGEL.iter().enumerate() {
+            let sy = y + row as u16;
+            let cells = opaque_line(line, ANGEL_COLOR, |_, _| ANGEL_COLOR);
+            for (col, &(ch, _)) in cells.iter().enumerate() {
+                if ch == TRANSPARENT {
+                    continue;
+                }
+                let cell = &buf[(x + col as u16, sy)];
+                assert_eq!(cell.symbol(), ch.to_string(), "row {row} col {col}");
+                assert!(
+                    !cell.modifier.contains(Modifier::DIM),
+                    "row {row} col {col}"
+                );
+                if ch != ' ' {
+                    assert_eq!(cell.fg, ANGEL_COLOR, "row {row} col {col}");
+                }
+            }
+        }
+    }
 
     fn render_at_angle(angle: f32, w: u16, h: u16) {
         let mut tank = Tank::new("Smoke".into(), TankKind::Desert, &[]);

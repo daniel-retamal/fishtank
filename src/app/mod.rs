@@ -40,6 +40,7 @@ use crate::{
 };
 
 mod console;
+mod heaven;
 mod input;
 
 const TERMINAL_HEIGHT_DEFAULT: u16 = 24;
@@ -689,9 +690,8 @@ impl App {
                     .entry(StockItem::Consumable(ConsumableKind::Part(part)))
                     .or_insert(0) += 1;
             }
-            if !self.tanks[i].pending_graveyard.is_empty() {
-                let lost = std::mem::take(&mut self.tanks[i].pending_graveyard);
-                self.graveyard.extend(lost);
+            for lost in std::mem::take(&mut self.tanks[i].pending_graveyard) {
+                self.bury(lost);
             }
             for event in events {
                 match event {
@@ -732,6 +732,7 @@ impl App {
         self.settle_console();
         self.tick_botfish();
         self.tick_casts();
+        self.settle_exiles();
         self.refresh_circuit();
         self.tick_blink();
     }
@@ -1076,8 +1077,7 @@ impl App {
     }
 
     fn take_for_abduction(&mut self, source_idx: usize, pick: usize) -> Fish {
-        let fish = self.tanks[source_idx].fish.remove(pick);
-        self.tanks[source_idx].used_names.remove(&fish.name);
+        let fish = self.tanks[source_idx].take_fish(pick);
         self.tanks[source_idx].signal(WorldSignal::Abduction);
         fish
     }
@@ -1195,25 +1195,26 @@ impl App {
     }
 
     fn handle_phantom_cross_tank(&mut self, source_idx: usize, fish_name: &str) {
+        let Some(pos) = self.tanks[source_idx]
+            .fish
+            .iter()
+            .position(|f| f.name == fish_name)
+        else {
+            return;
+        };
+        let fish = &self.tanks[source_idx].fish[pos];
         let candidates: Vec<usize> = (0..self.tanks.len())
-            .filter(|&i| i != source_idx && !self.tanks[i].is_full())
+            .filter(|&i| {
+                i != source_idx && !self.tanks[i].is_full() && self.tanks[i].welcomes(fish)
+            })
             .collect();
         if candidates.is_empty() {
             return;
         }
         let mut rng = rand::rng();
         let target_idx = candidates[rng.random_range(0..candidates.len())];
-        let pos = match self.tanks[source_idx]
-            .fish
-            .iter()
-            .position(|f| f.name == fish_name)
-        {
-            Some(p) => p,
-            None => return,
-        };
-        let fish = self.tanks[source_idx].fish.remove(pos);
+        let fish = self.tanks[source_idx].take_fish(pos);
         let name = fish.name.clone();
-        self.tanks[source_idx].used_names.remove(&name);
         self.tanks[target_idx].place_fish(fish, name, &mut rng);
     }
 

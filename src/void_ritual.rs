@@ -103,6 +103,7 @@ pub enum WishAction {
     Give(GiveTarget),
     Mutate { fish_name: String, mutation: String },
     Revive { fish_name: String },
+    Kill { fish_name: String },
     Clone { fish_name: String },
     Bless,
     Expand { tank_name: String },
@@ -167,6 +168,15 @@ pub fn parse_wish(input: &str, ctx: &WishCtx) -> Option<WishAction> {
         }
         let fish_name = greedy_find_name(rest_words, ctx.graveyard_names)?;
         return Some(WishAction::Revive { fish_name });
+    }
+
+    if words.first().copied() == Some("kill") {
+        let rest_words = &words[1..];
+        if rest_words.is_empty() {
+            return None;
+        }
+        let fish_name = greedy_find_name(rest_words, ctx.fish_names)?;
+        return Some(WishAction::Kill { fish_name });
     }
 
     if words.first().copied() == Some("clone") {
@@ -317,7 +327,7 @@ pub fn wish_display_text(state: &VoidRitualState, _next_prayer: usize) -> [Optio
 #[allow(dead_code)]
 pub fn all_wish_kinds() -> &'static [&'static str] {
     &[
-        "give", "mutate", "revive", "clone", "bless", "expand", "anything", "nothing",
+        "give", "mutate", "revive", "kill", "clone", "bless", "expand", "anything", "nothing",
     ]
 }
 
@@ -332,6 +342,20 @@ mod tests {
             graveyard_names: &[],
             cow_names: &[],
         }
+    }
+
+    #[test]
+    fn a_kill_wish_names_a_living_fish() {
+        let fish = ["Sir Bubbles".to_string()];
+        let ctx = WishCtx {
+            fish_names: &fish,
+            ..empty_ctx()
+        };
+        assert!(matches!(
+            parse_wish("kill sir bubbles", &ctx),
+            Some(WishAction::Kill { fish_name }) if fish_name == "Sir Bubbles"
+        ));
+        assert!(parse_wish("kill nobody", &ctx).is_none());
     }
 
     #[test]

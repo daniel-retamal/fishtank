@@ -12,6 +12,7 @@ use ratatui::{
 use crate::colors::{BLACK, STEEL, WHITE};
 use crate::fishes::fish::{Direction, Fish, LineSprite};
 use crate::fishes::unfish::{BALL_HEIGHT, SKULL_HEIGHT, UnfishKind};
+use crate::tanks::heaven::SOUL_COLOR;
 use crate::ui::fields::{self, FieldKind, FieldValue};
 use crate::ui::grid::{self, CELL_PAD, Grid, HEADER_ROWS, HeaderStyle};
 use crate::ui::hint_bar::HintBar;
@@ -31,7 +32,31 @@ const MIN_NAME_W: u16 = 4;
 const MIN_PAGED_W: u16 = 3;
 const MIN_FANTASY_W: usize = 4;
 const BACKGROUND: Color = Color::Reset;
-const FIXED_HEADERS: [&str; 5] = ["Name", "Species", "Display", "Weight", "Fishtank"];
+const ALIVE: &str = "Alive";
+const DEAD: &str = "Dead";
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FixedColumn {
+    Name,
+    Species,
+    Display,
+    Weight,
+    Fishtank,
+    Status,
+}
+
+impl FixedColumn {
+    fn header(self) -> &'static str {
+        match self {
+            FixedColumn::Name => "Name",
+            FixedColumn::Species => "Species",
+            FixedColumn::Display => "Display",
+            FixedColumn::Weight => "Weight",
+            FixedColumn::Fishtank => "Fishtank",
+            FixedColumn::Status => "Status",
+        }
+    }
+}
 
 struct FantasyColumn {
     kind: FieldKind,
@@ -48,6 +73,13 @@ pub struct FishSnapshot {
     tank_name: Option<String>,
     display_height: u16,
     is_unfish: bool,
+    dead: bool,
+}
+
+impl FishSnapshot {
+    fn status(&self) -> &'static str {
+        if self.dead { DEAD } else { ALIVE }
+    }
 }
 
 pub struct IndexState {
@@ -56,8 +88,8 @@ pub struct IndexState {
     col_scroll: Cell<usize>,
     snapshots: Vec<FishSnapshot>,
     fish_clones: Vec<Fish>,
+    fixed: Vec<FixedColumn>,
     fixed_widths: Vec<usize>,
-    show_tank_col: bool,
     fantasy_cols: Vec<FantasyColumn>,
     animated_fish: Option<Fish>,
 }
@@ -80,18 +112,24 @@ fn still_art(fish: &Fish) -> LineSprite {
 }
 
 impl IndexState {
-    pub fn new(fish_with_tanks: &[(&str, &Fish)], all: bool, show_tank_col: bool) -> Self {
+    pub fn new(
+        fish_with_tanks: &[(&str, &Fish)],
+        souls: &[(&str, &Fish)],
+        all: bool,
+        show_tank_col: bool,
+    ) -> Self {
         let mut rng = rand::rng();
 
-        let filtered: Vec<(&str, &Fish)> = fish_with_tanks
+        let living = fish_with_tanks
             .iter()
             .filter(|(_, f)| !f.is_invisible())
-            .copied()
-            .collect();
+            .map(|&(tank, fish)| (tank, fish, false));
+        let dead = souls.iter().map(|&(tank, fish)| (tank, fish, true));
+        let filtered: Vec<(&str, &Fish, bool)> = living.chain(dead).collect();
 
         let snapshots: Vec<FishSnapshot> = filtered
             .iter()
-            .map(|(tank_name, f)| {
+            .map(|&(tank_name, f, dead)| {
                 let art = still_art(f);
                 FishSnapshot {
                     name: f.name.clone(),
@@ -101,13 +139,14 @@ impl IndexState {
                     tank_name: Some(tank_name.to_string()),
                     display_height: row_height(f, &art),
                     is_unfish: f.unfish_state.is_some(),
+                    dead,
                     art,
                 }
             })
             .collect();
 
-        let fish_clones: Vec<Fish> = filtered.iter().map(|(_, f)| (*f).clone()).collect();
-        let fish_names: Vec<String> = filtered.iter().map(|(_, f)| f.name.clone()).collect();
+        let fish_clones: Vec<Fish> = filtered.iter().map(|(_, f, _)| (*f).clone()).collect();
+        let fish_names: Vec<String> = filtered.iter().map(|(_, f, _)| f.name.clone()).collect();
 
         let chosen_kinds: Vec<FieldKind> = if all {
             FieldKind::all().to_vec()
@@ -156,27 +195,33 @@ impl IndexState {
             })
             .collect::<Vec<_>>();
 
-        let widest = |header: &str, cell: &dyn Fn(&FishSnapshot) -> usize| {
-            snapshots
-                .iter()
-                .map(cell)
-                .max()
-                .unwrap_or(0)
-                .max(table::visual_width(header))
-        };
-        let mut fixed_widths = vec![
-            widest(FIXED_HEADERS[0], &|s| table::visual_width(&s.name)).min(NAME_COLUMN_MAX_W),
-            widest(FIXED_HEADERS[1], &|s| table::visual_width(s.species_name)),
-            widest(FIXED_HEADERS[2], &|s| s.display_width),
-            widest(FIXED_HEADERS[3], &|s| {
-                fields::format_weight(s.weight_g).len()
-            }),
-        ];
-        if show_tank_col {
-            fixed_widths.push(widest(FIXED_HEADERS[4], &|s| {
-                s.tank_name.as_deref().map_or(0, table::visual_width)
-            }));
+        let mut fixed = vec![FixedColumn::Name];
+        if !souls.is_empty() {
+            fixed.push(FixedColumn::Status);
         }
+        fixed.extend([
+            FixedColumn::Species,
+            FixedColumn::Display,
+            FixedColumn::Weight,
+        ]);
+        if show_tank_col {
+            fixed.push(FixedColumn::Fishtank);
+        }
+        let fixed_widths = fixed
+            .iter()
+            .map(|&column| {
+                let widest = snapshots
+                    .iter()
+                    .map(|s| fixed_cell_width(column, s))
+                    .max()
+                    .unwrap_or(0)
+                    .max(table::visual_width(column.header()));
+                if column == FixedColumn::Name {
+                    return widest.min(NAME_COLUMN_MAX_W);
+                }
+                widest
+            })
+            .collect();
 
         let animated_fish = fish_clones.first().cloned().map(display_clone);
 
@@ -186,8 +231,8 @@ impl IndexState {
             col_scroll: Cell::new(FIRST_PAGED_COLUMN),
             snapshots,
             fish_clones,
+            fixed,
             fixed_widths,
-            show_tank_col,
             fantasy_cols,
             animated_fish,
         }
@@ -222,7 +267,10 @@ impl IndexState {
     }
 
     pub fn selected_fish_name(&self) -> Option<&str> {
-        self.snapshots.get(self.selected).map(|s| s.name.as_str())
+        self.snapshots
+            .get(self.selected)
+            .filter(|s| !s.dead)
+            .map(|s| s.name.as_str())
     }
 
     pub fn selected_tank_name(&self) -> &str {
@@ -256,8 +304,8 @@ impl IndexState {
     }
 
     fn header(&self, column: usize) -> &str {
-        if column < self.fixed_widths.len() {
-            return FIXED_HEADERS[column];
+        if let Some(fixed) = self.fixed.get(column) {
+            return fixed.header();
         }
         self.fantasy_cols[column - self.fixed_widths.len()]
             .kind
@@ -442,10 +490,14 @@ fn draw_data_row(
     row_h: u16,
 ) {
     let selected = index == state.selected;
-    let row_bg = if selected { WHITE } else { BACKGROUND };
-    let fg = if selected { BLACK } else { STEEL };
-    let text = Style::default().fg(fg).bg(row_bg);
     let snap = &state.snapshots[index];
+    let row_bg = if selected { WHITE } else { BACKGROUND };
+    let fg = match (selected, snap.dead) {
+        (true, _) => BLACK,
+        (false, true) => SOUL_COLOR,
+        (false, false) => STEEL,
+    };
+    let text = Style::default().fg(fg).bg(row_bg);
     let text_y = row_y + row_h / 2;
     let fixed_count = state.fixed_widths.len();
 
@@ -455,16 +507,19 @@ fn draw_data_row(
             grid::put(buf, Rect::new(block.x, y, block.width, 1), "", text);
         }
         let cell = grid.cell(position, text_y, 1);
-        match column {
-            0 => grid::put(buf, cell, &snap.name, text),
-            1 => grid::put(buf, cell, snap.species_name, text),
-            2 => draw_art(buf, state, index, block),
-            3 => grid::put(buf, cell, &fields::format_weight(snap.weight_g), text),
-            4 if state.show_tank_col => {
+        match state.fixed.get(column) {
+            Some(FixedColumn::Name) => grid::put(buf, cell, &snap.name, text),
+            Some(FixedColumn::Species) => grid::put(buf, cell, snap.species_name, text),
+            Some(FixedColumn::Display) => draw_art(buf, state, index, block),
+            Some(FixedColumn::Weight) => {
+                grid::put(buf, cell, &fields::format_weight(snap.weight_g), text)
+            }
+            Some(FixedColumn::Fishtank) => {
                 grid::put(buf, cell, snap.tank_name.as_deref().unwrap_or(""), text)
             }
-            fantasy => {
-                let Some(col) = state.fantasy_cols.get(fantasy - fixed_count) else {
+            Some(FixedColumn::Status) => grid::put(buf, cell, snap.status(), text),
+            None => {
+                let Some(col) = state.fantasy_cols.get(column - fixed_count) else {
                     continue;
                 };
                 let value = &col.cells[index];
@@ -502,6 +557,17 @@ fn draw_art(buf: &mut Buffer, state: &IndexState, index: usize, block: Rect) {
     let art = live.as_ref().unwrap_or(&snap.art);
     let body_y = block.y + art.body_row as u16;
     render_fish_sprite(buf, art, block.x, body_y, block, BACKGROUND);
+}
+
+fn fixed_cell_width(column: FixedColumn, snapshot: &FishSnapshot) -> usize {
+    match column {
+        FixedColumn::Name => table::visual_width(&snapshot.name),
+        FixedColumn::Species => table::visual_width(snapshot.species_name),
+        FixedColumn::Display => snapshot.display_width,
+        FixedColumn::Weight => fields::format_weight(snapshot.weight_g).len(),
+        FixedColumn::Fishtank => snapshot.tank_name.as_deref().map_or(0, table::visual_width),
+        FixedColumn::Status => table::visual_width(snapshot.status()),
+    }
 }
 
 fn display_clone(mut fish: Fish) -> Fish {

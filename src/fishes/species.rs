@@ -634,7 +634,7 @@ impl FishSpecies {
                     Legendary,
                 );
                 config.buyable = false;
-                config.habitat = Habitat::Native(TankKind::Void);
+                config.habitat = Habitat::Native(TankKind::Heaven);
                 config.mutatable = false;
                 config.markable = false;
                 config.eye_color = Some(LIGHT_YELLOW);
