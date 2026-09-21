@@ -15,7 +15,9 @@ use crate::{
     loot::{ConsumableKind, CowCounts, LootKind, LootPool, StockItem, roll_loot_no_fish},
     names,
     settings::Settings,
-    tank::{ActiveConsumable, Blueprint, DayClock, Tank, TankEvent, TankKind, WorldSignal},
+    tank::{
+        ActiveConsumable, Blueprint, DayClock, Tank, TankEvent, TankKind, UfoRole, WorldSignal,
+    },
     ui::{
         catch_overlay::{CatchOverlay, CatchState},
         circuit_overlay::{CircuitOverlay, CircuitState},
@@ -428,9 +430,9 @@ impl App {
             alien: 0,
             irradiated: 0,
         };
-        let is_rad = tank.kind == TankKind::Rad;
+        let irradiates_milk = tank.kind.config().irradiates_milk;
         for cow in &tank.cows {
-            if is_rad {
+            if irradiates_milk {
                 c.irradiated += cow.milk_yield();
             } else {
                 for variant in cow.milk_components() {
@@ -452,11 +454,10 @@ impl App {
     }
 
     fn devils_luck_in(tank: &Tank) -> u32 {
-        if tank.kind == TankKind::Hell {
-            tank.fish.len() as u32
-        } else {
-            0
+        if !tank.kind.config().devils_luck {
+            return 0;
         }
+        tank.fish.len() as u32
     }
 
     fn grace_stacks(&self) -> u32 {
@@ -484,7 +485,7 @@ impl App {
     }
 
     pub fn is_connected(&self) -> bool {
-        self.tanks.iter().any(|t| t.kind == TankKind::Matrix)
+        self.tanks.iter().any(|t| t.kind.config().connects)
     }
 
     fn consume_item(&mut self, kind: ConsumableKind) {
@@ -788,7 +789,7 @@ impl App {
 
         {
             let ritual_blocking = self.void_ritual.is_blocking()
-                && self.tanks[self.current_tank].kind == TankKind::Void;
+                && self.tanks[self.current_tank].kind.config().hosts_ritual;
             let mut tv = TankView::new(self.tank())
                 .with_names(self.settings.show_names)
                 .with_nets(self.settings.show_nets);
@@ -977,7 +978,7 @@ impl App {
             ResetMaybeStart(f32, bool),
         }
 
-        let is_void = self.tanks[self.current_tank].kind == TankKind::Void;
+        let hosts_ritual = self.tanks[self.current_tank].kind.config().hosts_ritual;
         let has_overlay = self.has_any_overlay();
 
         let tr = match &mut self.void_ritual {
@@ -993,7 +994,7 @@ impl App {
                 } else {
                     let mean = void_ritual::ritual_mean_secs(self.nothing_stacks);
                     let new_t = sample_exponential(&mut rand::rng(), mean);
-                    Tr::ResetMaybeStart(new_t, is_void && !has_overlay)
+                    Tr::ResetMaybeStart(new_t, hosts_ritual && !has_overlay)
                 }
             }
         };
@@ -1033,10 +1034,9 @@ impl App {
             return;
         }
         let mut rng = rand::rng();
-        let source_kind = self.tanks[source_idx].kind;
-        match source_kind {
-            TankKind::Alien => self.plan_cow_delivery(source_idx, &mut rng),
-            TankKind::Desert if self.tanks[source_idx].background.is_night() => {
+        match self.tanks[source_idx].kind.config().ufo_role {
+            Some(UfoRole::DeliversCows) => self.plan_cow_delivery(source_idx, &mut rng),
+            Some(UfoRole::AbductsAtNight) if self.tanks[source_idx].background.is_night() => {
                 self.plan_abduction(source_idx, &mut rng);
             }
             _ => {}
@@ -1084,7 +1084,7 @@ impl App {
 
     fn plan_abduction(&mut self, source_idx: usize, rng: &mut impl RngExt) {
         use crate::entities::ufo::Ufo;
-        if self.tanks[source_idx].kind == TankKind::Alien {
+        if self.tanks[source_idx].kind.is_ufo_base() {
             return;
         }
         let abductable: Vec<usize> = self.tanks[source_idx]
@@ -1156,7 +1156,7 @@ impl App {
         let mut rng = rand::rng();
         let dest = dest_idx.unwrap_or(tank_idx);
         self.tanks[dest].place_fish(fish, name.clone(), &mut rng);
-        if self.tanks[dest].kind == TankKind::Alien
+        if self.tanks[dest].kind.is_ufo_base()
             && let Some(p) = self.tanks[dest].fish.iter().position(|f| f.name == name)
         {
             apply_mutation_to_fish(
@@ -1173,7 +1173,7 @@ impl App {
             if i == source_idx {
                 continue;
             }
-            if t.kind == TankKind::Alien
+            if t.kind.is_ufo_base()
                 && !t.is_full()
                 && t.cow_abduction_count < COW_DELIVERIES_PER_NEW_BASE
             {

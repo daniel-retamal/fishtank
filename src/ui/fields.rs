@@ -2,11 +2,11 @@ use rand::RngExt;
 use ratatui::style::Color;
 
 use crate::colors::{
-    BLUE, CYAN, GOLD, GREEN, LIGHT_BLUE, LIGHT_CYAN, LIGHT_GREEN, LIGHT_MAGENTA, LIGHT_RED,
-    LIGHT_YELLOW, MAGENTA, ORANGE, RED, TEAL, YELLOW,
+    BLUE, CYAN, GREEN, LIGHT_BLUE, LIGHT_CYAN, LIGHT_GREEN, LIGHT_MAGENTA, LIGHT_RED, LIGHT_YELLOW,
+    MAGENTA, ORANGE, RED, TEAL, YELLOW,
 };
 use crate::fishes::fish::Fish;
-use crate::fishes::species::FishSpecies;
+use crate::fishes::species::Fortune;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum FieldKind {
@@ -282,11 +282,12 @@ pub fn gen_field_value(
                 ORANGE,
                 TEAL,
             ];
-            let c = match fish.species {
-                FishSpecies::Cashfish => GOLD,
-                FishSpecies::Holyfish => LIGHT_YELLOW,
-                _ => COLORS[rng.random_range(0..COLORS.len())],
-            };
+            let c = fish
+                .species
+                .config()
+                .flavour
+                .favorite_color
+                .unwrap_or_else(|| COLORS[rng.random_range(0..COLORS.len())]);
             FieldValue {
                 text: "      ".to_string(),
                 swatch: Some(c),
@@ -348,14 +349,14 @@ pub fn gen_field_value(
                 "Judgement",
                 "The World",
             ];
-            match fish.species {
-                FishSpecies::Mutantfish => {
+            match fish.species.config().flavour.fortune {
+                Some(Fortune::Doomed) => {
                     plain(MUTANT_SPREADS[rng.random_range(0..MUTANT_SPREADS.len())])
                 }
-                FishSpecies::Cashfish | FishSpecies::Holyfish => {
+                Some(Fortune::Golden) => {
                     plain(GOLDEN_SPREADS[rng.random_range(0..GOLDEN_SPREADS.len())])
                 }
-                _ => {
+                None => {
                     let mut deck: Vec<&str> = CARDS.to_vec();
                     let i1 = rng.random_range(0..deck.len());
                     let c1 = deck.remove(i1);
@@ -371,11 +372,9 @@ pub fn gen_field_value(
             }
         }
 
-        FieldKind::FavoriteQuote => match fish.species {
-            FishSpecies::Mutantfish => plain("OOGHHHHHHH"),
-            FishSpecies::Cashfish => plain("Gonna be, gonna be golden"),
-            FishSpecies::Holyfish => plain("Blessed be the deep, glub"),
-            _ => {
+        FieldKind::FavoriteQuote => match fish.species.config().flavour.favorite_quote {
+            Some(quote) => plain(quote),
+            None => {
                 let count = rng.random_range(2..=8u32);
                 plain((0..count).map(|_| "glub").collect::<Vec<_>>().join(" "))
             }
@@ -454,32 +453,29 @@ pub fn gen_field_value(
             const SINS: &[&str] = &[
                 "Lust", "Gluttony", "Greed", "Sloth", "Wrath", "Envy", "Pride",
             ];
-            match fish.species {
-                FishSpecies::Mutantfish => plain("Wrath"),
-                FishSpecies::Cashfish => plain("Greed"),
-                FishSpecies::Holyfish => plain("Pride"),
-                _ => plain(SINS[rng.random_range(0..SINS.len())]),
-            }
+            plain(
+                fish.species
+                    .config()
+                    .flavour
+                    .sin
+                    .unwrap_or_else(|| SINS[rng.random_range(0..SINS.len())]),
+            )
         }
 
-        FieldKind::HasSeenTheSky => plain(
-            if matches!(fish.species, FishSpecies::Cashfish | FishSpecies::Holyfish) {
-                "Yes"
-            } else {
-                "No"
-            },
-        ),
+        FieldKind::HasSeenTheSky => plain(if fish.species.config().flavour.has_seen_the_sky {
+            "Yes"
+        } else {
+            "No"
+        }),
 
         FieldKind::Temperature => {
             let t = 25.0f32 + rng.random_range(-14.0f32..14.0);
             plain(format!("{:.1}°C", t))
         }
 
-        FieldKind::Delicious => match fish.species {
-            FishSpecies::Mutantfish => plain("NOOOOOOOOOO"),
-            FishSpecies::Cashfish => plain("Yes."),
-            FishSpecies::Holyfish => plain("Forbidden"),
-            _ => plain(match rng.random_range(0..3u32) {
+        FieldKind::Delicious => match fish.species.config().flavour.delicious {
+            Some(verdict) => plain(verdict),
+            None => plain(match rng.random_range(0..3u32) {
                 0 => "Yes",
                 1 => "No",
                 _ => "Maybe",

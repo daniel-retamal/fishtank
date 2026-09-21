@@ -9,13 +9,9 @@ use ratatui::{
 };
 
 use crate::colors::{
-    BROWN_DARK, CREAM, DARK_GRAY, GREEN, KHAKI, LIGHT_GREEN, LIGHT_RED, LIGHT_YELLOW, PINK, RED,
-    WHITE,
+    BROWN_DARK, CREAM, DARK_GRAY, GREEN, KHAKI, LIGHT_GREEN, LIGHT_RED, RED, WHITE,
 };
-use crate::fishes::{
-    fish::{Direction, Fish},
-    species::FishSpecies,
-};
+use crate::fishes::fish::{Direction, Fish};
 use crate::loot::{
     ConsumableKind, ItemKind, JunkSprite, LootKind, bait_sprite_rows, blank_blueprint_sprite_rows,
     blank_wafer_sprite_rows, coffee_sprite_rows, computer_sprite_rows, demoncore_sprite_rows,
@@ -554,13 +550,11 @@ fn is_computer(loot: &LootKind) -> bool {
 
 fn loot_border_color(state: &CatchState) -> Color {
     match &state.loot {
-        LootKind::Fish(species) => match species {
-            FishSpecies::Cashfish => LIGHT_RED,
-            FishSpecies::Holyfish => LIGHT_YELLOW,
-            FishSpecies::Mutantfish => state.fish.as_ref().map_or(WHITE, |f| f.color),
-            FishSpecies::Candyfish => PINK,
-            _ => WHITE,
-        },
+        LootKind::Fish(species) => species
+            .config()
+            .flavour
+            .card_color
+            .resolve(WHITE, state.fish.as_ref().map_or(WHITE, |f| f.color)),
         l if is_necronomicon(l) => LIGHT_RED,
         l if is_demoncore(l) => LIGHT_GREEN,
         l if is_computer(l) => GREEN,

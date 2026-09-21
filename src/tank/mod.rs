@@ -71,6 +71,12 @@ pub enum TankKind {
     Heaven,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UfoRole {
+    DeliversCows,
+    AbductsAtNight,
+}
+
 pub struct TankConfig {
     pub display_name: &'static str,
     pub buy_price: u32,
@@ -84,6 +90,14 @@ pub struct TankConfig {
     pub buyable: bool,
     pub unique: bool,
     pub holy_only: bool,
+    pub marks_for_devil: bool,
+    pub devils_luck: bool,
+    pub irradiates_milk: bool,
+    pub connects: bool,
+    pub ufo_frequency_mult: f32,
+    pub ufo_role: Option<UfoRole>,
+    pub spawns_unfish: bool,
+    pub hosts_ritual: bool,
 }
 
 impl TankKind {
@@ -102,6 +116,14 @@ impl TankKind {
                 robotics_loot: false,
                 unique: false,
                 holy_only: false,
+                marks_for_devil: false,
+                devils_luck: false,
+                irradiates_milk: false,
+                connects: false,
+                ufo_frequency_mult: 1.0,
+                ufo_role: None,
+                spawns_unfish: false,
+                hosts_ritual: false,
             },
             TankKind::CoralReef => TankConfig {
                 display_name: "Coralreeftank",
@@ -116,6 +138,14 @@ impl TankKind {
                 robotics_loot: false,
                 unique: false,
                 holy_only: false,
+                marks_for_devil: false,
+                devils_luck: false,
+                irradiates_milk: false,
+                connects: false,
+                ufo_frequency_mult: 1.0,
+                ufo_role: None,
+                spawns_unfish: false,
+                hosts_ritual: false,
             },
             TankKind::Hell => TankConfig {
                 display_name: "Helltank",
@@ -130,6 +160,14 @@ impl TankKind {
                 robotics_loot: false,
                 unique: false,
                 holy_only: false,
+                marks_for_devil: true,
+                devils_luck: true,
+                irradiates_milk: false,
+                connects: false,
+                ufo_frequency_mult: 1.0,
+                ufo_role: None,
+                spawns_unfish: false,
+                hosts_ritual: false,
             },
             TankKind::Void => TankConfig {
                 display_name: "Voidtank",
@@ -138,12 +176,20 @@ impl TankKind {
                 capacity: 100,
                 bubble_color: CYAN,
                 rarity: Rarity::Legendary,
-                bubble_rate_mult: 1.0,
+                bubble_rate_mult: VOID_BUBBLE_RATE_MULT,
                 auto_mutate_all: false,
                 buyable: false,
                 robotics_loot: false,
                 unique: false,
                 holy_only: false,
+                marks_for_devil: false,
+                devils_luck: false,
+                irradiates_milk: false,
+                connects: false,
+                ufo_frequency_mult: 1.0,
+                ufo_role: None,
+                spawns_unfish: true,
+                hosts_ritual: true,
             },
             TankKind::Alien => TankConfig {
                 display_name: "Alientank",
@@ -158,6 +204,14 @@ impl TankKind {
                 robotics_loot: false,
                 unique: false,
                 holy_only: false,
+                marks_for_devil: false,
+                devils_luck: false,
+                irradiates_milk: false,
+                connects: false,
+                ufo_frequency_mult: 1.0,
+                ufo_role: Some(UfoRole::DeliversCows),
+                spawns_unfish: false,
+                hosts_ritual: false,
             },
             TankKind::Haunted => TankConfig {
                 display_name: "Hauntedtank",
@@ -172,6 +226,14 @@ impl TankKind {
                 robotics_loot: false,
                 unique: false,
                 holy_only: false,
+                marks_for_devil: false,
+                devils_luck: false,
+                irradiates_milk: false,
+                connects: false,
+                ufo_frequency_mult: 1.0,
+                ufo_role: None,
+                spawns_unfish: false,
+                hosts_ritual: false,
             },
             TankKind::Candy => TankConfig {
                 display_name: "Candytank",
@@ -186,6 +248,14 @@ impl TankKind {
                 robotics_loot: false,
                 unique: false,
                 holy_only: false,
+                marks_for_devil: false,
+                devils_luck: false,
+                irradiates_milk: false,
+                connects: false,
+                ufo_frequency_mult: 1.0,
+                ufo_role: None,
+                spawns_unfish: false,
+                hosts_ritual: false,
             },
             TankKind::Desert => TankConfig {
                 display_name: "Desertank",
@@ -200,6 +270,14 @@ impl TankKind {
                 robotics_loot: false,
                 unique: false,
                 holy_only: false,
+                marks_for_devil: false,
+                devils_luck: false,
+                irradiates_milk: false,
+                connects: false,
+                ufo_frequency_mult: UFO_DESERT_FREQUENCY_MULT,
+                ufo_role: Some(UfoRole::AbductsAtNight),
+                spawns_unfish: false,
+                hosts_ritual: false,
             },
             TankKind::Rad => TankConfig {
                 display_name: "Radioactivetank",
@@ -214,6 +292,14 @@ impl TankKind {
                 robotics_loot: false,
                 unique: false,
                 holy_only: false,
+                marks_for_devil: false,
+                devils_luck: false,
+                irradiates_milk: true,
+                connects: false,
+                ufo_frequency_mult: 1.0,
+                ufo_role: None,
+                spawns_unfish: false,
+                hosts_ritual: false,
             },
             TankKind::Matrix => TankConfig {
                 display_name: "Matrixtank",
@@ -228,6 +314,14 @@ impl TankKind {
                 robotics_loot: true,
                 unique: false,
                 holy_only: false,
+                marks_for_devil: false,
+                devils_luck: false,
+                irradiates_milk: false,
+                connects: true,
+                ufo_frequency_mult: 1.0,
+                ufo_role: None,
+                spawns_unfish: false,
+                hosts_ritual: false,
             },
             TankKind::Heaven => TankConfig {
                 display_name: "Heaventank",
@@ -242,6 +336,14 @@ impl TankKind {
                 robotics_loot: false,
                 unique: true,
                 holy_only: true,
+                marks_for_devil: false,
+                devils_luck: false,
+                irradiates_milk: false,
+                connects: false,
+                ufo_frequency_mult: 1.0,
+                ufo_role: None,
+                spawns_unfish: false,
+                hosts_ritual: false,
             },
         }
     }
@@ -255,6 +357,9 @@ impl TankKind {
     }
     pub fn display_name(self) -> &'static str {
         self.config().display_name
+    }
+    pub fn is_ufo_base(self) -> bool {
+        self.config().ufo_role == Some(UfoRole::DeliversCows)
     }
     pub fn un_name(self) -> String {
         format!("Un{}", self.config().display_name)
@@ -335,6 +440,7 @@ const MUTATION_INTERVAL_BASE: f32 = 30.0 * 60.0;
 const MUTATION_ALPHA: f32 = 1.0 / 3.0;
 const MUTATION_MEAN_FLOOR_SECS: f32 = 3.0;
 const RAD_BUBBLE_RATE_MULT: f32 = 2.5;
+const VOID_BUBBLE_RATE_MULT: f32 = 0.0;
 const RAD_MUTATION_MEAN_SECS: f32 = 30.0;
 const RAD_AUTO_MUTANT_MEAN_SECS: f32 = 5.0;
 const RAD_WEIGHT_INTERVAL_SECS: f32 = 5.0;
@@ -345,11 +451,7 @@ pub const UFO_MEAN_SECS: f32 = 60.0 * 60.0;
 const UFO_DESERT_FREQUENCY_MULT: f32 = 2.0;
 
 fn ufo_mean_secs(kind: TankKind) -> f32 {
-    if kind == TankKind::Desert {
-        UFO_MEAN_SECS / UFO_DESERT_FREQUENCY_MULT
-    } else {
-        UFO_MEAN_SECS
-    }
+    UFO_MEAN_SECS / kind.config().ufo_frequency_mult
 }
 const FISH_SPAWN_X_MIN: f32 = 5.0;
 const FISH_SPAWN_X_MAX_OFFSET: f32 = 15.0;
@@ -475,8 +577,8 @@ impl Tank {
         man_sway_offset(self.candy_tick)
     }
 
-    pub(super) fn mark_if_hell(&self, fish: &mut Fish) {
-        if self.kind == TankKind::Hell && fish.species.config().markable {
+    pub(super) fn mark_for_devil(&self, fish: &mut Fish) {
+        if self.kind.config().marks_for_devil && fish.species.config().markable {
             fish.devil_marked = true;
         }
     }
@@ -498,7 +600,7 @@ impl Tank {
             self.pending_exiles.push(Exile::Fish(Box::new(fish)));
             return;
         }
-        self.mark_if_hell(&mut fish);
+        self.mark_for_devil(&mut fish);
         self.used_names.insert(name);
         self.fish.push(fish);
         self.signal(WorldSignal::Birth);
@@ -628,7 +730,7 @@ impl Tank {
         self.tick_dopplegangers();
         self.tick_cows(dt);
         self.tick_engulfment();
-        if self.kind == TankKind::Void {
+        if self.kind.config().spawns_unfish {
             self.tick_void_spawn(dt, &mut rng);
         }
         let mut events = self.tick_phantoms(dt, &mut rng);

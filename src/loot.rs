@@ -1342,7 +1342,7 @@ mod tests {
                 .into_iter()
                 .any(|seed| seed.summons_tank() == Some(kind));
             assert!(
-                kind.config().buyable || grown || kind.config().unique || kind == TankKind::Alien,
+                kind.config().buyable || grown || kind.config().unique || kind.is_ufo_base(),
                 "{} lives in a tank nobody can get",
                 species.display_name()
             );

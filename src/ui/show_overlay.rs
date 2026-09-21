@@ -6,9 +6,8 @@ use ratatui::{
     widgets::Widget,
 };
 
-use crate::colors::{LIGHT_RED, LIGHT_YELLOW, WHITE};
+use crate::colors::WHITE;
 use crate::fishes::fish::{Direction, Fish};
-use crate::fishes::species::FishSpecies;
 use crate::tank::TankKind;
 use crate::ui::{
     draw_fish_centred,
@@ -239,12 +238,13 @@ impl<'a> ShowOverlay<'a> {
 impl Widget for ShowOverlay<'_> {
     fn render(self, _area: Rect, buf: &mut Buffer) {
         let state = self.state;
-        let border_color = match state.fish.species {
-            FishSpecies::Cashfish => LIGHT_RED,
-            FishSpecies::Holyfish => LIGHT_YELLOW,
-            FishSpecies::Mutantfish => state.fish.color,
-            _ => WHITE,
-        };
+        let border_color = state
+            .fish
+            .species
+            .config()
+            .flavour
+            .card_color
+            .resolve(WHITE, state.fish.color);
         let close = match state.source {
             ShowSource::FromIndex => HINT_RETURN,
             ShowSource::FromCommand => HINT_CLOSE,

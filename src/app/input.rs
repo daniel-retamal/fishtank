@@ -2707,7 +2707,7 @@ impl App {
             commands::Action::Cowsay(text) => self.cowsay(text),
             commands::Action::Say(text) => self.say(None, text),
             commands::Action::VoidSpawn => {
-                if self.tanks[self.current_tank].kind != TankKind::Void {
+                if !self.tanks[self.current_tank].kind.config().spawns_unfish {
                     return false;
                 }
                 let mut rng = rand::rng();
@@ -2715,7 +2715,7 @@ impl App {
                 true
             }
             commands::Action::StartVoidWish { skip } => {
-                if self.tanks[self.current_tank].kind != TankKind::Void {
+                if !self.tanks[self.current_tank].kind.config().hosts_ritual {
                     return false;
                 }
                 if skip {

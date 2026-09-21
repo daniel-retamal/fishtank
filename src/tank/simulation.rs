@@ -1,6 +1,6 @@
 use rand::RngExt;
 
-use crate::colors::{LIGHT_YELLOW, PINK, WHITE};
+use crate::colors::{LIGHT_YELLOW, WHITE};
 use crate::entities::bubble::{Bubble, BubblePhase};
 use crate::entities::cow::Cow;
 use crate::fishes::fish::{
@@ -21,7 +21,7 @@ use super::{
     BUBBLE_ZOOMIE_CHANCE, SEEK_BOOST_GROWTH, SEEK_BOOST_INITIAL_MAX, SEEK_DX_DEADZONE,
     SEEK_DY_MULTIPLIER, SEEK_NORM_MIN,
 };
-use super::{Tank, TankEvent, TankKind};
+use super::{Tank, TankEvent};
 
 fn sq(x: f32) -> f32 {
     x * x
@@ -67,7 +67,7 @@ fn cow_near(a: &Cow, b: &Cow) -> bool {
 
 impl Tank {
     pub(super) fn spawn_bubbles(&mut self, dt: f32) {
-        if matches!(self.kind, TankKind::Void) {
+        if self.kind.config().bubble_rate_mult <= 0.0 {
             return;
         }
         if self.width == 0 || self.height == 0 {
@@ -117,32 +117,17 @@ impl Tank {
                         &mut rng,
                     )
                 } else {
-                    match fish.species {
-                        FishSpecies::Mutantfish => Bubble::new(
-                            tail_x,
-                            fish.position.y,
-                            BubblePhase::rising(&mut rng),
-                            fish.color,
-                            None,
-                            &mut rng,
-                        ),
-                        FishSpecies::Candyfish => Bubble::new(
-                            tail_x,
-                            fish.position.y,
-                            BubblePhase::rising(&mut rng),
-                            PINK,
-                            None,
-                            &mut rng,
-                        ),
-                        _ => Bubble::new(
-                            tail_x,
-                            fish.position.y,
-                            BubblePhase::rising(&mut rng),
-                            bubble_color,
-                            None,
-                            &mut rng,
-                        ),
-                    }
+                    Bubble::new(
+                        tail_x,
+                        fish.position.y,
+                        BubblePhase::rising(&mut rng),
+                        fish.species
+                            .config()
+                            .zoomie_bubble_color
+                            .resolve(bubble_color, fish.color),
+                        None,
+                        &mut rng,
+                    )
                 };
                 if let Some(c) = fish.bubble_color() {
                     bubble.color = c;
@@ -223,7 +208,7 @@ impl Tank {
             let fx = self.food[idx].position.x as i32;
             let fy = self.food[idx].position.y as i32;
             if (head_x - fx).abs() <= 1 && head_y == fy {
-                if self.fish[i].species == FishSpecies::Candyfish {
+                if self.fish[i].ability_stacks(FishSpecies::Candyfish) > 0 {
                     self.food[idx].is_candy = true;
                     self.fish[i].state = FishState::Eating {
                         time_remaining: EATING_DURATION,
@@ -593,6 +578,7 @@ impl Tank {
 mod engulfment_tests {
     use super::*;
     use crate::entities::cow::CowVariant;
+    use crate::tank::TankKind;
     use ratatui::style::Color;
 
     fn tank_with_two_merluza() -> Tank {
@@ -678,6 +664,40 @@ mod engulfment_tests {
             "keeps the money zoomies"
         );
         assert_eq!(s.auto_mutate_stacks(), 1, "gains the auto-mutation");
+    }
+
+    #[test]
+    fn a_fused_candyfish_candies_the_food_it_bites() {
+        let mut tank = Tank::new("T".to_string(), TankKind::Base, &[]);
+        let mut rng = rand::rng();
+        let mut host = Fish::new(FishSpecies::Merluza, "Ann".to_string(), 10.0, 5.0, &mut rng);
+        host.engulf_timer = 5.0;
+        let candy = Fish::new(
+            FishSpecies::Candyfish,
+            "Cara".to_string(),
+            12.0,
+            5.0,
+            &mut rng,
+        );
+        tank.fish.push(host);
+        tank.fish.push(candy);
+        tank.tick_engulfment();
+        assert_eq!(tank.fish.len(), 1, "the candyfish is engulfed");
+        assert_ne!(tank.fish[0].species, FishSpecies::Candyfish);
+        assert_eq!(tank.fish[0].ability_stacks(FishSpecies::Candyfish), 1);
+        let mut food = crate::entities::food::Food::new(tank.fish[0].head_x() as f32);
+        food.position.y = tank.fish[0].position.y;
+        tank.food.push(food);
+        tank.fish[0].state = FishState::SeekingFood {
+            food_idx: 0,
+            approach_right: true,
+        };
+        tank.check_eating_collisions();
+        assert!(
+            tank.food[0].is_candy,
+            "the fused candyfish candies the food"
+        );
+        assert!(!tank.food[0].eaten, "candied food is left for the others");
     }
 
     #[test]
@@ -1192,6 +1212,7 @@ mod wiring_tests {
     use crate::entities::food::Food;
     use crate::fishes::botfish::BotfishState;
     use crate::fishes::parts::{Part, PinOwner};
+    use crate::tank::TankKind;
     use crate::tank::{ChannelRegistry, WorldSignal, WorldView};
 
     const TANK_W: u16 = 60;

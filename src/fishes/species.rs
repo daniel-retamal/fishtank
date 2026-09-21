@@ -12,10 +12,10 @@ pub const TAIL_WAVE_LEFT: char = '彡';
 pub const TAIL_WAVE_RIGHT: char = 'ミ';
 pub const TAIL_EQUAL: char = '≡';
 use crate::colors::{
-    AMBER, AMBER_DARK, AMBER_LIGHT, BLUE, CYAN, DARK_GRAY, FOREST, GRAY, GREEN_BRIGHT, GREEN_LIGHT,
-    LIGHT_BLUE, LIGHT_CYAN, LIGHT_MAGENTA, LIGHT_RED, LIGHT_YELLOW, MAGENTA, NAVY, NAVY_DARK,
-    NAVY_LIGHT, ORANGE, ORANGE_DARK, ORANGE_LIGHT, PINK, PURPLE, PURPLE_LIGHT, RED, RED_DARK,
-    SILVER, VIOLET, WHITE, YELLOW,
+    AMBER, AMBER_DARK, AMBER_LIGHT, BLUE, CYAN, DARK_GRAY, FOREST, GOLD, GRAY, GREEN_BRIGHT,
+    GREEN_LIGHT, LIGHT_BLUE, LIGHT_CYAN, LIGHT_MAGENTA, LIGHT_RED, LIGHT_YELLOW, MAGENTA, NAVY,
+    NAVY_DARK, NAVY_LIGHT, ORANGE, ORANGE_DARK, ORANGE_LIGHT, PINK, PURPLE, PURPLE_LIGHT, RED,
+    RED_DARK, SILVER, VIOLET, WHITE, YELLOW,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -85,6 +85,85 @@ pub enum Habitat {
     Nowhere,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tint {
+    Plain,
+    Body,
+    Fixed(Color),
+}
+
+impl Tint {
+    pub fn resolve(self, plain: Color, body: Color) -> Color {
+        match self {
+            Tint::Plain => plain,
+            Tint::Body => body,
+            Tint::Fixed(color) => color,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fortune {
+    Doomed,
+    Golden,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Flavour {
+    pub card_color: Tint,
+    pub favorite_color: Option<Color>,
+    pub fortune: Option<Fortune>,
+    pub favorite_quote: Option<&'static str>,
+    pub sin: Option<&'static str>,
+    pub delicious: Option<&'static str>,
+    pub has_seen_the_sky: bool,
+}
+
+pub const ORDINARY_FLAVOUR: Flavour = Flavour {
+    card_color: Tint::Plain,
+    favorite_color: None,
+    fortune: None,
+    favorite_quote: None,
+    sin: None,
+    delicious: None,
+    has_seen_the_sky: false,
+};
+
+const MUTANT_FLAVOUR: Flavour = Flavour {
+    card_color: Tint::Body,
+    favorite_color: None,
+    fortune: Some(Fortune::Doomed),
+    favorite_quote: Some("OOGHHHHHHH"),
+    sin: Some("Wrath"),
+    delicious: Some("NOOOOOOOOOO"),
+    has_seen_the_sky: false,
+};
+
+const CASH_FLAVOUR: Flavour = Flavour {
+    card_color: Tint::Fixed(LIGHT_RED),
+    favorite_color: Some(GOLD),
+    fortune: Some(Fortune::Golden),
+    favorite_quote: Some("Gonna be, gonna be golden"),
+    sin: Some("Greed"),
+    delicious: Some("Yes."),
+    has_seen_the_sky: true,
+};
+
+const HOLY_FLAVOUR: Flavour = Flavour {
+    card_color: Tint::Fixed(LIGHT_YELLOW),
+    favorite_color: Some(LIGHT_YELLOW),
+    fortune: Some(Fortune::Golden),
+    favorite_quote: Some("Blessed be the deep, glub"),
+    sin: Some("Pride"),
+    delicious: Some("Forbidden"),
+    has_seen_the_sky: true,
+};
+
+const CANDY_FLAVOUR: Flavour = Flavour {
+    card_color: Tint::Fixed(PINK),
+    ..ORDINARY_FLAVOUR
+};
+
 #[derive(Debug, Clone, Copy)]
 pub struct SpeciesConfig {
     pub name: &'static str,
@@ -105,6 +184,8 @@ pub struct SpeciesConfig {
     pub can_zoomie: bool,
     pub zoomie_vertical: bool,
     pub eye_color: Option<Color>,
+    pub zoomie_bubble_color: Tint,
+    pub flavour: Flavour,
     pub sizes: [usize; 4],
     pub weight_base: [u32; 4],
     pub weight_cap: [u32; 4],
@@ -352,6 +433,8 @@ fn standard_config(
         can_zoomie: true,
         zoomie_vertical: false,
         eye_color: None,
+        zoomie_bubble_color: Tint::Plain,
+        flavour: ORDINARY_FLAVOUR,
         sizes,
         weight_base: STD_WEIGHT_BASE,
         weight_cap: STD_WEIGHT_CAP,
@@ -389,6 +472,8 @@ fn fixed_config(
         can_zoomie: true,
         zoomie_vertical: false,
         eye_color: None,
+        zoomie_bubble_color: Tint::Plain,
+        flavour: ORDINARY_FLAVOUR,
         sizes,
         weight_base: STD_WEIGHT_BASE,
         weight_cap: STD_WEIGHT_CAP,
@@ -518,6 +603,8 @@ impl FishSpecies {
                     can_zoomie: true,
                     zoomie_vertical: false,
                     eye_color: None,
+                    zoomie_bubble_color: Tint::Plain,
+                    flavour: ORDINARY_FLAVOUR,
                     sizes,
                     weight_base: STD_WEIGHT_BASE,
                     weight_cap: STD_WEIGHT_CAP,
@@ -621,6 +708,7 @@ impl FishSpecies {
                 );
                 config.habitat = Habitat::Native(TankKind::Hell);
                 config.eye_color = Some(LIGHT_YELLOW);
+                config.flavour = CASH_FLAVOUR;
                 config
             }
             Holyfish => {
@@ -638,6 +726,7 @@ impl FishSpecies {
                 config.mutatable = false;
                 config.markable = false;
                 config.eye_color = Some(LIGHT_YELLOW);
+                config.flavour = HOLY_FLAVOUR;
                 config
             }
             Botfish => {
@@ -675,6 +764,8 @@ impl FishSpecies {
                 can_zoomie: true,
                 zoomie_vertical: false,
                 eye_color: None,
+                zoomie_bubble_color: Tint::Body,
+                flavour: MUTANT_FLAVOUR,
                 sizes: LEGENDARY_SIZES,
                 weight_base: [0, 250, 0, 0],
                 weight_cap: [0; 4],
@@ -693,6 +784,8 @@ impl FishSpecies {
                 );
                 config.buyable = false;
                 config.habitat = Habitat::Native(TankKind::Candy);
+                config.zoomie_bubble_color = Tint::Fixed(PINK);
+                config.flavour = CANDY_FLAVOUR;
                 config
             }
             Unfish => SpeciesConfig {
@@ -714,6 +807,8 @@ impl FishSpecies {
                 can_zoomie: false,
                 zoomie_vertical: false,
                 eye_color: None,
+                zoomie_bubble_color: Tint::Plain,
+                flavour: ORDINARY_FLAVOUR,
                 sizes: COMMON_SIZES,
                 weight_base: [1; 4],
                 weight_cap: [0; 4],

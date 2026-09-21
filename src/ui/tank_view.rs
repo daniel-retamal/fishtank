@@ -28,7 +28,7 @@ use crate::{
         SKULL_CLOSED, SKULL_OPEN, SKULL_WIDTH, UNFISH_BODY_COLOR, UNFISH_EYE_COLOR, UnfishKind,
         is_multi_row,
     },
-    tank::{Tank, TankBackground, TankKind},
+    tank::{Tank, TankBackground},
     tanks::alien::{AlienPyramid, AlienStar, pyramid_canvas_w, pyramid_lines},
     tanks::coral::{
         CORAL_A_LINES, CORAL_A_ROWS, CORAL_COLOR, CoralAlgaeInstance, CoralStructure,
@@ -91,7 +91,7 @@ impl<'a> TankView<'a> {
 
 impl Widget for TankView<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let ritual_active = self.ritual_text.is_some() && self.tank.kind == TankKind::Void;
+        let ritual_active = self.ritual_text.is_some() && self.tank.kind.config().hosts_ritual;
 
         match &self.tank.background {
             TankBackground::Plain { plants } => {
@@ -2097,6 +2097,7 @@ mod tests {
     use super::*;
     use crate::colors::LIGHT_YELLOW;
     use crate::sprite::opaque_line;
+    use crate::tank::TankKind;
     use crate::tanks::heaven::{ANGEL, ANGEL_COLOR};
     use std::f32::consts::PI;
 
