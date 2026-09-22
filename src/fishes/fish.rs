@@ -78,6 +78,14 @@ pub struct LineSprite {
     pub body_row: usize,
 }
 
+impl LineSprite {
+    fn shut_eyes(&mut self) {
+        for cell in self.rows.iter_mut().flatten() {
+            cell.0 = crate::fishes::species::shut_eye(cell.0);
+        }
+    }
+}
+
 type LineCells = (Vec<(char, Color)>, Option<(usize, usize)>);
 
 #[derive(Clone, Copy)]
@@ -538,6 +546,12 @@ impl Fish {
         self.ability_stacks(FishSpecies::Holyfish) > 0
     }
 
+    pub fn is_alienated(&self) -> bool {
+        self.mutations
+            .as_ref()
+            .is_some_and(|record| record.has(crate::fishes::mutations::Mutation::Alienation))
+    }
+
     pub fn auto_mutate_stacks(&self) -> u32 {
         self.ability_components()
             .iter()
@@ -666,6 +680,14 @@ impl Fish {
     }
 
     pub fn line_sprite(&self) -> LineSprite {
+        let mut sprite = self.open_eyed_line_sprite();
+        if self.abduction_lock {
+            sprite.shut_eyes();
+        }
+        sprite
+    }
+
+    fn open_eyed_line_sprite(&self) -> LineSprite {
         if let Some(bot) = self.botfish_state.as_ref() {
             return self.botfish_line_sprite(bot.eye_color(), bot.tip_color());
         }

@@ -8,6 +8,16 @@ use crate::tank::TankKind;
 pub const EYE_ROUND: char = 'º';
 pub const EYE_CIRCLE: char = 'ʘ';
 pub const EYE_DEAD: char = 'Ↄ';
+pub const EYE_ROUND_SHUT: char = '¯';
+pub const EYE_CIRCLE_SHUT: char = '-';
+
+pub fn shut_eye(glyph: char) -> char {
+    match glyph {
+        EYE_ROUND => EYE_ROUND_SHUT,
+        EYE_CIRCLE => EYE_CIRCLE_SHUT,
+        other => other,
+    }
+}
 pub const TAIL_WAVE_LEFT: char = '彡';
 pub const TAIL_WAVE_RIGHT: char = 'ミ';
 pub const TAIL_EQUAL: char = '≡';

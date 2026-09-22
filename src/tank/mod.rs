@@ -25,6 +25,7 @@ mod background;
 mod blueprint;
 mod channels;
 mod fabric;
+mod mothership;
 mod mutations;
 mod netlist;
 mod relay;
@@ -38,6 +39,10 @@ pub use blueprint::{
 };
 pub use channels::{ChannelRegistry, Wires};
 pub use fabric::StageBudget;
+pub use mothership::{
+    ALIEN_INK, ALIEN_NAME_WORDS_MAX, ALIEN_NAME_WORDS_MIN, ALIEN_SOUNDS, ALIEN_TONGUE, alien_name,
+    speech_ink,
+};
 pub use netlist::{Netlist, Settling};
 pub use relay::{Link, Transmission};
 pub use world::{
@@ -54,6 +59,7 @@ pub enum TankEvent {
     UfoReleaseFish(Box<Fish>),
     UfoReleaseCow(Box<Cow>),
     UfoFinished,
+    CallHome,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -486,7 +492,7 @@ pub struct Tank {
     rad_weight_timer: f32,
     void_spawn_timer: f32,
     pub ufo_timer: f32,
-    pub ufo: Option<Ufo>,
+    pub ufos: Vec<Ufo>,
     pub(super) candy_tick: u32,
 }
 
@@ -519,7 +525,7 @@ impl Tank {
             rad_weight_timer: RAD_WEIGHT_INTERVAL_SECS,
             void_spawn_timer: sample_exponential(&mut rng, VOID_SPAWN_MEAN_SECS),
             ufo_timer: sample_exponential(&mut rng, ufo_mean_secs(kind)),
-            ufo: None,
+            ufos: Vec::new(),
             candy_tick: 0,
         }
     }
@@ -669,6 +675,16 @@ impl Tank {
         self.admit(fish, actual_name);
     }
 
+    pub fn place_fish_dropped(&mut self, mut fish: Fish) {
+        let actual_name = self.unique_name(&fish.name);
+        let max_x = (self.width as f32 - fish.display_width as f32).max(0.0);
+        let max_y = (self.height as f32 - 1.0).max(0.0);
+        fish.position.x = fish.position.x.clamp(0.0, max_x);
+        fish.position.y = fish.position.y.clamp(0.0, max_y);
+        fish.name = actual_name.clone();
+        self.admit(fish, actual_name);
+    }
+
     pub fn feed(&mut self, count: usize, food_supply: &mut u32) -> bool {
         if self.width == 0 {
             return false;
@@ -736,6 +752,7 @@ impl Tank {
         let mut events = self.tick_phantoms(dt, &mut rng);
         events.extend(self.tick_blessings(dt));
         self.tick_ufo_timer(dt, &mut rng, &mut events);
+        self.tick_calls_home(dt, &mut rng, &mut events);
         self.tick_ufo_animation(dt, &mut events);
         events
     }
@@ -749,13 +766,27 @@ impl Tank {
     }
 
     fn tick_ufo_animation(&mut self, dt: f32, events: &mut Vec<TankEvent>) {
+        use crate::entities::ufo::UfoTickResult;
+        for ufo in &mut self.ufos {
+            Self::follow_abductee(ufo, &self.fish);
+            events.push(match ufo.tick(dt) {
+                UfoTickResult::None => continue,
+                UfoTickResult::LockFish(name) => TankEvent::UfoLockFish { fish_name: name },
+                UfoTickResult::TakeFish(name) => TankEvent::UfoTakeFish { fish_name: name },
+                UfoTickResult::ReleaseFish(f) => TankEvent::UfoReleaseFish(Box::new(f)),
+                UfoTickResult::ReleaseCow(c) => TankEvent::UfoReleaseCow(Box::new(c)),
+                UfoTickResult::Finished => TankEvent::UfoFinished,
+            });
+        }
+        self.ufos.retain(|ufo| !ufo.is_done());
+    }
+
+    fn follow_abductee(ufo: &mut Ufo, fish: &[Fish]) {
         use crate::entities::ufo::{
             UFO_CENTER_COL, UFO_PAYLOAD_CONE_ROW, UFO_SHIP_ROWS, UfoPayload, UfoPhase,
-            UfoTickResult,
         };
-        let Some(ufo) = self.ufo.as_mut() else { return };
         if let UfoPayload::AbductingFish { fish_name } = &ufo.payload
-            && let Some(fish) = self.fish.iter().find(|f| &f.name == fish_name)
+            && let Some(fish) = fish.iter().find(|f| &f.name == fish_name)
         {
             let target_x =
                 fish.position.x + fish.display_width as f32 / 2.0 - UFO_CENTER_COL as f32;
@@ -772,27 +803,17 @@ impl Tank {
                 _ => {}
             }
         }
-        match ufo.tick(dt) {
-            UfoTickResult::None => {}
-            UfoTickResult::LockFish(name) => {
-                events.push(TankEvent::UfoLockFish { fish_name: name });
-            }
-            UfoTickResult::TakeFish(name) => {
-                events.push(TankEvent::UfoTakeFish { fish_name: name });
-            }
-            UfoTickResult::ReleaseFish(f) => {
-                events.push(TankEvent::UfoReleaseFish(Box::new(f)));
-            }
-            UfoTickResult::ReleaseCow(c) => {
-                events.push(TankEvent::UfoReleaseCow(Box::new(c)));
-            }
-            UfoTickResult::Finished => {
-                events.push(TankEvent::UfoFinished);
-            }
-        }
-        if ufo.is_done() {
-            self.ufo = None;
-        }
+    }
+
+    pub fn is_being_abducted(&self, name: &str) -> bool {
+        self.ufos.iter().any(|ufo| ufo.abductee() == Some(name))
+    }
+
+    pub fn incoming_fish(&self) -> usize {
+        self.ufos
+            .iter()
+            .filter(|ufo| ufo.carried_fish().is_some())
+            .count()
     }
 
     fn unique_name(&self, requested: &str) -> String {

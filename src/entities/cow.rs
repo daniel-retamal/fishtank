@@ -3,7 +3,7 @@ use std::f32::consts::TAU;
 use rand::RngExt;
 use ratatui::style::Color;
 
-use crate::colors::{BROWN, DARK_GRAY, LIGHT_GREEN, LIGHT_YELLOW, PINK, WHITE};
+use crate::colors::{AMBER, BROWN, DARK_GRAY, LIGHT_GREEN, LIGHT_YELLOW, NAVY, OLIVE, PINK, WHITE};
 use crate::entities::components::{Position, SwayState, tick_sway};
 use crate::entities::speech::SpeechBubble;
 use crate::fishes::fused::FusedComponent;
@@ -11,6 +11,7 @@ use crate::fishes::mutant::{Circadian, EyeState, MutantState, MutantTail, Mutati
 use crate::fishes::mutations::{
     MutantBacked, Mutatable, Mutation, MutationOutcome, apply_mutant_mutation,
 };
+use crate::loot::MilkVariant;
 
 pub const COW_SPRITE_ROWS: u16 = 5;
 pub const COW_BASE_TORSO: usize = 7;
@@ -23,7 +24,6 @@ const ANTENNA_BALL: char = 'o';
 const ANTENNA_LEFT_STEM: char = '\\';
 const ANTENNA_RIGHT_STEM: char = '/';
 const ANTENNA_STEM_FILL: char = '_';
-const ALIENATION_TAG: &str = "alienation";
 const COW_UDDER: char = 'w';
 const COW_BELLY: char = '-';
 const COW_TAIL_W: usize = 4;
@@ -43,6 +43,9 @@ pub enum CowVariant {
     Pink,
     LightYellow,
     LightGreen,
+    Blue,
+    Amber,
+    Olive,
 }
 
 impl CowVariant {
@@ -52,6 +55,9 @@ impl CowVariant {
         CowVariant::Pink,
         CowVariant::LightYellow,
         CowVariant::LightGreen,
+        CowVariant::Blue,
+        CowVariant::Amber,
+        CowVariant::Olive,
     ];
 
     pub fn body_color(self) -> Color {
@@ -61,6 +67,22 @@ impl CowVariant {
             CowVariant::Pink => PINK,
             CowVariant::LightYellow => LIGHT_YELLOW,
             CowVariant::LightGreen => LIGHT_GREEN,
+            CowVariant::Blue => NAVY,
+            CowVariant::Amber => AMBER,
+            CowVariant::Olive => OLIVE,
+        }
+    }
+
+    pub fn milk(self) -> MilkVariant {
+        match self {
+            CowVariant::Brown => MilkVariant::Chocolate,
+            CowVariant::WhiteBlack => MilkVariant::Plain,
+            CowVariant::Pink => MilkVariant::Strawberry,
+            CowVariant::LightYellow => MilkVariant::Vanilla,
+            CowVariant::LightGreen => MilkVariant::Alien,
+            CowVariant::Blue => MilkVariant::Blueberry,
+            CowVariant::Amber => MilkVariant::Honey,
+            CowVariant::Olive => MilkVariant::Matcha,
         }
     }
 
@@ -78,6 +100,9 @@ impl CowVariant {
             CowVariant::Pink => "pink",
             CowVariant::LightYellow => "yellow",
             CowVariant::LightGreen => "alien",
+            CowVariant::Blue => "blue",
+            CowVariant::Amber => "honey",
+            CowVariant::Olive => "matcha",
         }
     }
 
@@ -88,6 +113,9 @@ impl CowVariant {
             "pink" => Some(CowVariant::Pink),
             "yellow" | "lightyellow" => Some(CowVariant::LightYellow),
             "alien" | "lightgreen" | "green" => Some(CowVariant::LightGreen),
+            "blue" | "blueberry" | "navy" => Some(CowVariant::Blue),
+            "honey" | "amber" => Some(CowVariant::Amber),
+            "matcha" | "olive" => Some(CowVariant::Olive),
             _ => None,
         }
     }
@@ -158,6 +186,10 @@ impl Cow {
         self.speech = Some(SpeechBubble::new(text));
     }
 
+    pub fn can_speak(&self) -> bool {
+        !self.mutant.backwards
+    }
+
     pub fn torso_width(&self) -> usize {
         COW_BASE_TORSO + self.body_length
     }
@@ -190,7 +222,7 @@ impl Cow {
             || self
                 .mutations
                 .as_ref()
-                .is_some_and(|m| m.history.iter().any(|h| h == ALIENATION_TAG))
+                .is_some_and(|m| m.has(Mutation::Alienation))
     }
 
     pub fn sprite_top_offset(&self) -> u16 {

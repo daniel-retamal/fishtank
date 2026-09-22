@@ -620,12 +620,11 @@ impl App {
         }
     }
 
-    pub fn apply_plain_milk(&mut self, stock: StockItem) {
+    pub fn drink_milk(&mut self, stock: StockItem, pick: crate::consumable::MilkStatus) {
         let entry = self.inventory.entry(stock).or_insert(0);
         *entry = entry.saturating_sub(1);
         self.inventory.retain(|_, v| *v > 0);
         let mut rng = rand::rng();
-        let pick = crate::consumable::MilkStatus::random(&mut rng);
         if let Some(existing) = self.active_statuses.iter_mut().find(|s| s.kind == pick) {
             existing.stacks += 1;
             existing.time_remaining += crate::consumable::MILK_STATUS_STACK_BONUS;
@@ -2020,7 +2019,7 @@ impl App {
             .cows
             .iter()
             .enumerate()
-            .filter(|(_, c)| !c.mutant.backwards)
+            .filter(|(_, c)| c.can_speak())
             .map(|(i, _)| i)
             .collect();
         if candidates.is_empty() {
@@ -2029,7 +2028,7 @@ impl App {
         let idx = candidates[rng.random_range(0..candidates.len())];
         let cow = &mut tank.cows[idx];
         let speech = if cow.is_alienated() {
-            "GLORP VLERP!".to_string()
+            crate::tank::ALIEN_TONGUE.to_string()
         } else {
             text
         };
@@ -2239,7 +2238,7 @@ impl App {
         true
     }
 
-    fn trigger_botfish(&mut self, speech: &str, only_tank: Option<usize>) {
+    pub(super) fn trigger_botfish(&mut self, speech: &str, only_tank: Option<usize>) {
         if speech.is_empty() {
             return;
         }
@@ -2737,7 +2736,16 @@ impl App {
             commands::Action::StartCowAbduction => {
                 let mut rng = rand::rng();
                 let ct = self.current_tank;
-                self.plan_cow_delivery(ct, &mut rng);
+                let variant = crate::entities::cow::random_cow_color(&mut rng);
+                self.plan_cow_delivery(ct, variant, &mut rng);
+                true
+            }
+            commands::Action::StartCallHome => {
+                let ct = self.current_tank;
+                if !self.tanks[ct].call_home_now(&mut rand::rng()) {
+                    return false;
+                }
+                self.answer_call_home(ct);
                 true
             }
             commands::Action::Buy(target) => self.execute_buy(target),

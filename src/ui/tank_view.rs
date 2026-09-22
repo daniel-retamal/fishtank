@@ -17,7 +17,7 @@ use crate::{
     entities::food::Food,
     entities::glistening::{color_for_glisten, derive_glistening_palette},
     entities::plant::Seaweed,
-    entities::speech::{Side, Tail, build_bubble, build_speech_bubble, shift_into},
+    entities::speech::{Side, Tail, build_bubble, build_speech_bubble, is_bubble_text, shift_into},
     entities::ufo::{Ufo, ufo_sprite},
     fishes::botfish::BotfishState,
     fishes::fish::{Fish, line_extension_bands},
@@ -28,6 +28,7 @@ use crate::{
         SKULL_CLOSED, SKULL_OPEN, SKULL_WIDTH, UNFISH_BODY_COLOR, UNFISH_EYE_COLOR, UnfishKind,
         is_multi_row,
     },
+    tank::speech_ink,
     tank::{Tank, TankBackground},
     tanks::alien::{AlienPyramid, AlienStar, pyramid_canvas_w, pyramid_lines},
     tanks::coral::{
@@ -270,8 +271,11 @@ impl Widget for TankView<'_> {
                 render_floor_algae(fa, area, buf);
             }
         }
-        if let Some(ufo) = &self.tank.ufo {
+        for ufo in &self.tank.ufos {
             render_ufo(ufo, area, buf);
+            if let Some(fish) = ufo.carried_fish() {
+                render_fish(fish, area, buf);
+            }
         }
         if self.show_names {
             for fish in &self.tank.fish {
@@ -740,15 +744,15 @@ fn render_fish_speech(fish: &Fish, area: Rect, buf: &mut Buffer) {
     if bubbles.is_empty() {
         return;
     }
-    let height = bubbles.iter().map(|bubble| bubble.len() as i32).sum();
+    let height = bubbles.iter().map(|(bubble, _)| bubble.len() as i32).sum();
     let tail = fish_tail(fish, height, area);
     let mut edge = tail.bubble_top(0);
-    for bubble in &bubbles {
+    for (bubble, ink) in &bubbles {
         let rows = bubble.len() as i32;
         if tail.side == Side::Above {
             edge -= rows;
         }
-        render_fish_bubble(&tail, bubble, edge, area, buf);
+        render_fish_bubble(&tail, bubble, *ink, edge, area, buf);
         if tail.side == Side::Below {
             edge += rows;
         }
@@ -789,17 +793,18 @@ fn bubble_left(tail: &Tail, width: i32, area: Rect) -> i32 {
     )
 }
 
-fn fish_bubbles(fish: &Fish) -> Vec<Vec<String>> {
+fn fish_bubbles(fish: &Fish) -> Vec<(Vec<String>, Color)> {
     let panels = fish_displays(fish)
         .into_iter()
         .filter_map(|display| match display {
-            Display::Bubble(panel) => Some(build_bubble(&panel)),
+            Display::Bubble(panel) => Some((build_bubble(&panel), WHITE)),
             Display::Body(_) => None,
         });
+    let ink = speech_ink(fish.is_alienated(), WHITE);
     let speech = fish
         .speech
         .as_ref()
-        .map(|speech| build_speech_bubble(&speech.text));
+        .map(|speech| (build_speech_bubble(&speech.text), ink));
     panels.chain(speech).collect()
 }
 
@@ -836,10 +841,35 @@ fn surface_x(fish: &Fish, cells: i32) -> i32 {
     x + hi as i32 + 1 - cells
 }
 
-fn render_fish_bubble(tail: &Tail, bubble: &[String], top: i32, area: Rect, buf: &mut Buffer) {
-    let left = bubble_left(tail, bubble_width(bubble), area);
+fn render_fish_bubble(
+    tail: &Tail,
+    bubble: &[String],
+    ink: Color,
+    top: i32,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    let left = area.x as i32 + bubble_left(tail, bubble_width(bubble), area);
+    draw_bubble(bubble, (left, top), WHITE, ink, area, buf);
+}
+
+fn draw_bubble(
+    bubble: &[String],
+    (left, top): (i32, i32),
+    frame: Color,
+    ink: Color,
+    area: Rect,
+    buf: &mut Buffer,
+) {
     for (row, line) in bubble.iter().enumerate() {
-        render_text(line, left, top + row as i32, WHITE, area, buf);
+        for (col, ch) in line.chars().enumerate() {
+            let color = if is_bubble_text(bubble, row, col) {
+                ink
+            } else {
+                frame
+            };
+            put_cell(buf, area, left + col as i32, top + row as i32, ch, color);
+        }
     }
 }
 
@@ -2017,11 +2047,8 @@ fn draw_speech_bubble(cow: &Cow, text: &str, leftmost_eye_col: i32, area: Rect, 
     };
     let left = area.x as i32 + bubble_left(&tail, bubble_width(&bubble), area);
     let bubble_top = tail.bubble_top(bubble.len() as i32);
-    for (li, line) in bubble.iter().enumerate() {
-        for (ci, ch) in line.chars().enumerate() {
-            put_cell(buf, area, left + ci as i32, bubble_top + li as i32, ch, fg);
-        }
-    }
+    let ink = speech_ink(cow.is_alienated(), fg);
+    draw_bubble(&bubble, (left, bubble_top), fg, ink, area, buf);
     for (x, y) in tail.cells() {
         put_cell(buf, area, x, y, tail.glyph(), fg);
     }
@@ -2142,6 +2169,92 @@ mod tests {
             panic!("a heaven");
         };
         bg
+    }
+
+    fn find_cells(buf: &Buffer, needle: &str) -> Option<(u16, u16)> {
+        let width = needle.chars().count() as u16;
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width.saturating_sub(width) {
+                let found: String = (x..x + width).map(|col| buf[(col, y)].symbol()).collect();
+                if found == needle {
+                    return Some((x, y));
+                }
+            }
+        }
+        None
+    }
+
+    fn speaking_tank(alien: bool) -> Tank {
+        use crate::fishes::mutations::{Mutation, apply_mutation};
+        let mut rng = rand::rng();
+        let mut tank = Tank::new("Fishtank".to_string(), TankKind::Base, &[]);
+        tank.resize(80, 30, &[]);
+        tank.spawn_fish(FishSpecies::Merluza, "Zed".to_string(), &mut rng);
+        let fish = &mut tank.fish[0];
+        if alien {
+            apply_mutation(fish, Mutation::Alienation, &mut rng);
+        }
+        fish.position.x = 30.0;
+        fish.position.y = 15.0;
+        fish.say("hello there".to_string());
+        tank
+    }
+
+    #[test]
+    fn an_alien_speaks_in_light_green_inside_a_white_bubble() {
+        let buf = render_tank(&speaking_tank(true), false);
+        let (x, y) = find_cells(&buf, "hello there").expect("the bubble is drawn");
+        assert!((x..x + 11).all(|col| buf[(col, y)].fg == crate::tank::ALIEN_INK));
+        assert_eq!(buf[(x - 2, y)].fg, WHITE, "the frame keeps its colour");
+    }
+
+    #[test]
+    fn an_earthly_fish_speaks_in_white() {
+        let buf = render_tank(&speaking_tank(false), false);
+        let (x, y) = find_cells(&buf, "hello there").expect("the bubble is drawn");
+        assert_eq!(buf[(x, y)].fg, WHITE);
+    }
+
+    #[test]
+    fn an_alien_cow_speaks_in_light_green() {
+        let mut rng = rand::rng();
+        let mut tank = Tank::new("Fishtank".to_string(), TankKind::Base, &[]);
+        tank.resize(80, 30, &[]);
+        tank.spawn_cow(crate::entities::cow::CowVariant::LightGreen, &mut rng);
+        tank.cows[0].position.x = 30.0;
+        tank.cows[0].say("moo".to_string());
+        let buf = render_tank(&tank, false);
+        let (x, y) = find_cells(&buf, "moo").expect("the bubble is drawn");
+        assert_eq!(buf[(x, y)].fg, crate::tank::ALIEN_INK);
+    }
+
+    #[test]
+    fn a_fish_in_a_ufo_beam_is_drawn_with_its_eyes_shut() {
+        use crate::entities::ufo::{UFO_SPRITE_HEIGHT, Ufo};
+        let mut tank = Tank::new("Fishtank".to_string(), TankKind::Base, &[]);
+        tank.resize(80, 30, &[]);
+        let fish = Fish::new(
+            FishSpecies::Merluza,
+            "Zed".to_string(),
+            0.0,
+            0.0,
+            &mut rand::rng(),
+        );
+        let target_y = (tank.height as usize - UFO_SPRITE_HEIGHT) as f32;
+        let mut ufo = Ufo::new_drop_fish(20.0, target_y, fish);
+        ufo.y = target_y;
+        ufo.tick(0.0);
+        tank.ufos.push(ufo);
+        let buf = render_tank(&tank, false);
+        let carried = tank
+            .ufos
+            .first()
+            .and_then(Ufo::carried_fish)
+            .expect("in the beam");
+        let row = carried.position.y as u16;
+        let drawn = row_text(&buf, row);
+        assert!(drawn.contains('¯'), "the shut eye is drawn: {drawn}");
+        assert!(!drawn.contains('º'), "a carried fish sleeps: {drawn}");
     }
 
     #[test]

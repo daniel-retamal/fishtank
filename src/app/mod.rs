@@ -421,32 +421,18 @@ impl App {
     }
 
     fn cow_counts_in(tank: &Tank) -> CowCounts {
-        use crate::entities::cow::CowVariant;
-        let mut c = CowCounts {
-            plain: 0,
-            chocolate: 0,
-            strawberry: 0,
-            vanilla: 0,
-            alien: 0,
-            irradiated: 0,
-        };
+        let mut counts = CowCounts::default();
         let irradiates_milk = tank.kind.config().irradiates_milk;
         for cow in &tank.cows {
             if irradiates_milk {
-                c.irradiated += cow.milk_yield();
-            } else {
-                for variant in cow.milk_components() {
-                    match variant {
-                        CowVariant::Brown => c.chocolate += 1,
-                        CowVariant::WhiteBlack => c.plain += 1,
-                        CowVariant::Pink => c.strawberry += 1,
-                        CowVariant::LightYellow => c.vanilla += 1,
-                        CowVariant::LightGreen => c.alien += 1,
-                    }
-                }
+                counts.add(crate::loot::MilkVariant::Irradiated, cow.milk_yield());
+                continue;
+            }
+            for variant in cow.milk_components() {
+                counts.add(variant.milk(), 1);
             }
         }
-        c
+        counts
     }
 
     fn devils_luck(&self) -> u32 {
@@ -528,11 +514,11 @@ impl App {
                 }
                 self.open_naming_popup(kind);
             }
-            ConsumableKind::Milk(crate::loot::MilkVariant::Plain) => {
-                self.apply_plain_milk(stock);
-            }
             ConsumableKind::Milk(variant) => {
-                return self.open_consume_picker(ConsumeTarget::Milk(variant), source);
+                let Some(status) = variant.status() else {
+                    return self.open_consume_picker(ConsumeTarget::Milk(variant), source);
+                };
+                self.drink_milk(stock, status);
             }
             ConsumableKind::Part(part) => {
                 return self.open_consume_picker(ConsumeTarget::Part(part), source);
@@ -716,9 +702,7 @@ impl App {
                         self.handle_ufo_take_fish(i, &fish_name);
                     }
                     TankEvent::UfoReleaseFish(fish) => {
-                        let mut rng = rand::rng();
-                        let name = fish.name.clone();
-                        self.tanks[i].place_fish(*fish, name, &mut rng);
+                        self.tanks[i].place_fish_dropped(*fish);
                     }
                     TankEvent::UfoReleaseCow(cow) => {
                         self.tanks[i].place_cow_dropped(*cow);
@@ -726,6 +710,7 @@ impl App {
                             self.tanks[i].cow_abduction_count.saturating_add(1);
                     }
                     TankEvent::UfoFinished => {}
+                    TankEvent::CallHome => self.answer_call_home(i),
                 }
             }
         }
@@ -1030,12 +1015,12 @@ impl App {
     }
 
     fn handle_ufo_timer_fired(&mut self, source_idx: usize) {
-        if self.tanks[source_idx].ufo.is_some() {
-            return;
-        }
         let mut rng = rand::rng();
         match self.tanks[source_idx].kind.config().ufo_role {
-            Some(UfoRole::DeliversCows) => self.plan_cow_delivery(source_idx, &mut rng),
+            Some(UfoRole::DeliversCows) => {
+                let variant = crate::entities::cow::random_cow_color(&mut rng);
+                self.plan_cow_delivery(source_idx, variant, &mut rng);
+            }
             Some(UfoRole::AbductsAtNight) if self.tanks[source_idx].background.is_night() => {
                 self.plan_abduction(source_idx, &mut rng);
             }
@@ -1043,12 +1028,58 @@ impl App {
         }
     }
 
-    fn plan_cow_delivery(&mut self, tank_idx: usize, rng: &mut impl RngExt) {
-        use crate::entities::cow::{Cow, CowVariant, random_cow_color};
+    pub(super) fn answer_call_home(&mut self, tank_idx: usize) {
+        use crate::loot::Companion;
+        self.trigger_botfish(crate::tank::ALIEN_TONGUE, Some(tank_idx));
+        if !self.tanks[tank_idx].answers_call_home() {
+            return;
+        }
+        let mut rng = rand::rng();
+        match Companion::roll(self.tanks[tank_idx].kind, &mut rng) {
+            Companion::Fish(species) => {
+                let name = crate::tank::alien_name(&mut rng);
+                let mut fish = Fish::new(species, name, 0.0, 0.0, &mut rng);
+                alienate(&mut fish, &mut rng);
+                self.drop_fish(tank_idx, fish, &mut rng);
+            }
+            Companion::Cow(variant) => self.plan_cow_delivery(tank_idx, variant, &mut rng),
+        }
+    }
+
+    fn drop_fish(&mut self, dest_idx: usize, fish: Fish, rng: &mut impl RngExt) {
+        use crate::entities::ufo::{UFO_SPRITE_HEIGHT, UFO_SPRITE_WIDTH, Ufo};
+        const DROP_X_MIN: i32 = 0;
+        const DROP_X_MAX_FLOOR: i32 = DROP_X_MIN + 1;
+        if dest_idx != self.current_tank {
+            let name = fish.name.clone();
+            self.tanks[dest_idx].place_fish(fish, name, rng);
+            return;
+        }
+        let dest = &self.tanks[dest_idx];
+        let max_x = (dest.width as i32 - UFO_SPRITE_WIDTH as i32).max(DROP_X_MAX_FLOOR);
+        let x = rng.random_range(DROP_X_MIN..max_x) as f32;
+        let target_y = (dest.height as f32 - UFO_SPRITE_HEIGHT as f32).max(0.0);
+        self.tanks[dest_idx]
+            .ufos
+            .push(Ufo::new_drop_fish(x, target_y, fish));
+    }
+
+    fn alienate_on_arrival(&self, dest_idx: usize, fish: &mut Fish, rng: &mut impl RngExt) {
+        if self.tanks[dest_idx].kind.is_ufo_base() {
+            alienate(fish, rng);
+        }
+    }
+
+    fn plan_cow_delivery(
+        &mut self,
+        tank_idx: usize,
+        variant: crate::entities::cow::CowVariant,
+        rng: &mut impl RngExt,
+    ) {
+        use crate::entities::cow::Cow;
         use crate::entities::ufo::{UFO_CENTER_COL, Ufo};
         const UFO_BAY_LEFT_EYE_COL: i32 = 7;
         const COW_HEAD_EYE_OFFSET: i32 = 1;
-        let variant: CowVariant = random_cow_color(rng);
         let tank = &mut self.tanks[tank_idx];
         let name = tank.unique_cow_name("Vaquita");
         let cow_floor = (tank.height as f32) - (Cow::sprite_height() as f32);
@@ -1069,7 +1100,8 @@ impl App {
                 (tank.height as f32 - crate::entities::ufo::UFO_SPRITE_HEIGHT as f32).max(0.0);
             let ufo_x = x + COW_HEAD_EYE_OFFSET - UFO_BAY_LEFT_EYE_COL;
             let _ = UFO_CENTER_COL;
-            tank.ufo = Some(Ufo::new_drop_cow(ufo_x as f32, target_y, cow));
+            tank.ufos
+                .push(Ufo::new_drop_cow(ufo_x as f32, target_y, cow));
         } else {
             tank.place_cow_dropped(cow);
             tank.cow_abduction_count = tank.cow_abduction_count.saturating_add(1);
@@ -1087,11 +1119,12 @@ impl App {
         if self.tanks[source_idx].kind.is_ufo_base() {
             return;
         }
-        let abductable: Vec<usize> = self.tanks[source_idx]
+        let source = &self.tanks[source_idx];
+        let abductable: Vec<usize> = source
             .fish
             .iter()
             .enumerate()
-            .filter(|(_, f)| f.can_be_abducted())
+            .filter(|(_, f)| f.can_be_abducted() && !source.is_being_abducted(&f.name))
             .map(|(i, _)| i)
             .collect();
         if abductable.is_empty() {
@@ -1107,7 +1140,6 @@ impl App {
         };
 
         let source_active = source_idx == self.current_tank;
-        let dest_active = dest_idx == self.current_tank;
 
         if source_idx == dest_idx {
             return;
@@ -1121,26 +1153,18 @@ impl App {
                 fish_ref.position.x + fish_ref.display_width as f32 / 2.0 - UFO_CENTER_COL as f32;
             let target_y =
                 (fish_ref.position.y - (UFO_SHIP_ROWS + UFO_PAYLOAD_CONE_ROW) as f32).max(0.0);
-            self.tanks[source_idx].ufo = Some(Ufo::new_abduct(fx, target_y, fish_name.clone()));
+            self.tanks[source_idx]
+                .ufos
+                .push(Ufo::new_abduct(fx, target_y, fish_name.clone()));
             self.pending_ufo_dest.insert(fish_name, dest_idx);
-        } else if dest_active {
-            let fish = self.take_for_abduction(source_idx, pick);
-            let dest = &self.tanks[dest_idx];
-            let max_x = (dest.width as i32 - 20).max(6);
-            let x = rng.random_range(5..max_x) as f32;
-            let target_y =
-                (dest.height as f32 - 6.0 - crate::entities::ufo::UFO_SPRITE_HEIGHT as f32)
-                    .max(0.0);
-            self.tanks[dest_idx].ufo = Some(Ufo::new_drop_fish(x, target_y, fish));
         } else {
-            let fish = self.take_for_abduction(source_idx, pick);
-            let name = fish.name.clone();
-            self.tanks[dest_idx].place_fish(fish, name, rng);
+            let mut fish = self.take_for_abduction(source_idx, pick);
+            self.alienate_on_arrival(dest_idx, &mut fish, rng);
+            self.drop_fish(dest_idx, fish, rng);
         }
     }
 
     fn handle_ufo_take_fish(&mut self, tank_idx: usize, fish_name: &str) {
-        use crate::fishes::mutations::{Mutation, apply_mutation_to_fish};
         let pos = match self.tanks[tank_idx]
             .fish
             .iter()
@@ -1155,16 +1179,8 @@ impl App {
         let name = fish.name.clone();
         let mut rng = rand::rng();
         let dest = dest_idx.unwrap_or(tank_idx);
-        self.tanks[dest].place_fish(fish, name.clone(), &mut rng);
-        if self.tanks[dest].kind.is_ufo_base()
-            && let Some(p) = self.tanks[dest].fish.iter().position(|f| f.name == name)
-        {
-            apply_mutation_to_fish(
-                &mut self.tanks[dest].fish[p],
-                Mutation::Alienation,
-                &mut rng,
-            );
-        }
+        self.alienate_on_arrival(dest, &mut fish, &mut rng);
+        self.tanks[dest].place_fish(fish, name, &mut rng);
     }
 
     fn choose_abduction_dest(&self, source_idx: usize) -> Option<usize> {
@@ -1231,6 +1247,11 @@ impl App {
             _ => {}
         }
     }
+}
+
+fn alienate(fish: &mut Fish, rng: &mut impl RngExt) {
+    use crate::fishes::mutations::{Mutation, apply_mutation_to_fish};
+    apply_mutation_to_fish(fish, Mutation::Alienation, rng);
 }
 
 fn pick_cow_drop_x(

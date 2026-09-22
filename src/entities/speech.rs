@@ -28,6 +28,14 @@ const FIRST_LINE_EDGES: (char, char) = ('/', '\\');
 const MIDDLE_LINE_EDGES: (char, char) = ('|', '|');
 const LAST_LINE_EDGES: (char, char) = ('\\', '/');
 
+const BUBBLE_TEXT_INDENT: usize = 2;
+
+pub fn is_bubble_text(bubble: &[String], row: usize, col: usize) -> bool {
+    let width = bubble.first().map_or(0, |top| top.chars().count());
+    let body = 1..bubble.len().saturating_sub(1);
+    body.contains(&row) && col >= BUBBLE_TEXT_INDENT && col + BUBBLE_TEXT_INDENT < width
+}
+
 pub fn build_speech_bubble(text: &str) -> Vec<String> {
     build_bubble(&[text])
 }

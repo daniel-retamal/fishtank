@@ -5,7 +5,11 @@ use unicode_width::UnicodeWidthChar;
 use crate::entities::components::BlinkTimer;
 pub use crate::entities::glistening::GlisteningMode;
 use crate::fishes::fused::FusedComponent;
-use crate::fishes::species::{EYE_CIRCLE, EYE_ROUND, TAIL_EQUAL, TAIL_WAVE_LEFT, TAIL_WAVE_RIGHT};
+use crate::fishes::mutations::Mutation;
+use crate::fishes::species::{
+    EYE_CIRCLE, EYE_CIRCLE_SHUT, EYE_ROUND, EYE_ROUND_SHUT, TAIL_EQUAL, TAIL_WAVE_LEFT,
+    TAIL_WAVE_RIGHT,
+};
 use crate::sprite::{BodyExtension, Feet};
 
 const WAVE_THRESHOLD: f32 = 0.8;
@@ -95,11 +99,19 @@ impl EyeState {
     }
 
     pub fn small_char(&self) -> char {
-        if self.blink.is_open { EYE_ROUND } else { '¯' }
+        if self.blink.is_open {
+            EYE_ROUND
+        } else {
+            EYE_ROUND_SHUT
+        }
     }
 
     pub fn big_char(&self) -> char {
-        if self.blink.is_open { EYE_CIRCLE } else { '-' }
+        if self.blink.is_open {
+            EYE_CIRCLE
+        } else {
+            EYE_CIRCLE_SHUT
+        }
     }
 
     pub fn is_open(&self) -> bool {
@@ -125,6 +137,10 @@ impl MutationRecord {
             history: Vec::new(),
             partners: vec![parent_name.to_string()],
         }
+    }
+
+    pub fn has(&self, mutation: Mutation) -> bool {
+        self.history.iter().any(|token| token == mutation.token())
     }
 }
 

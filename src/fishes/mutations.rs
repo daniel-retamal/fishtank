@@ -161,7 +161,7 @@ impl Mutation {
     }
 
     pub fn auto_selectable(self) -> bool {
-        !matches!(self, Mutation::Strawberry)
+        !matches!(self, Mutation::Strawberry | Mutation::Alienation)
     }
 }
 

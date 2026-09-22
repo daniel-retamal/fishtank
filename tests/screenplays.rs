@@ -2,7 +2,7 @@ use std::path::Path;
 
 use fishtank::{
     fishes::{parts::Part, species::FishSpecies},
-    loot::{CashValue, ConsumableKind, ItemKind, LootKind},
+    loot::{CashValue, ConsumableKind, ItemKind, LootKind, MilkVariant},
     testing::{
         DEFAULT_COLS, DEFAULT_ROWS, Reel, Still, TerminalSize, play_name, plays_in, review, stage,
     },
@@ -121,6 +121,28 @@ fn a_catch_card_on_a_small_screen_wraps_its_art_above_the_text_and_keeps_its_hin
         }
     }
     reel.save(Path::new(REEL_DIR), "small-catch-cards")
+        .expect("the reel is writable");
+    let report = reel.flaw_report();
+    assert!(report.is_empty(), "{report}");
+}
+
+#[test]
+fn every_milk_catch_card_draws_whole() {
+    let mut reel = Reel::new();
+    for &milk in MilkVariant::ALL {
+        reel.push(card(
+            &format!("Catch · {}", milk.display_name()),
+            ConsumableKind::Milk(milk),
+        ));
+        for size in SMALL_CARD_SIZES {
+            reel.push(card_at(
+                &format!("{} · {}×{}", milk.display_name(), size.0, size.1),
+                LootKind::Item(ItemKind::Consumable(ConsumableKind::Milk(milk))),
+                size,
+            ));
+        }
+    }
+    reel.save(Path::new(REEL_DIR), "milk-catch-cards")
         .expect("the reel is writable");
     let report = reel.flaw_report();
     assert!(report.is_empty(), "{report}");

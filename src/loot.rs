@@ -2,9 +2,11 @@ use rand::RngExt;
 use ratatui::style::Color;
 
 use crate::colors::{
-    BLUE, BROWN, BROWN_DARK, CREAM, DARK_GRAY, GRAY, GREEN, LIGHT_GREEN, LIGHT_MAGENTA,
-    LIGHT_YELLOW, ORANGE, PINK, PURPLE_LIGHT, RED, SILVER, STEEL, TAN, TERRACOTTA, WHITE,
+    AMBER_LIGHT, BLUE, BROWN, BROWN_DARK, CREAM, DARK_GRAY, GRAY, GREEN, LIGHT_GREEN,
+    LIGHT_MAGENTA, LIGHT_YELLOW, NAVY_LIGHT, OLIVE_LIGHT, ORANGE, PINK, PURPLE_LIGHT, RED, SILVER,
+    STEEL, TAN, TERRACOTTA, WHITE,
 };
+use crate::consumable::MilkStatus;
 use crate::economy::{Purchasable, Rarity, Sellable};
 use crate::entities::cow::CowVariant;
 use crate::entities::glistening::GlisteningMode;
@@ -107,6 +109,12 @@ impl JunkSprite {
 
 const PLAIN_MILK_NAME: &str = "Milk";
 const PLAIN_MILK_DESCRIPTION: &str = "The Pale continues to consume. The liquid in front of you has their face. Bless yourself in the same ivory fire. Better fishing";
+const BLUEBERRY_MILK_NAME: &str = "Blueberry Milk";
+const BLUEBERRY_MILK_DESCRIPTION: &str = "Anthocyanin-grade ocular compliance fluid. The Blue watches the water for you now. Do not blink. It has never needed to. Better fishing";
+const HONEY_MILK_NAME: &str = "Honey Milk";
+const HONEY_MILK_DESCRIPTION: &str = "A land flowing with milk and honey, subscription pending. The Hive wills through you. Hold the line, and the line holds you. Better fishing";
+const MATCHA_MILK_NAME: &str = "Matcha Milk";
+const MATCHA_MILK_DESCRIPTION: &str = "Stone-ground, shade-grown reflex concentrate. It saw the bite before the bite saw you. Better fishing";
 const CHOCOLATE_MILK_NAME: &str = "Chocolate Milk";
 const CHOCOLATE_MILK_DESCRIPTION: &str = "Hyper-dense lipid-maximizing slurry. Overrides the baseline biological density caps for absolute mass extraction. Numbers must go up. Increase fish's weight";
 const STRAWBERRY_MILK_NAME: &str = "Strawberry Milk";
@@ -121,6 +129,9 @@ const IRRADIATED_MILK_DESCRIPTION: &str = "Rage against the carcase. Entfesselt 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MilkVariant {
     Plain,
+    Blueberry,
+    Honey,
+    Matcha,
     Chocolate,
     Strawberry,
     Vanilla,
@@ -131,6 +142,9 @@ pub enum MilkVariant {
 impl MilkVariant {
     pub const ALL: &'static [MilkVariant] = &[
         MilkVariant::Plain,
+        MilkVariant::Blueberry,
+        MilkVariant::Honey,
+        MilkVariant::Matcha,
         MilkVariant::Chocolate,
         MilkVariant::Strawberry,
         MilkVariant::Vanilla,
@@ -141,6 +155,9 @@ impl MilkVariant {
     pub fn display_name(self) -> &'static str {
         match self {
             MilkVariant::Plain => PLAIN_MILK_NAME,
+            MilkVariant::Blueberry => BLUEBERRY_MILK_NAME,
+            MilkVariant::Honey => HONEY_MILK_NAME,
+            MilkVariant::Matcha => MATCHA_MILK_NAME,
             MilkVariant::Chocolate => CHOCOLATE_MILK_NAME,
             MilkVariant::Strawberry => STRAWBERRY_MILK_NAME,
             MilkVariant::Vanilla => VANILLA_MILK_NAME,
@@ -152,6 +169,9 @@ impl MilkVariant {
     pub fn body_color(self) -> Color {
         match self {
             MilkVariant::Plain => WHITE,
+            MilkVariant::Blueberry => NAVY_LIGHT,
+            MilkVariant::Honey => AMBER_LIGHT,
+            MilkVariant::Matcha => OLIVE_LIGHT,
             MilkVariant::Chocolate => BROWN_DARK,
             MilkVariant::Strawberry => PINK,
             MilkVariant::Vanilla => LIGHT_YELLOW,
@@ -163,6 +183,9 @@ impl MilkVariant {
     pub fn description(self) -> &'static str {
         match self {
             MilkVariant::Plain => PLAIN_MILK_DESCRIPTION,
+            MilkVariant::Blueberry => BLUEBERRY_MILK_DESCRIPTION,
+            MilkVariant::Honey => HONEY_MILK_DESCRIPTION,
+            MilkVariant::Matcha => MATCHA_MILK_DESCRIPTION,
             MilkVariant::Chocolate => CHOCOLATE_MILK_DESCRIPTION,
             MilkVariant::Strawberry => STRAWBERRY_MILK_DESCRIPTION,
             MilkVariant::Vanilla => VANILLA_MILK_DESCRIPTION,
@@ -171,14 +194,17 @@ impl MilkVariant {
         }
     }
 
-    pub fn cow_variant(self) -> CowVariant {
+    pub fn status(self) -> Option<MilkStatus> {
         match self {
-            MilkVariant::Plain => CowVariant::WhiteBlack,
-            MilkVariant::Chocolate => CowVariant::Brown,
-            MilkVariant::Strawberry => CowVariant::Pink,
-            MilkVariant::Vanilla => CowVariant::LightYellow,
-            MilkVariant::Alien => CowVariant::LightGreen,
-            MilkVariant::Irradiated => CowVariant::LightGreen,
+            MilkVariant::Plain => Some(MilkStatus::PhysicalInstrument),
+            MilkVariant::Blueberry => Some(MilkStatus::VisualCalculus),
+            MilkVariant::Honey => Some(MilkStatus::Volition),
+            MilkVariant::Matcha => Some(MilkStatus::ReactionSpeed),
+            MilkVariant::Chocolate
+            | MilkVariant::Strawberry
+            | MilkVariant::Vanilla
+            | MilkVariant::Alien
+            | MilkVariant::Irradiated => None,
         }
     }
 }
@@ -1108,6 +1134,13 @@ impl LootPool {
         pool
     }
 
+    fn species_weights(&self) -> impl Iterator<Item = (u32, FishSpecies)> + '_ {
+        self.slots.iter().filter_map(|&(weight, slot)| match slot {
+            PoolSlot::Species(species) => Some((weight, species)),
+            _ => None,
+        })
+    }
+
     pub fn with_bait(mut self, stacks: u32) -> Self {
         if stacks == 0 {
             return self;
@@ -1173,6 +1206,29 @@ impl LootPool {
     }
 }
 
+const COMPANION_COW_RARITY: Rarity = Rarity::Common;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Companion {
+    Fish(FishSpecies),
+    Cow(CowVariant),
+}
+
+impl Companion {
+    pub fn roll(kind: TankKind, rng: &mut impl RngExt) -> Self {
+        let mut table: Vec<(u32, Companion)> = LootPool::default_pool()
+            .with_native(kind)
+            .species_weights()
+            .map(|(weight, species)| (weight, Companion::Fish(species)))
+            .collect();
+        table.push((
+            COMPANION_COW_RARITY.catch_weight(),
+            Companion::Cow(CowVariant::random(rng)),
+        ));
+        roll_weighted(&table, rng)
+    }
+}
+
 const MILK_DROP_ALPHA: f32 = 0.143;
 
 fn milk_drop_probability(cow_count: u32) -> f32 {
@@ -1219,30 +1275,22 @@ fn roll_cash_with_luck(rng: &mut impl RngExt, devils_luck: u32) -> CashValue {
     roll_weighted(&shifted, rng)
 }
 
+#[derive(Default)]
 pub struct CowCounts {
-    pub plain: u32,
-    pub chocolate: u32,
-    pub strawberry: u32,
-    pub vanilla: u32,
-    pub alien: u32,
-    pub irradiated: u32,
+    by_milk: std::collections::HashMap<MilkVariant, u32>,
 }
 
 impl CowCounts {
+    pub fn add(&mut self, variant: MilkVariant, cows: u32) {
+        *self.by_milk.entry(variant).or_insert(0) += cows;
+    }
+
     pub fn of(&self, variant: MilkVariant) -> u32 {
-        match variant {
-            MilkVariant::Plain => self.plain,
-            MilkVariant::Chocolate => self.chocolate,
-            MilkVariant::Strawberry => self.strawberry,
-            MilkVariant::Vanilla => self.vanilla,
-            MilkVariant::Alien => self.alien,
-            MilkVariant::Irradiated => self.irradiated,
-        }
+        self.by_milk.get(&variant).copied().unwrap_or(0)
     }
 
     pub fn is_empty(&self) -> bool {
-        self.plain + self.chocolate + self.strawberry + self.vanilla + self.alien + self.irradiated
-            == 0
+        self.by_milk.values().all(|&cows| cows == 0)
     }
 }
 

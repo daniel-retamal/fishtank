@@ -97,8 +97,49 @@ impl Ufo {
         Self::empty(x, target_y, UfoPayload::AbductingFish { fish_name })
     }
 
-    pub fn new_drop_fish(x: f32, target_y: f32, fish: Fish) -> Self {
-        Self::empty(x, target_y, UfoPayload::DroppingFish(Box::new(fish)))
+    pub fn new_drop_fish(x: f32, target_y: f32, mut fish: Fish) -> Self {
+        fish.abduction_lock = true;
+        let mut ufo = Self::empty(x, target_y, UfoPayload::DroppingFish(Box::new(fish)));
+        ufo.carry();
+        ufo
+    }
+
+    fn carry(&mut self) {
+        let (x, y) = self.payload_world_pos();
+        if let UfoPayload::DroppingFish(fish) = &mut self.payload {
+            fish.position.x = x - (fish.display_width / 2) as f32;
+            fish.position.y = y;
+        }
+    }
+
+    pub fn abductee(&self) -> Option<&str> {
+        match &self.payload {
+            UfoPayload::AbductingFish { fish_name } if !fish_name.is_empty() => Some(fish_name),
+            _ => None,
+        }
+    }
+
+    pub fn carried_fish(&self) -> Option<&Fish> {
+        match &self.payload {
+            UfoPayload::DroppingFish(fish) => Some(fish),
+            _ => None,
+        }
+    }
+
+    fn release_carried_fish(&mut self) -> Option<UfoTickResult> {
+        let placeholder = UfoPayload::AbductingFish {
+            fish_name: String::new(),
+        };
+        match std::mem::replace(&mut self.payload, placeholder) {
+            UfoPayload::DroppingFish(mut fish) => {
+                fish.abduction_lock = false;
+                Some(UfoTickResult::ReleaseFish(*fish))
+            }
+            other => {
+                self.payload = other;
+                None
+            }
+        }
     }
 
     pub fn new_drop_cow(x: f32, target_y: f32, cow: Cow) -> Self {
@@ -113,12 +154,18 @@ impl Ufo {
         }
         self.glisten_phase = (self.glisten_phase + CONE_GLISTEN_SPEED * dt) % 1000.0;
 
+        let result = self.advance(dt);
+        self.carry();
+        result
+    }
+
+    fn advance(&mut self, dt: f32) -> UfoTickResult {
         match &mut self.phase {
             UfoPhase::Descending => {
                 self.y += DESCENT_SPEED * dt;
                 if self.y >= self.target_y {
                     self.y = self.target_y;
-                    if self.is_carrying_cow() {
+                    if self.is_delivering() {
                         self.phase = UfoPhase::Holding {
                             ticks_left: HOLD_TIME_SECS,
                         };
@@ -158,10 +205,9 @@ impl Ufo {
                             fish_name: String::new(),
                         },
                     ) {
-                        UfoPayload::DroppingFish(f) => Some(UfoTickResult::ReleaseFish(*f)),
                         UfoPayload::DroppingCow(c) => Some(UfoTickResult::ReleaseCow(*c)),
-                        UfoPayload::AbductingFish { fish_name } => {
-                            self.payload = UfoPayload::AbductingFish { fish_name };
+                        kept => {
+                            self.payload = kept;
                             None
                         }
                     };
@@ -202,6 +248,9 @@ impl Ufo {
                     }
                     if *rows_left == 0 {
                         self.phase = UfoPhase::Ascending;
+                        if let Some(released) = self.release_carried_fish() {
+                            return released;
+                        }
                     }
                 }
             }
@@ -224,7 +273,7 @@ impl Ufo {
     pub fn cone_rows(&self) -> usize {
         match &self.phase {
             UfoPhase::Descending => {
-                if self.is_carrying_cow() {
+                if self.is_delivering() {
                     UFO_CONE_ROWS_MAX
                 } else {
                     0
@@ -244,8 +293,11 @@ impl Ufo {
         }
     }
 
-    pub fn is_carrying_cow(&self) -> bool {
-        matches!(self.payload, UfoPayload::DroppingCow(_))
+    pub fn is_delivering(&self) -> bool {
+        matches!(
+            self.payload,
+            UfoPayload::DroppingCow(_) | UfoPayload::DroppingFish(_)
+        )
     }
 
     pub fn is_following_phase(&self) -> bool {
@@ -430,4 +482,58 @@ fn cow_bay_interior_mask() -> Vec<Vec<bool>> {
                 .collect()
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fishes::species::FishSpecies;
+
+    const FRAME_SECS: f32 = 1.0 / 30.0;
+    const TICK_BUDGET: usize = 10_000;
+    const TARGET_Y: f32 = 10.0;
+
+    fn a_fish() -> Fish {
+        Fish::new(
+            FishSpecies::Merluza,
+            "Zed".to_string(),
+            0.0,
+            0.0,
+            &mut rand::rng(),
+        )
+    }
+
+    #[test]
+    fn a_fish_rides_down_an_open_beam_and_is_let_go_only_once_the_beam_is_back() {
+        let mut ufo = Ufo::new_drop_fish(20.0, TARGET_Y, a_fish());
+        for _ in 0..TICK_BUDGET {
+            let carried = ufo
+                .carried_fish()
+                .map(|fish| (fish.abduction_lock, fish.position.clone()));
+            let cone = ufo.cone_rows();
+            let (ufo_x, ufo_y) = ufo.payload_world_pos();
+            if let Some((locked, position)) = carried {
+                assert!(locked, "a carried fish is held");
+                assert_eq!(position.y, ufo_y, "it rides the payload row");
+                assert!((position.x - ufo_x).abs() <= UFO_CENTER_COL as f32);
+                if matches!(ufo.phase, UfoPhase::Descending) {
+                    assert_eq!(cone, UFO_CONE_ROWS_MAX, "the beam is open on the way down");
+                }
+            }
+            if let UfoTickResult::ReleaseFish(fish) = ufo.tick(FRAME_SECS) {
+                assert_eq!(
+                    ufo.cone_rows(),
+                    0,
+                    "the beam is back before the fish is let go"
+                );
+                assert!(!fish.abduction_lock, "a released fish is free");
+                assert_eq!(
+                    fish.position.y,
+                    TARGET_Y + (UFO_SHIP_ROWS + UFO_PAYLOAD_CONE_ROW) as f32
+                );
+                return;
+            }
+        }
+        panic!("the fish was never released");
+    }
 }

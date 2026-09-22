@@ -25,7 +25,7 @@ pub const VOLITION_ALPHA: f32 = 0.9;
 pub const PHYSICAL_INSTRUMENT_ALPHA: f32 = 0.9;
 pub const REACTION_SPEED_ALPHA: f32 = 0.9;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum MilkStatus {
     VisualCalculus,
     Volition,
@@ -40,10 +40,6 @@ impl MilkStatus {
         MilkStatus::PhysicalInstrument,
         MilkStatus::ReactionSpeed,
     ];
-
-    pub fn random(rng: &mut impl RngExt) -> Self {
-        Self::ALL[rng.random_range(0..Self::ALL.len())]
-    }
 
     pub fn display_name(self) -> &'static str {
         match self {
@@ -127,7 +123,7 @@ impl ConsumeTarget {
 
 pub fn apply_milk_to_fish(variant: MilkVariant, fish: &mut Fish, rng: &mut impl RngExt) {
     match variant {
-        MilkVariant::Plain => {}
+        MilkVariant::Plain | MilkVariant::Blueberry | MilkVariant::Honey | MilkVariant::Matcha => {}
         MilkVariant::Chocolate => {
             fish.weight_g = fish.weight_g.saturating_add(CHOCOLATE_WEIGHT_BONUS_G);
             apply_mutation_to_fish(fish, Mutation::SizeIncrease, rng);

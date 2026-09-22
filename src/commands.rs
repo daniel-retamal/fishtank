@@ -188,6 +188,7 @@ static COMMAND_NAMES: &[&str] = &[
     "shop",
     "show",
     "spawn",
+    "startcallhome",
     "startcowabduction",
     "startfishabduction",
     "stats",
@@ -1378,6 +1379,7 @@ pub enum Action {
     },
     StartFishAbduction,
     StartCowAbduction,
+    StartCallHome,
     Give(GiveTarget),
     Revive(String),
     Kill(String),
@@ -1702,6 +1704,7 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
         "voidspawn" => Action::VoidSpawn,
         "startfishabduction" => Action::StartFishAbduction,
         "startcowabduction" => Action::StartCowAbduction,
+        "startcallhome" => Action::StartCallHome,
         "startvoidwish" => {
             let flags: Vec<&str> = rest.split_whitespace().collect();
             Action::StartVoidWish {

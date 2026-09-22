@@ -38,6 +38,9 @@ pub const FOREST: Color = Color::Rgb(0, 130, 40);
 pub const GREEN_LIGHT: Color = Color::Rgb(0, 180, 60);
 pub const GREEN_BRIGHT: Color = Color::Rgb(60, 220, 100);
 
+pub const OLIVE: Color = Color::Rgb(120, 150, 50);
+pub const OLIVE_LIGHT: Color = Color::Rgb(175, 200, 110);
+
 pub const COBALT_DARK: Color = Color::Rgb(0, 30, 110);
 pub const COBALT: Color = Color::Rgb(0, 50, 160);
 pub const COBALT_LIGHT: Color = Color::Rgb(0, 70, 190);
