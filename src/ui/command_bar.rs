@@ -26,6 +26,7 @@ const NAME_KEPT_W: usize = 16;
 const TINY_FOOD: &str = "•";
 const TINY_FISH: &str = "><>";
 const WORD_JOINER: char = '-';
+const INFINITY: &str = "∞";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Density {
@@ -48,10 +49,11 @@ impl Density {
 pub struct StatsBar<'a> {
     pub active_consumables: &'a [ActiveConsumable],
     pub active_statuses: &'a [ActiveMilkStatus],
-    pub cash: u32,
+    pub cash: Option<u32>,
     pub food_supply: u32,
     pub fish_count: usize,
-    pub fish_capacity: usize,
+    pub fish_capacity: Option<usize>,
+    pub modes: &'a [&'static str],
     pub tank_name: &'a str,
     pub devils_luck: u32,
     pub cajetans_grace: u32,
@@ -65,28 +67,33 @@ pub struct StatusRow {
 
 impl StatsBar<'_> {
     fn stats(&self, density: Density) -> String {
+        let capacity = boundless(self.fish_capacity.map(|capacity| capacity.to_string()));
         let (cash, food, fish) = match density {
             Density::Full => (
-                format!("cash: {}", metric(self.cash)),
+                format!("cash: {}", boundless(self.cash.map(metric))),
                 format!("food: {}", metric(self.food_supply)),
-                format!("fishes: {}/{}", self.fish_count, self.fish_capacity),
+                format!("fishes: {}/{capacity}", self.fish_count),
             ),
             Density::Short => (
-                format!("${}", metric(self.cash)),
+                format!("${}", boundless(self.cash.map(metric))),
                 format!("food {}", metric(self.food_supply)),
-                format!("fish {}/{}", self.fish_count, self.fish_capacity),
+                format!("fish {}/{capacity}", self.fish_count),
             ),
             Density::Tiny => (
-                format!("${}", rounded_metric(self.cash)),
+                format!("${}", boundless(self.cash.map(rounded_metric))),
                 format!("{TINY_FOOD}{}", rounded_metric(self.food_supply)),
-                format!("{TINY_FISH}{}/{}", self.fish_count, self.fish_capacity),
+                format!("{TINY_FISH}{}/{capacity}", self.fish_count),
             ),
         };
         [cash, food, fish].join(density.gap())
     }
 
     fn statuses(&self, density: Density) -> Vec<String> {
-        let mut items = Vec::new();
+        let mut items: Vec<String> = self
+            .modes
+            .iter()
+            .map(|&mode| untimed(mode, density))
+            .collect();
         for active in self.active_consumables {
             let Some(label) = active.kind.active_label() else {
                 continue;
@@ -185,6 +192,17 @@ fn flow(items: Vec<String>, width: usize, gap: &str) -> Vec<StatusRow> {
         });
     }
     rows
+}
+
+fn boundless(amount: Option<String>) -> String {
+    amount.unwrap_or_else(|| INFINITY.to_string())
+}
+
+fn untimed(label: &str, density: Density) -> String {
+    match density {
+        Density::Tiny => initials(label),
+        Density::Full | Density::Short => label.to_string(),
+    }
 }
 
 fn initials(label: &str) -> String {
@@ -389,14 +407,35 @@ mod tests {
         StatsBar {
             active_consumables: &[],
             active_statuses: &[],
-            cash: 40_000,
+            cash: Some(40_000),
             food_supply: 1_250,
             fish_count: 3,
-            fish_capacity: 50,
+            fish_capacity: Some(50),
+            modes: &[],
             tank_name,
             devils_luck: 2,
             cajetans_grace: 0,
         }
+    }
+
+    #[test]
+    fn an_endless_purse_and_a_boundless_tank_read_as_infinity() {
+        let stats = StatsBar {
+            cash: None,
+            fish_capacity: None,
+            ..bar("Fishtank")
+        };
+        assert_eq!(stats.rows(100)[0].right, "cash: ∞  food: 1.2k  fishes: 3/∞");
+    }
+
+    #[test]
+    fn a_mode_is_named_among_the_statuses_and_abbreviated_when_tiny() {
+        let stats = StatsBar {
+            modes: &["debug mode"],
+            ..bar("Fishtank")
+        };
+        assert!(stats.rows(100)[0].left.contains("debug mode"));
+        assert!(stats.statuses(Density::Tiny).contains(&"DM".to_string()));
     }
 
     #[test]

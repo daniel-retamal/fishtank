@@ -1,6 +1,6 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use fishtank::{
-    app::App,
+    app::{App, Launch},
     economy::Rarity,
     entities::cow::CowVariant,
     fishes::{fish::Fish, species::FishSpecies},
@@ -457,15 +457,15 @@ fn max_wish_retries_is_five() {
 
 #[test]
 fn execute_give_cash_increases_cash() {
-    let mut app = App::new();
-    let before = app.cash;
+    let mut app = App::launch(Launch::Debug);
+    let before = app.purse.balance();
     submit_wish(&mut app, "give cash");
-    assert_eq!(app.cash, before + GIVE_RESOURCE_AMOUNT);
+    assert_eq!(app.purse.balance(), before + GIVE_RESOURCE_AMOUNT);
 }
 
 #[test]
 fn execute_give_food_increases_food_supply() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let before = app.food_supply;
     submit_wish(&mut app, "give food");
     assert_eq!(app.food_supply, before + GIVE_RESOURCE_AMOUNT);
@@ -473,7 +473,7 @@ fn execute_give_food_increases_food_supply() {
 
 #[test]
 fn execute_give_coffee_increases_coffee_inventory() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let before = app.inventory.get(&StockItem::COFFEE).copied().unwrap_or(0);
     submit_wish(&mut app, "give coffee");
     assert_eq!(
@@ -484,7 +484,7 @@ fn execute_give_coffee_increases_coffee_inventory() {
 
 #[test]
 fn execute_give_bait_increases_bait_inventory() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let before = app.inventory.get(&StockItem::BAIT).copied().unwrap_or(0);
     submit_wish(&mut app, "give bait");
     assert_eq!(
@@ -495,7 +495,7 @@ fn execute_give_bait_increases_bait_inventory() {
 
 #[test]
 fn execute_give_junk_increases_junk_inventory() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let before = app.inventory.get(&StockItem::Junk).copied().unwrap_or(0);
     submit_wish(&mut app, "give junk");
     assert_eq!(
@@ -506,7 +506,7 @@ fn execute_give_junk_increases_junk_inventory() {
 
 #[test]
 fn execute_give_necronomicon_increases_necronomicon_inventory() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let before = app
         .inventory
         .get(&StockItem::NECRONOMICON)
@@ -524,7 +524,7 @@ fn execute_give_necronomicon_increases_necronomicon_inventory() {
 
 #[test]
 fn execute_give_fish_species_spawns_fish_in_current_tank() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let before = app.tanks[app.current_tank].fish.len();
     submit_wish(&mut app, "give merluza");
     assert_eq!(app.tanks[app.current_tank].fish.len(), before + 1);
@@ -532,7 +532,7 @@ fn execute_give_fish_species_spawns_fish_in_current_tank() {
 
 #[test]
 fn execute_give_tank_adds_new_tank() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let before = app.tanks.len();
     submit_wish(&mut app, "give fishtank");
     assert_eq!(app.tanks.len(), before + 1);
@@ -540,7 +540,7 @@ fn execute_give_tank_adds_new_tank() {
 
 #[test]
 fn execute_give_tank_adds_correct_kind() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     submit_wish(&mut app, "give helltank");
     let added = app.tanks.last().expect("tank was not added");
     assert!(matches!(added.kind, TankKind::Hell));
@@ -548,7 +548,7 @@ fn execute_give_tank_adds_correct_kind() {
 
 #[test]
 fn execute_mutate_valid_fish_creates_mutant_state() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let fish_name = app.tanks[0].fish[0].name.clone();
     let wish = format!("mutate {} bodycolor", fish_name);
     submit_wish(&mut app, &wish);
@@ -562,7 +562,7 @@ fn execute_mutate_valid_fish_creates_mutant_state() {
 
 #[test]
 fn execute_mutate_nonexistent_fish_decrements_retry() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
@@ -573,7 +573,7 @@ fn execute_mutate_nonexistent_fish_decrements_retry() {
 
 #[test]
 fn execute_revive_dead_fish_removes_from_graveyard_and_adds_to_tank() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let mut rng = rand::rng();
     let dead = Fish::new(
         FishSpecies::Merluza,
@@ -594,7 +594,7 @@ fn execute_revive_dead_fish_removes_from_graveyard_and_adds_to_tank() {
 
 #[test]
 fn execute_revive_alive_fish_is_invalid_and_decrements_retry() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let fish_before = app.tanks[app.current_tank].fish.len();
     let grav_before = app.graveyard.len();
     let alive_name = app.tanks[0].fish[0].name.clone();
@@ -611,7 +611,7 @@ fn execute_revive_alive_fish_is_invalid_and_decrements_retry() {
 
 #[test]
 fn execute_clone_fish_adds_clone_to_tank() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let fish_before = app.tanks[app.current_tank].fish.len();
     let fish_name = app.tanks[0].fish[0].name.clone();
     let wish = format!("clone {}", fish_name);
@@ -621,7 +621,7 @@ fn execute_clone_fish_adds_clone_to_tank() {
 
 #[test]
 fn execute_clone_fish_clone_has_expected_name_suffix() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let fish_name = app.tanks[0].fish[0].name.clone();
     let expected_clone_name = format!("{}'s Clone", fish_name);
     let wish = format!("clone {}", fish_name);
@@ -635,14 +635,14 @@ fn execute_clone_fish_clone_has_expected_name_suffix() {
 
 #[test]
 fn execute_bless_is_accepted_and_ends_the_ritual() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     submit_wish(&mut app, "bless");
     assert!(is_idle(&app), "a target-less bless is a valid wish");
 }
 
 #[test]
 fn execute_expand_increases_tank_capacity() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let tank_name = app.tanks[0].name.clone();
     let before = app.tanks[0].capacity();
     let wish = format!("expand {}", tank_name.to_lowercase());
@@ -652,7 +652,7 @@ fn execute_expand_increases_tank_capacity() {
 
 #[test]
 fn execute_nothing_increments_nothing_stacks() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let before = app.nothing_stacks;
     submit_wish(&mut app, "nothing");
     assert_eq!(app.nothing_stacks, before + 1);
@@ -660,28 +660,28 @@ fn execute_nothing_increments_nothing_stacks() {
 
 #[test]
 fn execute_nothing_aborts_ritual_to_idle() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     submit_wish(&mut app, "nothing");
     assert!(is_idle(&app));
 }
 
 #[test]
 fn execute_anything_aborts_ritual_to_idle() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     submit_wish(&mut app, "anything");
     assert!(is_idle(&app));
 }
 
 #[test]
 fn valid_wish_transitions_ritual_to_idle() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     submit_wish(&mut app, "give cash");
     assert!(is_idle(&app));
 }
 
 #[test]
 fn invalid_wish_keeps_ritual_in_wish_state() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
@@ -692,7 +692,7 @@ fn invalid_wish_keeps_ritual_in_wish_state() {
 
 #[test]
 fn four_invalid_wishes_then_valid_executes_and_aborts() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     for _ in 0..4 {
         app.void_ritual = VoidRitualState::Wish {
             retries_left: MAX_WISH_RETRIES,
@@ -700,17 +700,17 @@ fn four_invalid_wishes_then_valid_executes_and_aborts() {
         app.editor.set("give foobar".to_string());
         app.submit_ritual_input();
     }
-    let before_cash = app.cash;
+    let before_cash = app.purse.balance();
     app.void_ritual = VoidRitualState::Wish { retries_left: 1 };
     app.editor.set("give cash".to_string());
     app.submit_ritual_input();
     assert!(is_idle(&app));
-    assert_eq!(app.cash, before_cash + GIVE_RESOURCE_AMOUNT);
+    assert_eq!(app.purse.balance(), before_cash + GIVE_RESOURCE_AMOUNT);
 }
 
 #[test]
 fn five_invalid_wishes_abort_ritual() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     for i in 0..5 {
         let retries = MAX_WISH_RETRIES - i;
         app.void_ritual = VoidRitualState::Wish {
@@ -724,7 +724,7 @@ fn five_invalid_wishes_abort_ritual() {
 
 #[test]
 fn retry_count_decrements_on_each_invalid_wish() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
@@ -737,7 +737,7 @@ fn retry_count_decrements_on_each_invalid_wish() {
 
 #[test]
 fn wish_index_command_opens_overlay_without_decrementing_retry() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
@@ -756,7 +756,7 @@ fn wish_index_command_opens_overlay_without_decrementing_retry() {
 
 #[test]
 fn wish_fishtanks_command_opens_overlay_without_decrementing_retry() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
@@ -775,7 +775,7 @@ fn wish_fishtanks_command_opens_overlay_without_decrementing_retry() {
 
 #[test]
 fn wish_names_command_toggles_names_without_decrementing_retry() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
@@ -795,7 +795,7 @@ fn wish_names_command_toggles_names_without_decrementing_retry() {
 
 #[test]
 fn wish_stats_command_toggles_stats_without_decrementing_retry() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
@@ -815,7 +815,7 @@ fn wish_stats_command_toggles_stats_without_decrementing_retry() {
 
 #[test]
 fn wish_overlay_command_does_not_abort_ritual() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
@@ -829,7 +829,7 @@ fn wish_overlay_command_does_not_abort_ritual() {
 
 #[test]
 fn wish_fishtanks_same_tank_enter_does_not_abort_ritual() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
@@ -844,7 +844,7 @@ fn wish_fishtanks_same_tank_enter_does_not_abort_ritual() {
 
 #[test]
 fn wish_fishtanks_switch_tank_aborts_ritual() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     app.tanks
         .push(Tank::new("Other".to_string(), TankKind::Base, &[]));
     app.void_ritual = VoidRitualState::Wish {
@@ -864,7 +864,7 @@ fn wish_fishtanks_switch_tank_aborts_ritual() {
 
 #[test]
 fn wish_fishtanks_esc_closes_overlay_without_aborting_ritual() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     app.tanks
         .push(Tank::new("Other".to_string(), TankKind::Base, &[]));
     app.void_ritual = VoidRitualState::Wish {
@@ -885,7 +885,7 @@ fn wish_fishtanks_esc_closes_overlay_without_aborting_ritual() {
 
 #[test]
 fn wish_index_esc_closes_overlay_without_aborting_ritual() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     app.void_ritual = VoidRitualState::Wish {
         retries_left: MAX_WISH_RETRIES,
     };
@@ -946,7 +946,7 @@ fn clone_cow_parses_when_name_is_a_cow() {
 
 #[test]
 fn execute_mutate_cow_records_the_mutation() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let mut rng = rand::rng();
     let cow_name = app.tanks[0].spawn_cow(CowVariant::Brown, &mut rng);
     let wish = format!("mutate {} colorpatch", cow_name.to_lowercase());
@@ -965,7 +965,7 @@ fn execute_mutate_cow_records_the_mutation() {
 
 #[test]
 fn execute_mutate_cow_aborts_ritual_to_idle() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let mut rng = rand::rng();
     let cow_name = app.tanks[0].spawn_cow(CowVariant::Brown, &mut rng);
     let wish = format!("mutate {} colorpatch", cow_name.to_lowercase());
@@ -975,7 +975,7 @@ fn execute_mutate_cow_aborts_ritual_to_idle() {
 
 #[test]
 fn execute_clone_cow_adds_clone_to_tank() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let mut rng = rand::rng();
     let cow_name = app.tanks[0].spawn_cow(CowVariant::Pink, &mut rng);
     let cows_before = app.tanks[app.current_tank].cows.len();
@@ -986,7 +986,7 @@ fn execute_clone_cow_adds_clone_to_tank() {
 
 #[test]
 fn execute_clone_cow_has_expected_name_suffix() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let mut rng = rand::rng();
     let cow_name = app.tanks[0].spawn_cow(CowVariant::Pink, &mut rng);
     let expected_clone_name = format!("{}'s Clone", cow_name);
@@ -1006,10 +1006,10 @@ fn submit_command(app: &mut App, cmd: &str) {
 
 #[test]
 fn command_give_cash_matches_wish_outcome() {
-    let mut app = App::new();
-    let before = app.cash;
+    let mut app = App::launch(Launch::Debug);
+    let before = app.purse.balance();
     submit_command(&mut app, "/give cash");
-    assert_eq!(app.cash, before + GIVE_RESOURCE_AMOUNT);
+    assert_eq!(app.purse.balance(), before + GIVE_RESOURCE_AMOUNT);
 }
 
 fn held(app: &App, item: StockItem) -> u32 {
@@ -1033,7 +1033,7 @@ fn every_stock_item_is_gifted_by_its_rarity_through_both_doors() {
         }
         let gift = item.rarity().gift_quantity();
 
-        let mut app = App::new();
+        let mut app = App::launch(Launch::Debug);
         let before = held(&app, item);
         submit_command(&mut app, &format!("/give {name}"));
         assert_eq!(
@@ -1043,7 +1043,7 @@ fn every_stock_item_is_gifted_by_its_rarity_through_both_doors() {
             item.rarity()
         );
 
-        let mut app = App::new();
+        let mut app = App::launch(Launch::Debug);
         let before = held(&app, item);
         submit_wish(&mut app, &format!("give {name}"));
         assert_eq!(
@@ -1064,7 +1064,7 @@ fn a_fabricator_is_gifted_like_every_other_rare_thing() {
                 && item.rarity() == Rarity::Rare
         })
         .expect("the bench sells a Rare part");
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     submit_command(&mut app, "/give fabricator");
     submit_command(
         &mut app,
@@ -1076,12 +1076,12 @@ fn a_fabricator_is_gifted_like_every_other_rare_thing() {
 
 #[test]
 fn anything_grants_two_of_the_boons_give_grants() {
-    let mut app = App::new();
-    let (cash, food) = (app.cash, app.food_supply);
+    let mut app = App::launch(Launch::Debug);
+    let (cash, food) = (app.purse.balance(), app.food_supply);
     let (coffee, bait) = (held(&app, StockItem::COFFEE), held(&app, StockItem::BAIT));
     submit_wish(&mut app, "anything");
     let deltas = [
-        (app.cash - cash, GIVE_RESOURCE_AMOUNT),
+        (app.purse.balance() - cash, GIVE_RESOURCE_AMOUNT),
         (app.food_supply - food, GIVE_RESOURCE_AMOUNT),
         (
             held(&app, StockItem::COFFEE) - coffee,
@@ -1101,14 +1101,14 @@ fn anything_grants_two_of_the_boons_give_grants() {
 
 #[test]
 fn command_bless_runs_without_a_target() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     submit_command(&mut app, "/bless");
     assert!(app.tanks[0].fish.iter().all(|f| !f.name.is_empty()));
 }
 
 #[test]
 fn command_clone_adds_fish_to_tank() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let before = app.tanks[app.current_tank].fish.len();
     let fish_name = app.tanks[0].fish[0].name.clone();
     submit_command(&mut app, &format!("/clone {}", fish_name));
@@ -1117,7 +1117,7 @@ fn command_clone_adds_fish_to_tank() {
 
 #[test]
 fn command_expand_increases_capacity() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let tank_name = app.tanks[0].name.clone();
     let before = app.tanks[0].capacity();
     submit_command(&mut app, &format!("/expand {}", tank_name));
@@ -1126,7 +1126,7 @@ fn command_expand_increases_capacity() {
 
 #[test]
 fn command_revive_moves_fish_from_graveyard_to_tank() {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     let mut rng = rand::rng();
     let dead = Fish::new(
         FishSpecies::Merluza,

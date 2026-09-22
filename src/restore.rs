@@ -1,6 +1,7 @@
 use crate::colors::DARK_GRAY;
 use crate::entities::cow::{Cow, cow_default_sway_speed, cow_display_width};
 use crate::fishes::fish::{Fish, compute_display_width};
+use crate::fishes::mutations::native_eyes;
 use crate::fishes::species::{BodyTemplate, FishSpecies};
 
 pub trait Restorable {
@@ -9,7 +10,7 @@ pub trait Restorable {
 
 impl Restorable for Fish {
     fn restore(&mut self) {
-        self.mutant = None;
+        self.mutant = native_eyes(self.species, &mut rand::rng());
         self.mutations = None;
         self.devil_marked = false;
         self.sell_price_bonus_pct = 0;
@@ -23,7 +24,11 @@ impl Restorable for Fish {
         } else if !config.palette.is_empty() {
             self.color = config.palette[0];
         }
-        self.display_width = compute_display_width(self.species, self.body_size);
+        self.display_width = self
+            .mutant
+            .as_ref()
+            .map(|mutant| mutant.display_width(self.body_size))
+            .unwrap_or_else(|| compute_display_width(self.species, self.body_size));
     }
 }
 

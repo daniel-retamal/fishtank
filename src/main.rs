@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::event;
-use fishtank::app::App;
+use fishtank::app::{App, Launch};
 
 fn main() -> Result<()> {
     let mut terminal = ratatui::init();
@@ -12,7 +12,7 @@ fn main() -> Result<()> {
 }
 
 fn run(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::from_args(std::env::args()));
     let mut last_tick = Instant::now();
 
     loop {

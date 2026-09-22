@@ -1,5 +1,6 @@
 pub mod abduction;
 pub mod app;
+pub mod cheats;
 pub mod colors;
 pub mod commands;
 pub mod consumable;

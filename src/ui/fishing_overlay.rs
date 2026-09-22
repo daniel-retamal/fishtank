@@ -160,8 +160,8 @@ pub struct FishingState {
     pub is_reeling: bool,
     pub is_pushing_left: bool,
     pub is_pushing_right: bool,
-    pub no_death: bool,
-    pub no_fish: bool,
+    pub no_escape: bool,
+    pub no_fight: bool,
     pub reel_punish_timer: u32,
     pub reel_anim_tick: u32,
 }
@@ -192,8 +192,8 @@ impl FishingState {
             is_reeling: false,
             is_pushing_left: false,
             is_pushing_right: false,
-            no_death: false,
-            no_fish: false,
+            no_escape: false,
+            no_fight: false,
             reel_punish_timer: 0,
             reel_anim_tick: 0,
         }
@@ -239,7 +239,7 @@ impl FishingState {
         };
         if c.biting {
             c.bite_elapsed += dt;
-            if c.bite_elapsed >= c.bite_duration {
+            if c.bite_elapsed >= c.bite_duration && !self.no_escape {
                 self.game_over = true;
             }
         } else {
@@ -294,7 +294,7 @@ impl FishingState {
         let grace_secs = milk.grace_secs();
         let fish_force = FISH_FORCE * milk.fish_force_mult();
 
-        if !self.no_fish {
+        if !self.no_fight {
             self.target_timer -= 1.0;
             if self.target_timer <= 0.0 {
                 let mut rng = rand::rng();
@@ -359,7 +359,7 @@ impl FishingState {
 
         if self.completion <= DANGER_THRESHOLD {
             self.danger_timer += 1.0;
-            if self.danger_timer >= fps * grace_secs && !self.no_death {
+            if self.danger_timer >= fps * grace_secs && !self.no_escape {
                 self.game_over = true;
             }
         } else {

@@ -6,7 +6,7 @@ use super::fused::FusedComponent;
 use super::mutant::{
     Circadian, EyeState, MIN_BODY_CHARS, MutantState, MutantTail, MutationRecord, random_rgb,
 };
-use super::species::{BodyTemplate, FishSpecies, TailKind};
+use super::species::{BodyTemplate, FishSpecies, SINGLE_EYE, TailKind};
 use super::unfish::{
     BALL_HEIGHT, SKULL_HEIGHT, SLIME_GLISTEN_SPEED_FAST, SLIME_GLISTEN_SPEED_SLOW, UnfishKind,
     UnfishMutationStyle, is_multi_row, worm_display_width,
@@ -683,6 +683,21 @@ pub(crate) fn ensure_fish_mutant(fish: &mut Fish, rng: &mut impl RngExt) {
         fish.display_width = mutant.display_width(fish.body_size);
     }
     fish.mutant = Some(Box::new(mutant));
+}
+
+pub(crate) fn native_eyes(species: FishSpecies, rng: &mut impl RngExt) -> Option<Box<MutantState>> {
+    let config = species.config();
+    if config.eyes <= SINGLE_EYE {
+        return None;
+    }
+    let (BodyTemplate::Standard(chars) | BodyTemplate::Alternating(chars, _)) = config.body else {
+        return None;
+    };
+    let mut mutant = MutantState::new_for_standard(tail_kind_to_mutant_tail(chars.tail), rng);
+    mutant.left_eyes = (0..config.eyes).map(|_| EyeState::new(rng)).collect();
+    mutant.right_eyes = (0..config.eyes).map(|_| EyeState::new(rng)).collect();
+    mutant.eye_color = config.eye_color;
+    Some(Box::new(mutant))
 }
 
 pub fn apply_unfish_mutation(

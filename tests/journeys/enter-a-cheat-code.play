@@ -1,0 +1,34 @@
+# JOURNEY · a cheat code: type it into /cheat, get what it promised, and keep the Cheatfish it leaves.
+# Performed by tests/journeys.rs at every size in JOURNEY_SIZES, 100×30 down to 40×14.
+# By hand: cargo run --example fishplay -- tests/journeys/enter-a-cheat-code.play --size 40 14 --print
+
+clear
+run /cheat
+expect Enter cheat code
+absent ENTER cheat
+type show me the mone
+expect invalid cheat code
+snap a code with a typo is refused before ENTER
+type y
+expect ENTER cheat
+absent invalid cheat code
+snap a real code offers ENTER
+key enter
+absent Enter cheat code
+
+run /index
+expect Cheatfish
+snap the cheat left a Cheatfish in the tank
+key esc
+
+run /cheat
+type bend the light
+key enter
+expect ∞
+snap an endless purse reads as infinity
+
+run /cheat
+type fish to the fishtank
+key enter
+expect godmode
+snap godmode is named on the status bar

@@ -1,4 +1,5 @@
 pub mod catch_overlay;
+pub mod cheat_popup;
 pub mod circuit_overlay;
 pub mod command_bar;
 pub mod console;

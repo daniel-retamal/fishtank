@@ -150,3 +150,94 @@ mod tests {
         }
     }
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Purse {
+    balance: u32,
+    bottomless: bool,
+}
+
+impl Purse {
+    pub const fn holding(balance: u32) -> Self {
+        Self {
+            balance,
+            bottomless: false,
+        }
+    }
+
+    pub fn balance(self) -> u32 {
+        self.balance
+    }
+
+    pub fn is_bottomless(self) -> bool {
+        self.bottomless
+    }
+
+    pub fn set_bottomless(&mut self, bottomless: bool) {
+        self.bottomless = bottomless;
+    }
+
+    pub fn spendable(self) -> u32 {
+        if self.bottomless {
+            return u32::MAX;
+        }
+        self.balance
+    }
+
+    pub fn can_afford(self, cost: u32) -> bool {
+        cost <= self.spendable()
+    }
+
+    pub fn spend(&mut self, cost: u32) -> bool {
+        if !self.can_afford(cost) {
+            return false;
+        }
+        if !self.bottomless {
+            self.balance -= cost;
+        }
+        true
+    }
+
+    pub fn earn(&mut self, amount: u32) {
+        self.balance = self.balance.saturating_add(amount);
+    }
+
+    pub fn lose(&mut self, amount: u32) {
+        self.balance = self.balance.saturating_sub(amount);
+    }
+
+    pub fn shown(self) -> Option<u32> {
+        (!self.bottomless).then_some(self.balance)
+    }
+}
+
+#[cfg(test)]
+mod purse_tests {
+    use super::Purse;
+
+    #[test]
+    fn a_bottomless_purse_pays_for_anything_and_keeps_its_balance() {
+        let mut purse = Purse::holding(10);
+        purse.set_bottomless(true);
+        assert!(purse.spend(u32::MAX));
+        assert_eq!(purse.balance(), 10);
+        assert_eq!(purse.shown(), None);
+        purse.set_bottomless(false);
+        assert_eq!(purse.shown(), Some(10));
+    }
+
+    #[test]
+    fn an_ordinary_purse_refuses_what_it_cannot_pay() {
+        let mut purse = Purse::holding(10);
+        assert!(!purse.spend(11));
+        assert!(purse.spend(10));
+        assert_eq!(purse.balance(), 0);
+    }
+
+    #[test]
+    fn earnings_never_overflow() {
+        let mut purse = Purse::holding(u32::MAX);
+        purse.earn(1);
+        assert_eq!(purse.balance(), u32::MAX);
+    }
+}

@@ -561,14 +561,14 @@ fn the_phase_three_demo_written_in_the_plan_still_runs_keystroke_for_keystroke()
     );
     tui.snap("2 · Twelve stages later — the Reaper's board swimming");
 
-    let purse = tui.app.cash;
+    let purse = tui.app.purse.balance();
     tui.tick_n(REAPER_RUN_TICKS);
     tui.snap("2 · Twenty minutes later — cash up, shoal under its ceiling");
 
     assert!(
-        tui.app.cash > purse,
+        tui.app.purse.balance() > purse,
         "the Reaper sold unattended: {purse} -> {}",
-        tui.app.cash
+        tui.app.purse.balance()
     );
     assert!(
         sold(&tui, FishSpecies::Mutantfish) > 0,

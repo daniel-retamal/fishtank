@@ -1377,7 +1377,7 @@ fn the_fishtank_category_sells_no_tank_you_are_meant_to_find() {
 #[test]
 fn a_tank_grown_from_an_item_cannot_be_bought_at_all() {
     let mut tui = Tui::new();
-    let before = tui.app.cash;
+    let before = tui.app.purse.balance();
     tui.run(&format!("/buy {}", TankKind::Matrix.display_name()));
 
     assert_eq!(tui.app.tanks.len(), 1, "no tank appeared");
@@ -1386,7 +1386,7 @@ fn a_tank_grown_from_an_item_cannot_be_bought_at_all() {
         0,
         "and no item either"
     );
-    assert_eq!(tui.app.cash, before, "and nothing was charged");
+    assert_eq!(tui.app.purse.balance(), before, "and nothing was charged");
 }
 
 #[test]
@@ -1406,7 +1406,7 @@ fn buying_a_tank_with_no_seed_still_names_it_on_the_spot() {
 #[test]
 fn an_item_that_grows_a_tank_is_sold_nowhere() {
     let mut tui = Tui::new();
-    let before = tui.app.cash;
+    let before = tui.app.purse.balance();
     tui.run(&format!(
         "/buy {}",
         ConsumableKind::Necronomicon.display_name()
@@ -1417,7 +1417,7 @@ fn an_item_that_grows_a_tank_is_sold_nowhere() {
         1,
         "the player keeps the one the game gave them and buys none"
     );
-    assert_eq!(tui.app.cash, before);
+    assert_eq!(tui.app.purse.balance(), before);
 }
 
 #[test]
@@ -1451,7 +1451,7 @@ fn the_tank_catalogue_draws_whole_at_every_size() {
 fn buying_a_part_at_the_bench_stocks_it_and_charges_for_it() {
     let mut tui = Tui::new();
     grow_a_matrixtank(&mut tui);
-    let before = tui.app.cash;
+    let before = tui.app.purse.balance();
     open_the_bench_tier(&mut tui, PartTier::Fabric);
 
     tui.key(KeyCode::Enter);
@@ -1464,7 +1464,7 @@ fn buying_a_part_at_the_bench_stocks_it_and_charges_for_it() {
         2,
         "the popup opened at one and RIGHT bought a second"
     );
-    assert_eq!(tui.app.cash, before - coil.price() * 2);
+    assert_eq!(tui.app.purse.balance(), before - coil.price() * 2);
 }
 
 const WAFER_NAME: &str = "Blank Wafer";
@@ -1724,7 +1724,7 @@ fn the_bench_walks_through_every_tier_at_every_size() {
 fn the_bench_sells_blank_blueprints_on_the_materials_page() {
     let mut tui = Tui::new();
     grow_a_matrixtank(&mut tui);
-    let before = tui.app.cash;
+    let before = tui.app.purse.balance();
     open_the_bench_tier(&mut tui, PartTier::Materials);
     tui.select(ConsumableKind::BlankBlueprint.display_name());
 
@@ -1734,7 +1734,7 @@ fn the_bench_sells_blank_blueprints_on_the_materials_page() {
 
     assert_eq!(blanks(&tui), 1);
     assert_eq!(
-        tui.app.cash,
+        tui.app.purse.balance(),
         before - ConsumableKind::BlankBlueprint.buy_price()
     );
 }
@@ -1880,7 +1880,7 @@ fn a_captured_blueprint_is_kept_in_the_inventory_by_name() {
 fn a_blueprint_sells_at_the_shop_for_a_blanks_resale_price() {
     let mut tui = Tui::new();
     wired_latch(&mut tui);
-    let before = tui.app.cash;
+    let before = tui.app.purse.balance();
     tui.run("/shop");
     tui.key(KeyCode::Down);
     tui.key(KeyCode::Enter);
@@ -1897,7 +1897,7 @@ fn a_blueprint_sells_at_the_shop_for_a_blanks_resale_price() {
         tui.app.blueprints.is_empty(),
         "the design left with the sale"
     );
-    assert_eq!(tui.app.cash, before + price);
+    assert_eq!(tui.app.purse.balance(), before + price);
 }
 
 #[test]
@@ -3170,6 +3170,7 @@ fn a_panel_with_no_room_above_its_fish_opens_below_it() {
             &format!("glyph-panel-flipped-{cols}x{rows}"),
         );
         bot_with_part(&mut tui, Part::GlyphPanel);
+        tui.leave_debug_mode();
         tui.run("/freeze \"Neo\"");
         let mid = tui.app.tanks[0].width as f32 / 2.0;
         park_at(&mut tui, "Neo", mid, ROW_OF_A_FISH_AT_THE_TOP);

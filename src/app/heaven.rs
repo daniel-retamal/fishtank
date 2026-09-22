@@ -40,8 +40,7 @@ impl App {
         self.used_tank_names.insert(name.clone());
         let mut heaven = Tank::new(name, TankKind::Heaven, &[]);
         heaven.resize(self.terminal_width, self.tank_height(), &[]);
-        self.tanks.push(heaven);
-        self.tanks.len() - 1
+        self.found_tank(heaven)
     }
 
     pub(super) fn landing_tank(&self, from: usize, welcomes: impl Fn(&Tank) -> bool) -> usize {

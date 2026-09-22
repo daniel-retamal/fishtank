@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
 
-use crate::app::App;
+use crate::app::{App, Launch};
 
 mod reel;
 mod screenplay;
@@ -39,15 +39,29 @@ impl Tui {
     }
 
     pub fn with_size(cols: u16, rows: u16) -> Self {
+        Self::launched(Launch::Debug, cols, rows)
+    }
+
+    pub fn as_player(cols: u16, rows: u16) -> Self {
+        Self::launched(Launch::Player, cols, rows)
+    }
+
+    pub fn launched(launch: Launch, cols: u16, rows: u16) -> Self {
         let terminal = Terminal::new(TestBackend::new(cols, rows)).expect("test terminal");
         let mut tui = Self {
-            app: App::new(),
+            app: App::launch(launch),
             terminal,
             reel: Reel::new(),
             film: None,
         };
         tui.draw();
         tui
+    }
+
+    pub fn leave_debug_mode(&mut self) -> &mut Self {
+        self.app.debug_mode = false;
+        self.draw();
+        self
     }
 
     pub fn clear_tank(&mut self) -> &mut Self {

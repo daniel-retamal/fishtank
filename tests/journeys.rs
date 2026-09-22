@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use fishtank::app::Launch;
 use fishtank::fishes::species::FishSpecies;
 use fishtank::loot::ConsumableKind;
 use fishtank::tank::TankKind;
@@ -48,7 +49,13 @@ fn every_critical_user_journey_completes_at_every_supported_size() {
                 play_name(journey),
                 size.label()
             );
-            let performance = stage(journey, size, Path::new(REEL_DIR), &reel_name);
+            let performance = stage(
+                journey,
+                size,
+                Launch::Player,
+                Path::new(REEL_DIR),
+                &reel_name,
+            );
             failures.extend(review(performance, &reel_name));
         }
     }

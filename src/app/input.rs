@@ -4,7 +4,8 @@ use crossterm::event::{Event, KeyCode, KeyEventKind};
 use rand::RngExt;
 
 use crate::{
-    commands,
+    cheats::{Cheat, Switch},
+    commands::{self, Clearance},
     consumable::ConsumeTarget,
     economy::Sellable,
     entities::food,
@@ -89,6 +90,8 @@ impl App {
             self.handle_catch_input(event);
         } else if matches!(self.active_overlay, Some(Overlay::Naming { .. })) {
             self.handle_naming_input(event);
+        } else if matches!(self.active_overlay, Some(Overlay::Cheat(_))) {
+            self.handle_cheat_input(event);
         } else if matches!(self.active_overlay, Some(Overlay::Fishing(_))) {
             self.handle_fishing_input(event);
         } else if matches!(self.active_overlay, Some(Overlay::Show { .. })) {
@@ -223,6 +226,7 @@ impl App {
                     .filter(|f| f.is_arrangeable())
                     .map(|f| f.name.as_str())
                     .collect();
+                let living_fish_names = self.living_fish_names();
                 let sellable_fish_names = self.sellable_fish_names();
                 let sellable_tank_names = self.sellable_tank_names();
                 let sellable_stackable_name_strings = self.build_sellable_stackable_names();
@@ -246,6 +250,8 @@ impl App {
                         sellable_fish_names: &sellable_fish_names,
                         sellable_tank_names: &sellable_tank_names,
                         sellable_stackable_names: &sellable_stackable_name_strings,
+                        living_fish_names: &living_fish_names,
+                        clearance: self.clearance(),
                     },
                 ) {
                     self.editor.set(new_input);
@@ -499,7 +505,7 @@ impl App {
     fn apply_non_fish_loot(&mut self, loot: LootKind) {
         match loot {
             LootKind::Cash(cv) => {
-                self.cash += cv.amount();
+                self.purse.earn(cv.amount());
             }
             LootKind::Food(amount) => {
                 self.food_supply += amount;
@@ -625,17 +631,7 @@ impl App {
         *entry = entry.saturating_sub(1);
         self.inventory.retain(|_, v| *v > 0);
         let mut rng = rand::rng();
-        if let Some(existing) = self.active_statuses.iter_mut().find(|s| s.kind == pick) {
-            existing.stacks += 1;
-            existing.time_remaining += crate::consumable::MILK_STATUS_STACK_BONUS;
-        } else {
-            self.active_statuses
-                .push(crate::consumable::ActiveMilkStatus {
-                    kind: pick,
-                    stacks: 1,
-                    time_remaining: crate::consumable::MILK_STATUS_DURATION,
-                });
-        }
+        self.gain_status(pick);
         let now_empty = if let Some(Overlay::Inventory(s)) = &mut self.active_overlay {
             s.update_from(&self.inventory, &self.blueprints, &mut rng);
             s.items.is_empty()
@@ -792,12 +788,33 @@ impl App {
         }
     }
 
+    fn handle_cheat_input(&mut self, event: Event) {
+        let Some(action) = classify(&event) else {
+            return;
+        };
+        let Some(Overlay::Cheat(input)) = &mut self.active_overlay else {
+            return;
+        };
+        match action {
+            InputAction::Quit => self.running = false,
+            InputAction::Cancel => self.close_overlay(),
+            InputAction::Confirm => {
+                let Some(cheat) = Cheat::parse(input.as_str()) else {
+                    return;
+                };
+                self.close_overlay();
+                self.enter_cheat(cheat);
+            }
+            _ => input.handle_action(&action),
+        }
+    }
+
     fn christen(&mut self, target: NameTarget, requested: &str) -> bool {
         match target {
             NameTarget::Tank(tank_kind) => {
                 let actual_name = names::unique_name_in(&self.used_tank_names, requested);
                 self.used_tank_names.insert(actual_name.clone());
-                self.tanks.push(Tank::new(actual_name, tank_kind, &[]));
+                self.found_tank(Tank::new(actual_name, tank_kind, &[]));
                 self.current_tank = self.tanks.len() - 1;
                 true
             }
@@ -825,7 +842,7 @@ impl App {
     fn workshop(&self) -> Workshop<'_> {
         Workshop {
             stock: &self.inventory,
-            cash: self.cash,
+            cash: self.purse.spendable(),
             room: self.tank().room(),
             hosts: self.etch_hosts().count(),
             connected: self.is_connected(),
@@ -867,7 +884,7 @@ impl App {
         for material in &quote.materials {
             self.take_stock(StockItem::Consumable(material.kind), material.from_stock());
         }
-        self.cash -= quote.cost;
+        self.purse.spend(quote.cost);
     }
 
     pub fn print_blueprint(&mut self, name: &str) -> bool {
@@ -1056,7 +1073,7 @@ impl App {
             None => return,
         };
 
-        let cash = self.cash;
+        let cash = self.purse.spendable();
         let access = self.shop_access();
 
         match shop.page {
@@ -1108,7 +1125,7 @@ impl App {
                         }
                         InputAction::Confirm => {
                             let bought = buy_popup.take().expect("the popup is open");
-                            self.take_qty_purchase(&bought, cash);
+                            self.take_qty_purchase(&bought);
                         }
                         _ => {}
                     }
@@ -1189,9 +1206,8 @@ impl App {
                     }) = fl.popup.take()
                     {
                         let price = FishSpecies::all_buyable()[catalog_idx].buy_price();
-                        if cash >= price {
+                        if self.purse.spend(price) {
                             let name = names::title_case(name_input.as_str());
-                            self.cash = self.cash.saturating_sub(price);
                             self.place_purchased_fish(fish, name);
                         }
                     }
@@ -1292,7 +1308,7 @@ impl App {
                         }
                         InputAction::Confirm => {
                             let bought = pl.popup.take().expect("the popup is open");
-                            self.take_qty_purchase(&bought, cash);
+                            self.take_qty_purchase(&bought);
                         }
                         _ => {}
                     }
@@ -1405,7 +1421,7 @@ impl App {
                                 }
                             }
                             self.inventory.retain(|_, v| *v > 0);
-                            self.cash += earned;
+                            self.purse.earn(earned);
 
                             match self.build_sell_menu_state() {
                                 Some(new_sm) => shop.page = ShopPage::Sell(new_sm),
@@ -1447,6 +1463,7 @@ impl App {
             .flat_map(|t| {
                 t.fish
                     .iter()
+                    .filter(|f| f.is_sellable())
                     .map(|f| (f.name.clone(), f.species, f.sell_value()))
             })
             .collect();
@@ -1467,10 +1484,19 @@ impl App {
             .collect()
     }
 
-    pub(super) fn sellable_fish_names(&self) -> Vec<String> {
+    pub(super) fn living_fish_names(&self) -> Vec<String> {
         self.tanks
             .iter()
             .flat_map(|t| t.fish.iter().map(|f| f.name.clone()))
+            .collect()
+    }
+
+    pub(super) fn sellable_fish_names(&self) -> Vec<String> {
+        self.tanks
+            .iter()
+            .flat_map(|t| t.fish.iter())
+            .filter(|f| f.is_sellable())
+            .map(|f| f.name.clone())
             .collect()
     }
 
@@ -1693,7 +1719,7 @@ impl App {
         }
     }
 
-    fn revive_fish(&mut self, fish_name: &str) -> bool {
+    pub(super) fn revive_fish(&mut self, fish_name: &str) -> bool {
         let Some(pos) = self
             .graveyard
             .iter()
@@ -1750,7 +1776,7 @@ impl App {
         match blessing {
             Blessing::Restore => self.bless_restore(tank_idx, rng),
             Blessing::Clone => self.bless_clone(tank_idx, rng),
-            Blessing::Cash => self.cash += BLESSING_CASH,
+            Blessing::Cash => self.purse.earn(BLESSING_CASH),
             Blessing::FeedBurst => self.bless_feed(tank_idx),
             Blessing::SellBonus => self.bless_sell_bonus(tank_idx, rng),
             Blessing::TurnHoly => self.bless_turn_holy(tank_idx, rng),
@@ -1823,7 +1849,9 @@ impl App {
             .iter()
             .enumerate()
             .filter(|(_, f)| {
-                f.unfish_state.is_none() && f.ability_stacks(FishSpecies::Holyfish) == 0
+                f.unfish_state.is_none()
+                    && f.ability_stacks(FishSpecies::Holyfish) == 0
+                    && f.is_sellable()
             })
             .map(|(i, _)| i)
             .collect();
@@ -1892,10 +1920,20 @@ impl App {
         false
     }
 
-    fn execute_give(&mut self, target: GiveTarget, tank_idx: usize) -> bool {
+    pub(super) fn gift_fish(&mut self, tank_idx: usize, species: FishSpecies, name: &str) -> bool {
+        let fish = Fish::new(species, String::new(), 0.0, 0.0, &mut rand::rng());
+        let target_idx = self.landing_tank(tank_idx, |tank| tank.welcomes(&fish));
+        if self.tanks[target_idx].is_full() {
+            return false;
+        }
+        self.tanks[target_idx].place_fish(fish, name.to_string(), &mut rand::rng());
+        true
+    }
+
+    pub(super) fn execute_give(&mut self, target: GiveTarget, tank_idx: usize) -> bool {
         match target {
             GiveTarget::Cash => {
-                self.cash += void_ritual::GIVE_RESOURCE_AMOUNT;
+                self.purse.earn(void_ritual::GIVE_RESOURCE_AMOUNT);
                 true
             }
             GiveTarget::Food => {
@@ -1906,15 +1944,7 @@ impl App {
                 *self.inventory.entry(stock).or_insert(0) += stock.gift_quantity();
                 true
             }
-            GiveTarget::Fish(species) => {
-                let fish = Fish::new(species, String::new(), 0.0, 0.0, &mut rand::rng());
-                let target_idx = self.landing_tank(tank_idx, |tank| tank.welcomes(&fish));
-                if self.tanks[target_idx].is_full() {
-                    return false;
-                }
-                self.tanks[target_idx].place_fish(fish, species.un_name(), &mut rand::rng());
-                true
-            }
+            GiveTarget::Fish(species) => self.gift_fish(tank_idx, species, &species.un_name()),
             GiveTarget::Tank(kind) => {
                 if kind.config().unique {
                     return false;
@@ -1923,7 +1953,7 @@ impl App {
                 let actual_name = names::unique_name_in(&self.used_tank_names, &un_name);
                 self.used_tank_names.insert(actual_name.clone());
                 let dead_names = self.graveyard_names();
-                self.tanks.push(Tank::new(actual_name, kind, &dead_names));
+                self.found_tank(Tank::new(actual_name, kind, &dead_names));
                 true
             }
             GiveTarget::Cow(variant_opt) => {
@@ -2271,7 +2301,7 @@ impl App {
     pub fn tick_fabric(&mut self) -> u32 {
         let requested = self.stages_requested();
         let budget = StageBudget::new();
-        let cash = self.cash;
+        let cash = self.purse.spendable();
         let hour = self.day_clock.hour();
         let bait = self.inventory.get(&StockItem::BAIT).copied().unwrap_or(0);
         let mut worlds: Vec<WorldView> = self
@@ -2397,28 +2427,24 @@ impl App {
     }
 
     fn buy_tank_named(&mut self, kind: TankKind, base_name: &str) -> bool {
-        if self.cash < kind.buy_price() {
+        if !self.purse.spend(kind.buy_price()) {
             return false;
         }
         let actual_name = names::unique_name_in(&self.used_tank_names, base_name);
-        self.cash = self.cash.saturating_sub(kind.buy_price());
         self.used_tank_names.insert(actual_name.clone());
         let dead_names = self.graveyard_names();
-        self.tanks.push(Tank::new(actual_name, kind, &dead_names));
-        self.current_tank = self.tanks.len() - 1;
+        self.current_tank = self.found_tank(Tank::new(actual_name, kind, &dead_names));
         true
     }
 
-    fn take_qty_purchase(&mut self, popup: &QtyPopup, cash: u32) {
-        let cost = popup.cost();
-        if cash < cost {
+    fn take_qty_purchase(&mut self, popup: &QtyPopup) {
+        if !self.purse.spend(popup.cost()) {
             return;
         }
         match popup.target {
             QtyTarget::Stock(item) => *self.inventory.entry(item).or_insert(0) += popup.qty,
             QtyTarget::Food => self.food_supply += popup.qty,
         }
-        self.cash = self.cash.saturating_sub(cost);
     }
 
     fn bot_buy(&mut self, tank_idx: usize, target: commands::BuyTarget) -> bool {
@@ -2428,15 +2454,14 @@ impl App {
                     return false;
                 }
                 let price = species.buy_price();
-                if self.cash < price || self.tanks[tank_idx].is_full() {
+                if !self.purse.can_afford(price) || self.tanks[tank_idx].is_full() {
                     return false;
                 }
                 let mut rng = rand::rng();
                 if !self.tanks[tank_idx].spawn_fish(species, species.un_name(), &mut rng) {
                     return false;
                 }
-                self.cash -= price;
-                true
+                self.purse.spend(price)
             }
             commands::BuyTarget::Tank(kind) => {
                 kind.config().buyable && self.buy_tank_named(kind, &kind.un_name())
@@ -2446,6 +2471,18 @@ impl App {
     }
 
     fn apply(&mut self, action: commands::Action) -> bool {
+        let needed = action.clearance();
+        if !self.cleared_for(needed) {
+            return false;
+        }
+        let performed = self.perform(action);
+        if performed && needed == Clearance::God {
+            self.mint_cheatfish(Cheat::of_switch(Switch::Godmode));
+        }
+        performed
+    }
+
+    fn perform(&mut self, action: commands::Action) -> bool {
         match action {
             commands::Action::Feed(count) => {
                 let n = if count == 0 {
@@ -2482,7 +2519,10 @@ impl App {
             }
             commands::Action::ModResource { name, delta } => match name.to_lowercase().as_str() {
                 "cash" => {
-                    self.cash = (self.cash as i64 + delta as i64).max(0) as u32;
+                    match u32::try_from(delta) {
+                        Ok(gain) => self.purse.earn(gain),
+                        Err(_) => self.purse.lose(delta.unsigned_abs()),
+                    }
                     true
                 }
                 "food" => {
@@ -2589,7 +2629,7 @@ impl App {
                 true
             }
             commands::Action::Shop => {
-                let cash = self.cash;
+                let cash = self.purse.spendable();
                 let mut state = ShopState::new();
                 if cash == 0
                     && let ShopPage::Main { ref mut selected } = state.page
@@ -2616,12 +2656,15 @@ impl App {
                     crate::ui::consume_picker::ConsumePickerSource::FromCommand,
                 )
             }
-            commands::Action::Fish { no_death, no_fish } => {
+            commands::Action::Fish {
+                no_escape,
+                no_fight,
+            } => {
                 let milk = self.milk_buffs();
                 let mut state = FishingState::new(milk, &mut rand::rng());
-                state.no_death = no_death;
-                state.no_fish = no_fish;
-                if no_fish {
+                state.no_escape = no_escape || self.cheats.no_escape;
+                state.no_fight = no_fight;
+                if no_fight {
                     state.start_reeling();
                 }
                 self.set_overlay(Overlay::Fishing(state));
@@ -2728,10 +2771,8 @@ impl App {
                 true
             }
             commands::Action::StartFishAbduction => {
-                let mut rng = rand::rng();
                 let ct = self.current_tank;
-                self.plan_abduction(ct, &mut rng);
-                true
+                self.plan_abduction(ct, &mut rand::rng())
             }
             commands::Action::StartCowAbduction => {
                 let mut rng = rand::rng();
@@ -2750,12 +2791,14 @@ impl App {
             }
             commands::Action::Buy(target) => self.execute_buy(target),
             commands::Action::Sell(target) => self.execute_sell(target),
+            commands::Action::Cheat => self.open_cheat_popup(),
+            commands::Action::ToggleDebugMode => self.toggle_debug_mode(),
             commands::Action::Unknown => false,
         }
     }
 
     fn execute_buy(&mut self, target: commands::BuyTarget) -> bool {
-        let cash = self.cash;
+        let cash = self.purse.spendable();
         match target {
             commands::BuyTarget::Fish(species) => {
                 let Some(catalog_idx) = FishSpecies::all_buyable()
@@ -2792,32 +2835,27 @@ impl App {
                 true
             }
             commands::BuyTarget::Food { qty } => {
-                let cost = qty * crate::ui::shop_overlay::FOOD_BUY_PRICE;
-                if cash < cost {
+                let cost = qty.saturating_mul(crate::ui::shop_overlay::FOOD_BUY_PRICE);
+                if !self.purse.spend(cost) {
                     return false;
                 }
                 self.food_supply += qty;
-                self.cash = self.cash.saturating_sub(cost);
                 true
             }
             commands::BuyTarget::Coffee { qty } => {
-                let unit_price = ConsumableKind::Coffee.buy_price();
-                let cost = qty * unit_price;
-                if cash < cost {
+                let cost = qty.saturating_mul(ConsumableKind::Coffee.buy_price());
+                if !self.purse.spend(cost) {
                     return false;
                 }
                 *self.inventory.entry(StockItem::COFFEE).or_insert(0) += qty;
-                self.cash = self.cash.saturating_sub(cost);
                 true
             }
             commands::BuyTarget::Bait { qty } => {
-                let unit_price = ConsumableKind::Bait.buy_price();
-                let cost = qty * unit_price;
-                if cash < cost {
+                let cost = qty.saturating_mul(ConsumableKind::Bait.buy_price());
+                if !self.purse.spend(cost) {
                     return false;
                 }
                 *self.inventory.entry(StockItem::BAIT).or_insert(0) += qty;
-                self.cash = self.cash.saturating_sub(cost);
                 true
             }
         }
@@ -2867,7 +2905,7 @@ impl App {
             if let Some(pos) = tank
                 .fish
                 .iter()
-                .position(|f| f.name.eq_ignore_ascii_case(name))
+                .position(|f| f.name.eq_ignore_ascii_case(name) && f.is_sellable())
             {
                 let price = tank.fish[pos].sell_value();
                 sold = Some((tank.take_fish(pos), price));
@@ -2879,7 +2917,7 @@ impl App {
             return false;
         };
         self.bury(fish);
-        self.cash += price;
+        self.purse.earn(price);
         true
     }
 
@@ -2900,7 +2938,7 @@ impl App {
         if self.current_tank >= pos && self.current_tank > 0 {
             self.current_tank -= 1;
         }
-        self.cash += price;
+        self.purse.earn(price);
         true
     }
 
@@ -2913,13 +2951,13 @@ impl App {
         let Some(blueprint) = self.take_blueprint(name) else {
             return false;
         };
-        self.cash += blueprint.sell_price();
+        self.purse.earn(blueprint.sell_price());
         true
     }
 
     fn sell_stock(&mut self, stock: StockItem, qty: u32, unit_price: u32) {
         self.take_stock(stock, qty);
-        self.cash += qty * unit_price;
+        self.purse.earn(qty.saturating_mul(unit_price));
     }
 
     fn take_stock(&mut self, stock: StockItem, qty: u32) {

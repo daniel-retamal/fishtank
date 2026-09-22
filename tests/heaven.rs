@@ -199,7 +199,7 @@ fn heaven_is_never_bought_sold_or_given() {
     let mut tui = home_with(&["Ann"]);
     tui.run("/kill \"Ann\"");
     let tanks = tui.app.tanks.len();
-    let cash = tui.app.cash;
+    let cash = tui.app.purse.balance();
 
     tui.run(&format!("/sell tank \"{HEAVEN}\""));
     tui.run("/give heaventank");
@@ -207,7 +207,7 @@ fn heaven_is_never_bought_sold_or_given() {
 
     assert_eq!(tui.app.tanks.len(), tanks);
     assert_eq!(heavens(&tui), 1);
-    assert_eq!(tui.app.cash, cash);
+    assert_eq!(tui.app.purse.balance(), cash);
 }
 
 #[test]
@@ -222,14 +222,14 @@ fn the_last_tank_a_mortal_fish_can_live_in_is_never_sold_to_heaven() {
 fn the_dead_cannot_be_moved_mutated_sold_or_killed_again() {
     let mut tui = home_with(&["Ann"]);
     tui.run("/kill \"Ann\"");
-    let cash = tui.app.cash;
+    let cash = tui.app.purse.balance();
     tui.run(&format!("/move \"Ann\" \"{HOME}\""));
     tui.run("/mutate \"Ann\" eyeincrease");
     tui.run("/sell fish \"Ann\"");
     tui.run("/kill \"Ann\"");
     assert_eq!(soul_names(&tui), ["Ann"]);
     assert_eq!(tui.app.graveyard.len(), 1);
-    assert_eq!(tui.app.cash, cash);
+    assert_eq!(tui.app.purse.balance(), cash);
     let soul = heaven(&tui).unwrap().souls()[0].clone();
     assert_eq!(soul.mutation_count(), 0);
 }

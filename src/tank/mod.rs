@@ -486,6 +486,7 @@ pub struct Tank {
     pub pending_exiles: Vec<Exile>,
     pending_signals: BTreeSet<WorldSignal>,
     pub extra_capacity: u32,
+    pub boundless: bool,
     pub cow_abduction_count: u32,
     bubble_spawner: BubbleSpawner,
     mutation_timer: f32,
@@ -519,6 +520,7 @@ impl Tank {
             pending_exiles: Vec::new(),
             pending_signals: BTreeSet::new(),
             extra_capacity: 0,
+            boundless: false,
             cow_abduction_count: 0,
             bubble_spawner: BubbleSpawner::new(&mut rng),
             mutation_timer: MUTATION_INTERVAL_BASE,
@@ -531,7 +533,11 @@ impl Tank {
     }
 
     pub fn capacity(&self) -> usize {
-        self.kind.config().capacity + self.extra_capacity as usize
+        self.shown_capacity().unwrap_or(usize::MAX)
+    }
+
+    pub fn shown_capacity(&self) -> Option<usize> {
+        (!self.boundless).then(|| self.kind.config().capacity + self.extra_capacity as usize)
     }
 
     pub fn expand(&mut self, amount: u32) {

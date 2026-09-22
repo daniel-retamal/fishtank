@@ -8,8 +8,10 @@ use ratatui::{
 
 use crate::{
     abduction::Abductable,
+    cheats::Cheats,
     commands,
     consumable::{ActiveMilkStatus, CONSUMABLE_STACK_BONUS, ConsumeTarget},
+    economy::Purse,
     fishes::fish::Fish,
     fishes::species::FishSpecies,
     loot::{ConsumableKind, CowCounts, LootKind, LootPool, StockItem, roll_loot_no_fish},
@@ -20,6 +22,7 @@ use crate::{
     },
     ui::{
         catch_overlay::{CatchOverlay, CatchState},
+        cheat_popup::CheatPopup,
         circuit_overlay::{CircuitOverlay, CircuitState},
         command_bar::{self, CommandBar},
         console::ConsoleState,
@@ -41,12 +44,16 @@ use crate::{
     void_ritual::{self, VoidRitualState},
 };
 
+mod cheats;
 mod console;
 mod heaven;
 mod input;
 
+pub use cheats::Launch;
+
 const TERMINAL_HEIGHT_DEFAULT: u16 = 24;
 const TERMINAL_WIDTH_DEFAULT: u16 = 80;
+const STARTING_CASH: u32 = 40_000;
 
 enum Overlay {
     Index(IndexState),
@@ -71,6 +78,7 @@ enum Overlay {
         input: TextInput,
         kind: ConsumableKind,
     },
+    Cheat(TextInput),
 }
 
 pub const CAJETANS_GRACE_SECS: f32 = 3.0 * 60.0 + 33.0;
@@ -86,7 +94,9 @@ pub struct App {
     pub tanks: Vec<Tank>,
     pub current_tank: usize,
     used_tank_names: HashSet<String>,
-    pub cash: u32,
+    pub purse: Purse,
+    pub debug_mode: bool,
+    pub cheats: Cheats,
     pub food_supply: u32,
     pub inventory: HashMap<StockItem, u32>,
     pub active_consumables: Vec<ActiveConsumable>,
@@ -115,6 +125,10 @@ impl Default for App {
 
 impl App {
     pub fn new() -> Self {
+        Self::launch(Launch::Player)
+    }
+
+    pub fn launch(launch: Launch) -> Self {
         let settings = Settings::default();
         let mut rng = rand::rng();
         let initial_ritual_timer = sample_exponential(&mut rng, void_ritual::VOID_RITUAL_MEAN_SECS);
@@ -141,7 +155,9 @@ impl App {
             tanks: vec![first_tank],
             current_tank: 0,
             used_tank_names,
-            cash: 40_000,
+            purse: Purse::holding(STARTING_CASH),
+            debug_mode: launch == Launch::Debug,
+            cheats: Cheats::default(),
             food_supply: 0,
             inventory: {
                 let mut inv = HashMap::new();
@@ -465,7 +481,7 @@ impl App {
 
     pub fn shop_access(&self) -> crate::ui::shop_overlay::ShopAccess {
         crate::ui::shop_overlay::ShopAccess {
-            cash: self.cash,
+            cash: self.purse.spendable(),
             connected: self.is_connected(),
         }
     }
@@ -612,6 +628,7 @@ impl App {
                 return;
             }
             Some(Overlay::Naming { .. })
+            | Some(Overlay::Cheat(_))
             | Some(Overlay::Inventory(_))
             | Some(Overlay::Fishtanks(_))
             | Some(Overlay::Foundry(_))
@@ -669,7 +686,7 @@ impl App {
         let coffee = self.coffee_stacks();
         for i in 0..self.tanks.len() {
             let events = self.tanks[i].tick(&self.settings, coffee);
-            self.cash += self.tanks[i].pending_star_cash;
+            self.purse.earn(self.tanks[i].pending_star_cash);
             self.tanks[i].pending_star_cash = 0;
             for part in std::mem::take(&mut self.tanks[i].pending_loose_parts) {
                 *self
@@ -737,19 +754,24 @@ impl App {
         command_bar::height(
             self.settings.show_stats,
             self.terminal_width,
-            &command_bar::StatsBar {
-                active_consumables: &self.active_consumables,
-                active_statuses: &self.active_statuses,
-                cash: self.cash,
-                food_supply: self.food_supply,
-                fish_count: self.tank().fish.len(),
-                fish_capacity: self.tank().capacity(),
-                tank_name: &self.tank().name,
-                devils_luck: self.devils_luck(),
-                cajetans_grace: self.grace_stacks(),
-            },
+            &self.stats_bar(&self.modes()),
             self.console_bar().as_ref(),
         )
+    }
+
+    fn stats_bar<'a>(&'a self, modes: &'a [&'static str]) -> command_bar::StatsBar<'a> {
+        command_bar::StatsBar {
+            active_consumables: &self.active_consumables,
+            active_statuses: &self.active_statuses,
+            cash: self.purse.shown(),
+            food_supply: self.food_supply,
+            fish_count: self.tank().fish.len(),
+            fish_capacity: self.tank().shown_capacity(),
+            modes,
+            tank_name: &self.tank().name,
+            devils_luck: self.devils_luck(),
+            cajetans_grace: self.grace_stacks(),
+        }
     }
 
     fn tank_height(&self) -> u16 {
@@ -822,6 +844,7 @@ impl App {
         let graveyard_name_strings = self.graveyard_names();
         let graveyard_names: Vec<&str> =
             graveyard_name_strings.iter().map(String::as_str).collect();
+        let living_fish_names = self.living_fish_names();
         let sellable_fish_names = self.sellable_fish_names();
         let sellable_tank_names = self.sellable_tank_names();
         let sellable_stackable_strings = self.build_sellable_stackable_names();
@@ -860,12 +883,14 @@ impl App {
                     sellable_fish_names: &sellable_fish_names,
                     sellable_tank_names: &sellable_tank_names,
                     sellable_stackable_names: &sellable_stackable_strings,
+                    living_fish_names: &living_fish_names,
+                    clearance: self.clearance(),
                 },
             )
             .map(|c| c.ghost)
             .unwrap_or_default()
         };
-        let devils_luck = self.devils_luck();
+        let modes = self.modes();
         frame.render_widget(
             CommandBar {
                 input: &self.editor.text,
@@ -873,17 +898,7 @@ impl App {
                 cursor_visible: self.editor.visible,
                 ghost: &ghost,
                 show_stats: self.settings.show_stats,
-                stats: command_bar::StatsBar {
-                    active_consumables: &self.active_consumables,
-                    active_statuses: &self.active_statuses,
-                    cash: self.cash,
-                    food_supply: self.food_supply,
-                    fish_count: self.tank().fish.len(),
-                    fish_capacity: self.tank().capacity(),
-                    tank_name: &self.tank().name,
-                    devils_luck,
-                    cajetans_grace: self.cajetans_grace.stacks,
-                },
+                stats: self.stats_bar(&modes),
                 console: self.console_bar(),
             },
             command_area,
@@ -943,6 +958,14 @@ impl App {
                 NamingPopupWidget {
                     input,
                     kind: *kind,
+                    cursor_visible: self.editor.visible,
+                    screen,
+                },
+                full_area,
+            ),
+            Some(Overlay::Cheat(input)) => frame.render_widget(
+                CheatPopup {
+                    input,
                     cursor_visible: self.editor.visible,
                     screen,
                 },
@@ -1114,10 +1137,10 @@ impl App {
         fish
     }
 
-    fn plan_abduction(&mut self, source_idx: usize, rng: &mut impl RngExt) {
+    fn plan_abduction(&mut self, source_idx: usize, rng: &mut impl RngExt) -> bool {
         use crate::entities::ufo::Ufo;
         if self.tanks[source_idx].kind.is_ufo_base() {
-            return;
+            return false;
         }
         let source = &self.tanks[source_idx];
         let abductable: Vec<usize> = source
@@ -1128,7 +1151,7 @@ impl App {
             .map(|(i, _)| i)
             .collect();
         if abductable.is_empty() {
-            return;
+            return false;
         }
         let pick = abductable[rng.random_range(0..abductable.len())];
         let fish_name = self.tanks[source_idx].fish[pick].name.clone();
@@ -1142,7 +1165,7 @@ impl App {
         let source_active = source_idx == self.current_tank;
 
         if source_idx == dest_idx {
-            return;
+            return false;
         }
 
         if source_active {
@@ -1162,6 +1185,7 @@ impl App {
             self.alienate_on_arrival(dest_idx, &mut fish, rng);
             self.drop_fish(dest_idx, fish, rng);
         }
+        true
     }
 
     fn handle_ufo_take_fish(&mut self, tank_idx: usize, fish_name: &str) {
@@ -1206,8 +1230,7 @@ impl App {
         self.used_tank_names.insert(name.clone());
         let mut tank = Tank::new(name, TankKind::Alien, &[]);
         tank.resize(self.terminal_width, self.tank_height(), &[]);
-        self.tanks.push(tank);
-        self.tanks.len() - 1
+        self.found_tank(tank)
     }
 
     fn handle_phantom_cross_tank(&mut self, source_idx: usize, fish_name: &str) {

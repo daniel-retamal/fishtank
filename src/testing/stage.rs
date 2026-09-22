@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::{Screenplay, Tui};
+use crate::app::Launch;
 
 pub const PLAY_EXTENSION: &str = "play";
 
@@ -43,11 +44,12 @@ pub fn play_name(path: &Path) -> String {
 pub fn stage(
     path: &Path,
     size: TerminalSize,
+    launch: Launch,
     reel_dir: &Path,
     reel_name: &str,
 ) -> Result<Tui, String> {
     let play = Screenplay::load(path).map_err(|error| format!("{reel_name}: {error}"))?;
-    let mut tui = Tui::with_size(size.cols, size.rows);
+    let mut tui = Tui::launched(launch, size.cols, size.rows);
     tui.film(reel_dir, reel_name);
     play.perform(&mut tui)
         .map_err(|error| format!("{reel_name}: {error}"))?;

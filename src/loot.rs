@@ -992,6 +992,7 @@ impl StockItem {
     pub const NECRONOMICON: StockItem = StockItem::Consumable(ConsumableKind::Necronomicon);
     pub const DEMON_CORE: StockItem = StockItem::Consumable(ConsumableKind::DemonCore);
     pub const COMPUTER: StockItem = StockItem::Consumable(ConsumableKind::Computer);
+    pub const VOID_SEED: StockItem = StockItem::Consumable(ConsumableKind::VoidSeed);
 
     pub fn display_name(self) -> &'static str {
         match self {
@@ -1358,16 +1359,14 @@ mod tests {
     fn a_legendary_is_caught_only_on_its_banner_and_everything_else_everywhere() {
         for &species in ALL_SPECIES {
             let config = species.config();
+            if config.habitat == Habitat::Nowhere {
+                continue;
+            }
             let native = matches!(config.habitat, Habitat::Native(_));
             assert_eq!(
                 native,
                 config.rarity == Rarity::Legendary,
                 "{} has the wrong habitat for its rarity",
-                species.display_name()
-            );
-            assert!(
-                config.habitat != Habitat::Nowhere,
-                "{}",
                 species.display_name()
             );
         }
@@ -1399,9 +1398,20 @@ mod tests {
     }
 
     #[test]
+    fn a_species_nobody_can_buy_or_catch_can_never_be_sold() {
+        for &species in ALL_SPECIES {
+            let config = species.config();
+            if config.buyable || config.habitat != Habitat::Nowhere {
+                continue;
+            }
+            assert!(!config.sellable, "{}", species.display_name());
+        }
+    }
+
+    #[test]
     fn a_species_the_shop_does_not_sell_lives_in_a_tank_the_shop_does() {
         for &species in ALL_SPECIES {
-            if species.config().buyable {
+            if species.config().buyable || species.config().habitat == Habitat::Nowhere {
                 continue;
             }
             let Habitat::Native(kind) = species.config().habitat else {

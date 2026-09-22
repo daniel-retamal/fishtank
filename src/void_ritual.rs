@@ -247,6 +247,7 @@ pub fn parse_give_target(rest: &str) -> Option<GiveTarget> {
 
     if let Some(species) = ALL_SPECIES
         .iter()
+        .filter(|species| species.is_obtainable())
         .find(|&&s| s.config().name.to_ascii_lowercase() == rest.trim())
         .copied()
     {

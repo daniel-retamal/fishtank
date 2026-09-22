@@ -7,6 +7,7 @@ use unicode_width::UnicodeWidthChar;
 use super::botfish::{ANTENNA_LENGTH, ANTENNA_STALK, ANTENNA_TIP, BODY_COLOR, BotfishState};
 use super::fused::FusedComponent;
 use super::mutant::{Circadian, EXTRA_BODY_FOR_DOUBLE, MutantState, MutationRecord};
+use super::mutations::native_eyes;
 use super::species::{
     BodyChars, BodyTemplate, EYE_ROUND, FishSpecies, PatternKind, SizeCategory, TailKind,
 };
@@ -202,7 +203,7 @@ fn init_body_fields(
     let mutant = if config.auto_mutate {
         Some(Box::new(MutantState::new(body_size, pattern_seed, rng)))
     } else {
-        None
+        native_eyes(species, rng)
     };
     let display_width = mutant
         .as_ref()
@@ -563,8 +564,14 @@ impl Fish {
         self.mutations.as_ref().map_or(0, |record| record.count)
     }
 
+    pub fn is_sellable(&self) -> bool {
+        self.ability_components()
+            .iter()
+            .all(|species| species.config().sellable)
+    }
+
     pub fn sell_value(&self) -> u32 {
-        if self.script().is_some_and(BotfishState::is_printed) {
+        if !self.is_sellable() || self.script().is_some_and(BotfishState::is_printed) {
             return 0;
         }
         let base =
@@ -1742,6 +1749,14 @@ impl Fish {
         }
 
         self.direction_timer = rng.random_range(DIRECTION_TIMER_MIN..DIRECTION_TIMER_MAX);
+    }
+
+    pub fn hurry_zoomie(&mut self) -> bool {
+        if !self.species.config().can_zoomie || self.is_wired() {
+            return false;
+        }
+        self.zoomie_timer = 0.0;
+        true
     }
 
     fn start_zoomie(&mut self) {

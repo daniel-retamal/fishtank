@@ -237,7 +237,7 @@ impl QtyPopup {
     }
 
     pub fn cost(&self) -> u32 {
-        self.qty * self.unit_price
+        self.qty.saturating_mul(self.unit_price)
     }
 }
 

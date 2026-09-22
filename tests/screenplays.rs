@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use fishtank::{
+    app::Launch,
     fishes::{parts::Part, species::FishSpecies},
     loot::{CashValue, ConsumableKind, ItemKind, LootKind, MilkVariant},
     testing::{
@@ -33,7 +34,10 @@ fn every_screenplay_performs_to_the_end_and_draws_no_broken_border() {
         .iter()
         .filter_map(|path| {
             let name = play_name(path);
-            review(stage(path, size, Path::new(REEL_DIR), &name), &name)
+            review(
+                stage(path, size, Launch::Debug, Path::new(REEL_DIR), &name),
+                &name,
+            )
         })
         .collect();
     assert!(

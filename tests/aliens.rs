@@ -1,6 +1,7 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use fishtank::{
-    app::App,
+    app::{App, Launch},
+    economy::Purse,
     entities::cow::CowVariant,
     fishes::mutations::{Mutatable, Mutation, apply_mutation},
     fishes::species::{FishSpecies, Habitat},
@@ -26,7 +27,7 @@ fn speak(app: &mut App, line: &str) {
 }
 
 fn empty_app() -> App {
-    let mut app = App::new();
+    let mut app = App::launch(Launch::Debug);
     app.tanks[0].fish.clear();
     app.tanks[0].used_names.clear();
     app
@@ -212,7 +213,7 @@ fn an_alien_cow_calls_home_too() {
 #[test]
 fn a_botfish_hears_an_alien_calling_home() {
     let mut app = empty_app();
-    app.cash = 0;
+    app.purse = Purse::holding(0);
     alien_fish(&mut app, "Zed");
     app.tanks[0].spawn_fish(FishSpecies::Botfish, "Neo".to_string(), &mut rand::rng());
     let bot = app.tanks[0]
@@ -227,7 +228,7 @@ fn a_botfish_hears_an_alien_calling_home() {
         app.tick();
     }
 
-    assert_eq!(app.cash, GIVE_RESOURCE_AMOUNT);
+    assert_eq!(app.purse.balance(), GIVE_RESOURCE_AMOUNT);
 }
 
 #[test]

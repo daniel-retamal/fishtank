@@ -75,6 +75,24 @@ impl NamedKind {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub enum Clearance {
+    #[default]
+    Player,
+    God,
+    Debug,
+}
+
+pub const DEBUG_MODE_COMMAND: &str = "!debugmode";
+
+fn clearance_of_word(word: &str) -> Clearance {
+    COMMAND_NAMES
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(word))
+        .map(|&(_, clearance)| clearance)
+        .unwrap_or(Clearance::Player)
+}
+
 pub struct Completion {
     pub ghost: String,
     pub tab_result: Option<String>,
@@ -97,6 +115,8 @@ pub struct CompletionCtx<'a> {
     pub sellable_fish_names: &'a [String],
     pub sellable_tank_names: &'a [String],
     pub sellable_stackable_names: &'a [String],
+    pub living_fish_names: &'a [String],
+    pub clearance: Clearance,
 }
 
 impl CompletionCtx<'_> {
@@ -150,52 +170,53 @@ const SELL_ARG: &str = "<item>";
 const NAME_ARG: &str = "<name>";
 const QUANTITY_ARG: &str = "<quantity>";
 
-static COMMAND_NAMES: &[&str] = &[
-    "add",
-    "bless",
-    "buy",
-    "circuit",
-    "clock",
-    "clone",
-    "console",
-    "consume",
-    "cowsay",
-    "etch",
-    "exit",
-    "expand",
-    "feed",
-    "fish",
-    "fishtanks",
-    "flip",
-    "foundry",
-    "fps",
-    "freeze",
-    "give",
-    "index",
-    "inventory",
-    "kill",
-    "move",
-    "mutate",
-    "names",
-    "nets",
-    "nudge",
-    "print",
-    "program",
-    "restore",
-    "revive",
-    "say",
-    "sell",
-    "shop",
-    "show",
-    "spawn",
-    "startcallhome",
-    "startcowabduction",
-    "startfishabduction",
-    "stats",
-    "subtract",
-    "switch",
-    "unfreeze",
-    "voidspawn",
+static COMMAND_NAMES: &[(&str, Clearance)] = &[
+    ("add", Clearance::Debug),
+    ("bless", Clearance::God),
+    ("buy", Clearance::Player),
+    ("cheat", Clearance::Player),
+    ("circuit", Clearance::Player),
+    ("clock", Clearance::Player),
+    ("clone", Clearance::God),
+    ("console", Clearance::Player),
+    ("consume", Clearance::Player),
+    ("cowsay", Clearance::Player),
+    ("etch", Clearance::Player),
+    ("exit", Clearance::Player),
+    ("expand", Clearance::God),
+    ("feed", Clearance::Player),
+    ("fish", Clearance::Player),
+    ("fishtanks", Clearance::Player),
+    ("flip", Clearance::Player),
+    ("foundry", Clearance::Player),
+    ("fps", Clearance::Player),
+    ("freeze", Clearance::Player),
+    ("give", Clearance::Debug),
+    ("index", Clearance::Player),
+    ("inventory", Clearance::Player),
+    ("kill", Clearance::God),
+    ("move", Clearance::Player),
+    ("mutate", Clearance::God),
+    ("names", Clearance::Player),
+    ("nets", Clearance::Player),
+    ("nudge", Clearance::Player),
+    ("print", Clearance::Player),
+    ("program", Clearance::Player),
+    ("restore", Clearance::God),
+    ("revive", Clearance::God),
+    ("say", Clearance::Player),
+    ("sell", Clearance::Player),
+    ("shop", Clearance::Player),
+    ("show", Clearance::Player),
+    ("spawn", Clearance::God),
+    ("startcallhome", Clearance::Debug),
+    ("startcowabduction", Clearance::Debug),
+    ("startfishabduction", Clearance::Debug),
+    ("stats", Clearance::Player),
+    ("subtract", Clearance::Debug),
+    ("switch", Clearance::Player),
+    ("unfreeze", Clearance::Player),
+    ("voidspawn", Clearance::Debug),
 ];
 
 const BASE_RESOURCE_NAMES: &[&str] = &["food", "junk", "cash"];
@@ -213,9 +234,13 @@ pub fn autocomplete(input: &str, ctx: &CompletionCtx) -> Option<Completion> {
         return None;
     }
     let body = &input[1..];
+    let word = body.split(' ').next().unwrap_or_default();
+    if clearance_of_word(word) > ctx.clearance {
+        return None;
+    }
 
     match body.split_once(' ') {
-        None => complete_command(body, ctx.has_cow_in_current),
+        None => complete_command(body, ctx),
         Some((cmd, rest)) => match cmd.to_ascii_lowercase().as_str() {
             "add" => complete_add_subtract("add", rest),
             "buy" => complete_buy(rest),
@@ -238,8 +263,7 @@ pub fn autocomplete(input: &str, ctx: &CompletionCtx) -> Option<Completion> {
             }
             "revive" => complete_name_arg("revive", rest, "<name>", ctx.graveyard_names),
             "kill" => {
-                let living: Vec<&str> =
-                    ctx.sellable_fish_names.iter().map(String::as_str).collect();
+                let living: Vec<&str> = ctx.living_fish_names.iter().map(String::as_str).collect();
                 complete_name_arg("kill", rest, "<name>", &living)
             }
             "expand" => complete_name_arg("expand", rest, "<tank>", ctx.tank_names),
@@ -261,15 +285,16 @@ pub fn tab_complete(input: &str, ctx: &CompletionCtx) -> Option<String> {
     autocomplete(input, ctx).and_then(|c| c.tab_result)
 }
 
-fn complete_command(partial: &str, has_cow_in_current: bool) -> Option<Completion> {
+fn complete_command(partial: &str, ctx: &CompletionCtx) -> Option<Completion> {
     if partial.is_empty() {
         return None;
     }
     let partial_lower = partial.to_ascii_lowercase();
     let allowed: Vec<&str> = COMMAND_NAMES
         .iter()
-        .copied()
-        .filter(|&n| has_cow_in_current || n != "cowsay")
+        .filter(|&&(_, clearance)| clearance <= ctx.clearance)
+        .map(|&(name, _)| name)
+        .filter(|&n| ctx.has_cow_in_current || n != "cowsay")
         .collect();
 
     if allowed.iter().any(|&n| n == partial_lower) {
@@ -1347,8 +1372,8 @@ pub enum Action {
         tank_filter: Option<String>,
     },
     Fish {
-        no_death: bool,
-        no_fish: bool,
+        no_escape: bool,
+        no_fight: bool,
     },
     Inventory,
     Shop,
@@ -1406,6 +1431,8 @@ pub enum Action {
     Flip(String),
     Buy(BuyTarget),
     Sell(SellTarget),
+    Cheat,
+    ToggleDebugMode,
     Unknown,
 }
 
@@ -1522,6 +1549,9 @@ fn parse_nudge(rest: &str, fish_names: &[&str]) -> Option<Action> {
 
 pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
     let input = input.trim();
+    if input.eq_ignore_ascii_case(DEBUG_MODE_COMMAND) {
+        return Action::ToggleDebugMode;
+    }
     if !input.starts_with('/') {
         return Action::Unknown;
     }
@@ -1680,8 +1710,8 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
         "fish" => {
             let flags: Vec<&str> = rest.split_whitespace().collect();
             Action::Fish {
-                no_death: flags.contains(&"--no-death"),
-                no_fish: flags.contains(&"--no-fish"),
+                no_escape: flags.contains(&"--no-escape"),
+                no_fight: flags.contains(&"--no-fight"),
             }
         }
         "exit" => Action::Exit,
@@ -1719,7 +1749,61 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
         "names" => Action::ToggleNames,
         "nets" => Action::ToggleNets,
         "stats" => Action::ToggleStats,
+        "cheat" => Action::Cheat,
         _ => Action::Unknown,
+    }
+}
+
+impl Action {
+    pub fn clearance(&self) -> Clearance {
+        use Action::*;
+        match self {
+            Spawn(..) | Mutate(..) | Revive(_) | Kill(_) | Clone(_) | Bless | Expand(_)
+            | Restore(_) => Clearance::God,
+            ModResource { .. }
+            | Give(_)
+            | VoidSpawn
+            | StartVoidWish { .. }
+            | StartFishAbduction
+            | StartCowAbduction
+            | StartCallHome => Clearance::Debug,
+            Fish {
+                no_escape,
+                no_fight,
+            } if *no_escape || *no_fight => Clearance::Debug,
+            Feed(_)
+            | SetFps(_)
+            | SetClock(_)
+            | Show { .. }
+            | Index { .. }
+            | Fish { .. }
+            | Inventory
+            | Shop
+            | Consume { .. }
+            | ToggleNames
+            | ToggleNets
+            | ToggleStats
+            | Switch(_)
+            | Move { .. }
+            | Fishtanks
+            | Circuit
+            | Foundry
+            | Exit
+            | Cowsay(_)
+            | Say(_)
+            | Program(_)
+            | Console(_)
+            | Print(_)
+            | Etch { .. }
+            | SetFrozen { .. }
+            | Nudge { .. }
+            | Flip(_)
+            | Buy(_)
+            | Sell(_)
+            | Cheat
+            | ToggleDebugMode
+            | Unknown => Clearance::Player,
+        }
     }
 }
 
@@ -1912,32 +1996,32 @@ mod tests {
         assert!(matches!(
             parse("/fish", fish, tanks),
             Action::Fish {
-                no_death: false,
-                no_fish: false
+                no_escape: false,
+                no_fight: false
             }
         ));
     }
 
     #[test]
-    fn parse_fish_no_death_flag() {
+    fn parse_fish_no_escape_flag() {
         let (fish, tanks) = no_names();
         assert!(matches!(
-            parse("/fish --no-death", fish, tanks),
+            parse("/fish --no-escape", fish, tanks),
             Action::Fish {
-                no_death: true,
-                no_fish: false
+                no_escape: true,
+                no_fight: false
             }
         ));
     }
 
     #[test]
-    fn parse_fish_no_fish_flag() {
+    fn parse_fish_no_fight_flag() {
         let (fish, tanks) = no_names();
         assert!(matches!(
-            parse("/fish --no-fish", fish, tanks),
+            parse("/fish --no-fight", fish, tanks),
             Action::Fish {
-                no_death: false,
-                no_fish: true
+                no_escape: false,
+                no_fight: true
             }
         ));
     }
@@ -1946,10 +2030,10 @@ mod tests {
     fn parse_fish_both_flags() {
         let (fish, tanks) = no_names();
         assert!(matches!(
-            parse("/fish --no-death --no-fish", fish, tanks),
+            parse("/fish --no-escape --no-fight", fish, tanks),
             Action::Fish {
-                no_death: true,
-                no_fish: true
+                no_escape: true,
+                no_fight: true
             }
         ));
     }
@@ -2133,6 +2217,70 @@ mod tests {
     }
 
     #[test]
+    fn a_locked_command_is_neither_offered_nor_completed() {
+        let player = CompletionCtx::default();
+        assert!(autocomplete("/spaw", &player).is_none());
+        assert!(autocomplete("/give ca", &player).is_none());
+        let god = CompletionCtx {
+            clearance: Clearance::God,
+            ..Default::default()
+        };
+        assert!(autocomplete("/spaw", &god).is_some());
+        assert!(autocomplete("/give ca", &god).is_none());
+    }
+
+    #[test]
+    fn every_command_word_is_cleared_like_the_action_it_parses_to() {
+        let fish: &[&str] = &["Nemo"];
+        let tanks: &[&str] = &["Fishtank"];
+        let samples: &[(&str, &str)] = &[
+            ("add", "cash 5"),
+            ("bless", ""),
+            ("clone", "Nemo"),
+            ("expand", "Fishtank"),
+            ("give", "cash"),
+            ("kill", "Nemo"),
+            ("mutate", "Nemo eyeincrease"),
+            ("restore", "Nemo"),
+            ("revive", "Nemo"),
+            ("spawn", "merluza \"Dory\""),
+            ("subtract", "cash 5"),
+            ("cheat", ""),
+            ("feed", ""),
+            ("shop", ""),
+        ];
+        for &(name, clearance) in COMMAND_NAMES {
+            let args = samples
+                .iter()
+                .find(|(word, _)| *word == name)
+                .map(|&(_, args)| args)
+                .unwrap_or_default();
+            let action = parse(&format!("/{name} {args}"), fish, tanks);
+            if matches!(action, Action::Unknown) {
+                continue;
+            }
+            assert_eq!(action.clearance(), clearance, "/{name}");
+        }
+    }
+
+    #[test]
+    fn the_fishing_cheats_are_debug_flags() {
+        assert_eq!(
+            parse("/fish --no-escape", &[], &[]).clearance(),
+            Clearance::Debug
+        );
+        assert_eq!(parse("/fish", &[], &[]).clearance(), Clearance::Player);
+    }
+
+    #[test]
+    fn debug_mode_is_typed_with_a_bang_whatever_its_case() {
+        assert!(matches!(
+            parse("  !DebugMode ", &[], &[]),
+            Action::ToggleDebugMode
+        ));
+    }
+
+    #[test]
     fn autocomplete_exact_command_tab_result_adds_space() {
         let result = autocomplete("/feed", &CompletionCtx::default());
         let c = result.unwrap();
@@ -2141,7 +2289,13 @@ mod tests {
 
     #[test]
     fn autocomplete_spawn_partial_species_ghost() {
-        let result = autocomplete("/spawn mer", &CompletionCtx::default());
+        let result = autocomplete(
+            "/spawn mer",
+            &CompletionCtx {
+                clearance: Clearance::Debug,
+                ..Default::default()
+            },
+        );
         let c = result.unwrap();
         assert!(c.ghost.contains("luza"));
     }
@@ -2158,6 +2312,7 @@ mod tests {
             "/mutate Ne",
             &CompletionCtx {
                 fish_names: &["Nemo"],
+                clearance: Clearance::God,
                 ..Default::default()
             },
         );
@@ -2171,6 +2326,7 @@ mod tests {
             "/mutate Nemo eye",
             &CompletionCtx {
                 fish_names: &["Nemo"],
+                clearance: Clearance::God,
                 ..Default::default()
             },
         );

@@ -1,6 +1,7 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use fishtank::{
-    app::App,
+    app::{App, Launch},
+    economy::Purse,
     entities::cow::CowVariant,
     fishes::species::{FishSpecies, Habitat},
     tank::Tank,
@@ -54,32 +55,32 @@ fn botfish_species_is_a_special_legendary() {
 
 #[test]
 fn player_speech_runs_the_botfish_script() {
-    let mut app = App::new();
-    app.cash = 0;
+    let mut app = App::launch(Launch::Debug);
+    app.purse = Purse::holding(0);
     spawn_botfish(&mut app, 0, "Neo", "wake up", &["/give cash"]);
 
     speak(&mut app, "wake up");
     tick_n(&mut app, 40);
 
-    assert_eq!(app.cash, GIVE_RESOURCE_AMOUNT);
+    assert_eq!(app.purse.balance(), GIVE_RESOURCE_AMOUNT);
 }
 
 #[test]
 fn non_matching_speech_does_not_run_the_script() {
-    let mut app = App::new();
-    app.cash = 0;
+    let mut app = App::launch(Launch::Debug);
+    app.purse = Purse::holding(0);
     spawn_botfish(&mut app, 0, "Neo", "wake up", &["/give cash"]);
 
     speak(&mut app, "follow the white rabbit");
     tick_n(&mut app, 40);
 
-    assert_eq!(app.cash, 0);
+    assert_eq!(app.purse.balance(), 0);
 }
 
 #[test]
 fn a_failing_command_aborts_the_rest_of_the_script() {
-    let mut app = App::new();
-    app.cash = 0;
+    let mut app = App::launch(Launch::Debug);
+    app.purse = Purse::holding(0);
     spawn_botfish(
         &mut app,
         0,
@@ -91,26 +92,30 @@ fn a_failing_command_aborts_the_rest_of_the_script() {
     speak(&mut app, "wake up");
     tick_n(&mut app, 80);
 
-    assert_eq!(app.cash, 0, "the give must never run after the bad buy");
+    assert_eq!(
+        app.purse.balance(),
+        0,
+        "the give must never run after the bad buy"
+    );
 }
 
 #[test]
 fn cowsay_triggers_a_botfish_in_the_same_tank() {
-    let mut app = App::new();
-    app.cash = 0;
+    let mut app = App::launch(Launch::Debug);
+    app.purse = Purse::holding(0);
     app.tanks[0].spawn_cow(CowVariant::WhiteBlack, &mut rand::rng());
     spawn_botfish(&mut app, 0, "Neo", "moo", &["/give cash"]);
 
     speak(&mut app, "/cowsay moo");
     tick_n(&mut app, 40);
 
-    assert_eq!(app.cash, GIVE_RESOURCE_AMOUNT);
+    assert_eq!(app.purse.balance(), GIVE_RESOURCE_AMOUNT);
 }
 
 #[test]
 fn cowsay_does_not_trigger_a_botfish_in_another_tank() {
-    let mut app = App::new();
-    app.cash = 0;
+    let mut app = App::launch(Launch::Debug);
+    app.purse = Purse::holding(0);
     app.tanks[0].spawn_cow(CowVariant::WhiteBlack, &mut rand::rng());
     app.tanks
         .push(Tank::new("Annex".to_string(), TankKind::Base, &[]));
@@ -119,25 +124,29 @@ fn cowsay_does_not_trigger_a_botfish_in_another_tank() {
     speak(&mut app, "/cowsay moo");
     tick_n(&mut app, 40);
 
-    assert_eq!(app.cash, 0, "a cow only speaks to bots in its own tank");
+    assert_eq!(
+        app.purse.balance(),
+        0,
+        "a cow only speaks to bots in its own tank"
+    );
 }
 
 #[test]
 fn a_typed_say_triggers_a_botfish_in_the_tank_you_are_watching() {
-    let mut app = App::new();
-    app.cash = 0;
+    let mut app = App::launch(Launch::Debug);
+    app.purse = Purse::holding(0);
     spawn_botfish(&mut app, 0, "Neo", "wake up", &["/give cash"]);
 
     speak(&mut app, "/say \"wake up\"");
     tick_n(&mut app, 40);
 
-    assert_eq!(app.cash, GIVE_RESOURCE_AMOUNT);
+    assert_eq!(app.purse.balance(), GIVE_RESOURCE_AMOUNT);
 }
 
 #[test]
 fn a_typed_say_does_not_carry_to_another_tank() {
-    let mut app = App::new();
-    app.cash = 0;
+    let mut app = App::launch(Launch::Debug);
+    app.purse = Purse::holding(0);
     app.tanks
         .push(Tank::new("Annex".to_string(), TankKind::Base, &[]));
     spawn_botfish(&mut app, 1, "Neo", "wake up", &["/give cash"]);
@@ -145,17 +154,21 @@ fn a_typed_say_does_not_carry_to_another_tank() {
     speak(&mut app, "/say \"wake up\"");
     tick_n(&mut app, 40);
 
-    assert_eq!(app.cash, 0, "speech is heard in the room it was said in");
+    assert_eq!(
+        app.purse.balance(),
+        0,
+        "speech is heard in the room it was said in"
+    );
 }
 
 #[test]
 fn a_typed_say_with_nothing_to_say_does_nothing() {
-    let mut app = App::new();
-    app.cash = 0;
+    let mut app = App::launch(Launch::Debug);
+    app.purse = Purse::holding(0);
     spawn_botfish(&mut app, 0, "Neo", "", &["/give cash"]);
 
     speak(&mut app, "/say \"\"");
     tick_n(&mut app, 40);
 
-    assert_eq!(app.cash, 0, "an empty trigger answers no one");
+    assert_eq!(app.purse.balance(), 0, "an empty trigger answers no one");
 }

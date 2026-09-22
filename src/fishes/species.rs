@@ -5,6 +5,8 @@ use ratatui::style::Color;
 use crate::economy::{Purchasable, Rarity, Sellable};
 use crate::tank::TankKind;
 
+pub const SINGLE_EYE: usize = 1;
+pub const CHEATFISH_EYES: usize = 3;
 pub const EYE_ROUND: char = 'º';
 pub const EYE_CIRCLE: char = 'ʘ';
 pub const EYE_DEAD: char = 'Ↄ';
@@ -59,6 +61,7 @@ pub enum FishSpecies {
     Candyfish,
     Holyfish,
     Botfish,
+    Cheatfish,
     Unfish,
 }
 
@@ -85,6 +88,11 @@ impl FishSpecies {
 
     pub fn buy_price(self) -> u32 {
         self.config().rarity.fish_buy_price()
+    }
+
+    pub fn is_obtainable(self) -> bool {
+        let config = self.config();
+        config.buyable || config.habitat != Habitat::Nowhere
     }
 }
 
@@ -188,6 +196,8 @@ pub struct SpeciesConfig {
     pub abductable: bool,
     pub mutatable: bool,
     pub markable: bool,
+    pub sellable: bool,
+    pub eyes: usize,
     pub auto_glisten: bool,
     pub auto_mutate: bool,
     pub programmable: bool,
@@ -243,6 +253,7 @@ pub const ALL_SPECIES: &[FishSpecies] = &[
     FishSpecies::Candyfish,
     FishSpecies::Holyfish,
     FishSpecies::Botfish,
+    FishSpecies::Cheatfish,
 ];
 
 static BUYABLE_SPECIES: LazyLock<Vec<FishSpecies>> = LazyLock::new(|| {
@@ -359,6 +370,7 @@ static TURBOFISH_PALETTE: [Color; 2] = [YELLOW, ORANGE];
 static CASHFISH_PALETTE: [Color; 1] = [LIGHT_RED];
 static HOLYFISH_PALETTE: [Color; 1] = [GRAY];
 static BOTFISH_PALETTE: [Color; 1] = [DARK_GRAY];
+static CHEATFISH_PALETTE: [Color; 1] = [WHITE];
 
 static AKA_PALETTE: [Color; 1] = [RED];
 static KURO_PALETTE: [Color; 1] = [DARK_GRAY];
@@ -437,6 +449,8 @@ fn standard_config(
         abductable: true,
         mutatable: true,
         markable: true,
+        sellable: true,
+        eyes: SINGLE_EYE,
         auto_glisten: false,
         auto_mutate: false,
         programmable: false,
@@ -476,6 +490,8 @@ fn fixed_config(
         abductable: true,
         mutatable: true,
         markable: true,
+        sellable: true,
+        eyes: SINGLE_EYE,
         auto_glisten: false,
         auto_mutate: false,
         programmable: false,
@@ -607,6 +623,8 @@ impl FishSpecies {
                     abductable: true,
                     mutatable: true,
                     markable: true,
+                    sellable: true,
+                    eyes: SINGLE_EYE,
                     auto_glisten: false,
                     auto_mutate: false,
                     programmable: false,
@@ -755,6 +773,23 @@ impl FishSpecies {
                 config.programmable = true;
                 config
             }
+            Cheatfish => {
+                let mut config = standard_config(
+                    "Cheatfish",
+                    standard(EYE_ROUND, TailKind::Wide),
+                    &CHEATFISH_PALETTE,
+                    Solid,
+                    0.10,
+                    (2.5, 4.0),
+                    Common,
+                );
+                config.buyable = false;
+                config.habitat = Habitat::Nowhere;
+                config.sellable = false;
+                config.eyes = CHEATFISH_EYES;
+                config.eye_color = Some(RED);
+                config
+            }
             Mutantfish => SpeciesConfig {
                 name: "Mutantfish",
                 body: BodyTemplate::Standard(standard(EYE_CIRCLE, TailKind::Wide)),
@@ -768,6 +803,8 @@ impl FishSpecies {
                 abductable: true,
                 mutatable: true,
                 markable: true,
+                sellable: true,
+                eyes: SINGLE_EYE,
                 auto_glisten: true,
                 auto_mutate: true,
                 programmable: false,
@@ -811,6 +848,8 @@ impl FishSpecies {
                 abductable: true,
                 mutatable: true,
                 markable: true,
+                sellable: true,
+                eyes: SINGLE_EYE,
                 auto_glisten: false,
                 auto_mutate: false,
                 programmable: false,
