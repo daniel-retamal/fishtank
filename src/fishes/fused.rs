@@ -3,15 +3,16 @@ use crate::fishes::botfish::BotfishState;
 use crate::fishes::fish::Fish;
 use crate::fishes::species::FishSpecies;
 use crate::fishes::unfish::{UnfishKind, UnfishState};
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Lineage {
     Fish(FishSpecies),
     Unfish(UnfishKind),
     Cow(CowVariant),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum Snapshot {
     Fish(Box<Fish>),
     Cow(Box<Cow>),
@@ -40,7 +41,7 @@ impl Snapshot {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct FusedComponent {
     pub lineage: Lineage,
     pub name: String,

@@ -1,5 +1,6 @@
 use crate::names;
 use crate::void_ritual::phrase_matches;
+use serde::{Deserialize, Serialize};
 
 pub const CHEAT_RESOURCE_AMOUNT: u32 = 10_000;
 pub const DEBUG_MODE_LABEL: &str = "debug mode";
@@ -127,7 +128,7 @@ impl Cheat {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct Cheats {
     pub godmode: bool,
     pub boundless: bool,

@@ -83,14 +83,19 @@ pub struct CatchState {
 
 impl CatchState {
     pub fn new(loot: LootKind, rng: &mut impl RngExt) -> Self {
-        let fish = if let LootKind::Fish(species) = &loot {
-            let mut f = Fish::new(*species, String::new(), 0.0, 0.0, rng);
+        let fish = match &loot {
+            LootKind::Fish(species) => Some(Fish::new(*species, String::new(), 0.0, 0.0, rng)),
+            _ => None,
+        };
+        Self::holding(loot, fish, rng)
+    }
+
+    pub fn holding(loot: LootKind, fish: Option<Fish>, rng: &mut impl RngExt) -> Self {
+        let fish = fish.map(|mut f| {
             f.facing = Direction::Right;
             f.velocity.dx = f.velocity.dx.abs();
-            Some(f)
-        } else {
-            None
-        };
+            f
+        });
         let necro_eye_open: Vec<bool> =
             (0..NECRO_EYE_COUNT).map(|_| rng.random::<bool>()).collect();
         let necro_eye_timers: Vec<f32> = necro_eye_open

@@ -1,3 +1,7 @@
+use serde::{Deserialize, Serialize};
+
+pub const HISTORY_LIMIT: usize = 500;
+
 pub struct LineEditor {
     pub text: String,
     pub cursor: usize,
@@ -98,9 +102,12 @@ impl LineEditor {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct CommandHistory {
     entries: Vec<String>,
+    #[serde(skip)]
     pos: Option<usize>,
+    #[serde(skip)]
     draft: String,
 }
 
@@ -125,6 +132,8 @@ impl CommandHistory {
 
     pub fn record(&mut self, entry: String) {
         self.entries.push(entry);
+        let overflow = self.entries.len().saturating_sub(HISTORY_LIMIT);
+        self.entries.drain(..overflow);
     }
 
     pub fn reset(&mut self) {

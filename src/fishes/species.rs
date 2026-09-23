@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
 use ratatui::style::Color;
@@ -30,7 +31,7 @@ use crate::colors::{
     RED_DARK, SILVER, VIOLET, WHITE, YELLOW,
 };
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SizeCategory {
     S = 0,
     M = 1,
@@ -38,7 +39,7 @@ pub enum SizeCategory {
     XL = 3,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum FishSpecies {
     Merluza,
     Betta,

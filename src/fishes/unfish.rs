@@ -1,5 +1,6 @@
 use rand::RngExt;
 use ratatui::style::Color;
+use serde::{Deserialize, Serialize};
 use std::f32::consts::TAU;
 
 use crate::colors::{DARK_GRAY, GRAY, WHITE};
@@ -14,7 +15,7 @@ use crate::util::{even_indices, sample_exponential};
 
 pub const VOID_SPAWN_MEAN_SECS: f32 = 3600.0;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum UnfishKind {
     Reversed,
     Doppleganger,
@@ -82,7 +83,7 @@ pub const SPAWNABLE_UNFISH: &[UnfishKind] = &[
     UnfishKind::Worm,
 ];
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlinkerPhase {
     Glistening,
     Invisible,
@@ -331,7 +332,7 @@ pub fn is_multi_row(kind: UnfishKind) -> bool {
     matches!(kind, UnfishKind::Ball | UnfishKind::Skull)
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct FloatingEye {
     pub row: usize,
     pub row_f: f32,
@@ -410,7 +411,7 @@ fn fill_eyes(
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct UnfishState {
     pub kind: UnfishKind,
     pub eye: BlinkTimer,

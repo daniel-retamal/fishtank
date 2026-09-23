@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::f32::consts::TAU;
 
 use rand::RngExt;
@@ -12,6 +13,10 @@ use crate::fishes::mutations::{
     MutantBacked, Mutatable, Mutation, MutationOutcome, apply_mutant_mutation,
 };
 use crate::loot::MilkVariant;
+
+mod record;
+
+use record::CowRecord;
 
 pub const COW_SPRITE_ROWS: u16 = 5;
 pub const COW_BASE_TORSO: usize = 7;
@@ -36,7 +41,7 @@ pub fn cow_default_sway_speed() -> f32 {
 const COW_MIN_TORSO: usize = 3;
 const COW_MAX_TORSO: usize = 12;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum CowVariant {
     Brown,
     WhiteBlack,
@@ -125,7 +130,8 @@ impl CowVariant {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(into = "CowRecord", from = "CowRecord")]
 pub struct Cow {
     pub name: String,
     pub position: Position,

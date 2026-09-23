@@ -2,6 +2,7 @@
 # A latch hears its own q, so §9.2 calls q internal; the export is what gives the blueprint an output pin.
 
 clear
+include scenes/start-with-a-stake.play
 run /foundry
 absent ─ Foundry
 
@@ -55,8 +56,7 @@ key esc
 absent ─ Foundry
 
 run /inventory
-# the inventory is alphabetical and marks its row by style, not `>`, so it is walked by count: Bait, Coffee, Latch, Necronomicon.
-key down 2
+# a new game starts with no items, so the blueprint is the inventory's first row.
 expect Latch (Circuit
 snap the blueprint is kept in the inventory
 key esc

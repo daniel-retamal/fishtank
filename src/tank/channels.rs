@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
@@ -8,9 +9,10 @@ pub trait Wires {
     fn drive(&mut self, channel: &str, level: bool);
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct ChannelRegistry {
     levels: BTreeMap<String, bool>,
+    #[serde(skip)]
     pending: BTreeMap<String, Option<bool>>,
 }
 

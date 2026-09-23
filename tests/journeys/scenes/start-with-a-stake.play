@@ -1,0 +1,8 @@
+# SCENE · the purse a journey shops with: 39,950 on top of the 50 a new game starts with
+# (app::STARTING_CASH), so every journey plays with the 40,000 it was written against.
+# A player earns cash by fishing, which no journey can do on cue, so the stake is handed over in
+# debug mode, which is switched straight back off, like the Computer in grow-a-matrixtank.play.
+
+run !debugmode
+run /add cash 39950
+run !debugmode

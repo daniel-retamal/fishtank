@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 pub const BLANK_CELL: u8 = b' ';
 pub const WORD_BITS: usize = u8::BITS as usize;
 const UNWRITTEN: u8 = 0;
@@ -14,7 +15,7 @@ impl Grid {
     }
 }
 
-#[derive(Clone, Default, PartialEq, Eq, Debug)]
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Buffer {
     bytes: Vec<u8>,
     cursor: usize,

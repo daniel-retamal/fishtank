@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
 
 use super::{
@@ -6,7 +7,7 @@ use super::{
 };
 use crate::tank::{Link, Transmission, WorldView};
 
-#[derive(Clone, Default, PartialEq, Eq, Debug)]
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
 struct Installation {
     count: u32,
     memory: VecDeque<bool>,
@@ -21,7 +22,7 @@ fn remembered(memory: &mut VecDeque<bool>, index: usize, level: bool) -> bool {
     std::mem::replace(&mut memory[index], level)
 }
 
-#[derive(Clone, Default, PartialEq, Eq, Debug)]
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct PartSet {
     installed: BTreeMap<Part, Installation>,
 }

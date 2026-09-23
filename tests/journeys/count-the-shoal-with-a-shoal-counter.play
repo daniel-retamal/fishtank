@@ -3,6 +3,7 @@
 # Its panel walks by count: listens, drives, target, threshold, count, full, empty, over, under.
 
 clear
+include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Shoal Counter" Senses
 include scenes/buy-a-fish.play Botfish counter

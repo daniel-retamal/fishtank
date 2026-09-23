@@ -2,6 +2,7 @@
 # Selling is a death. Heaven is never bought: it appears by itself, and you stay where you were.
 
 clear
+include scenes/start-with-a-stake.play
 include scenes/buy-a-fish.play Merluza Ann
 run /sell fish "Ann"
 run /fishtanks

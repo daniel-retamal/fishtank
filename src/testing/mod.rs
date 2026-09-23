@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
 
-use crate::app::{App, Launch};
+use crate::app::{App, Launch, SaveFile};
 
 mod reel;
 mod screenplay;
@@ -15,6 +15,7 @@ pub use stage::{PLAY_EXTENSION, TerminalSize, play_name, plays_in, review, stage
 
 pub const DEFAULT_COLS: u16 = 100;
 pub const DEFAULT_ROWS: u16 = 30;
+pub const LAB_STAKE: u32 = 40_000;
 
 const SELECTION_MARKER: char = '>';
 const COVERED_CELL: &str = " ";
@@ -47,9 +48,21 @@ impl Tui {
     }
 
     pub fn launched(launch: Launch, cols: u16, rows: u16) -> Self {
+        Self::playing(App::launch(launch), cols, rows)
+    }
+
+    pub fn resumed(save: SaveFile, cols: u16, rows: u16) -> Self {
+        Self::playing(App::resume(save, cols, rows), cols, rows)
+    }
+
+    pub fn around(app: App, cols: u16, rows: u16) -> Self {
+        Self::playing(app, cols, rows)
+    }
+
+    fn playing(app: App, cols: u16, rows: u16) -> Self {
         let terminal = Terminal::new(TestBackend::new(cols, rows)).expect("test terminal");
         let mut tui = Self {
-            app: App::launch(launch),
+            app,
             terminal,
             reel: Reel::new(),
             film: None,
@@ -64,11 +77,19 @@ impl Tui {
         self
     }
 
+    pub fn stake(&mut self) -> &mut Self {
+        self.app.purse.earn(LAB_STAKE);
+        self.draw();
+        self
+    }
+
     pub fn clear_tank(&mut self) -> &mut Self {
         let tank = &mut self.app.tanks[self.app.current_tank];
         tank.fish.clear();
         tank.cows.clear();
         tank.food.clear();
+        tank.used_names.clear();
+        tank.used_cow_names.clear();
         self.draw();
         self
     }

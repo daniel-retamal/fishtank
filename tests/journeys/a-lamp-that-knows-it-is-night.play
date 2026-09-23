@@ -3,6 +3,7 @@
 # listens, drives, time, night, dawn.
 
 clear
+include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Tidal Clock" Senses
 include scenes/buy-a-fish.play Botfish clock

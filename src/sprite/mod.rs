@@ -1,5 +1,6 @@
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
 use ratatui::style::Color;
+use serde::{Deserialize, Serialize};
 
 use crate::entities::components::sway_x_offset;
 use crate::entities::glistening::{GlisteningMode, color_for_glisten, derive_glistening_palette};
@@ -32,19 +33,19 @@ const STRAND_PRIME: u64 = 0x9E37_79B9_7F4A_7C15;
 pub type Cell = (char, Color);
 pub type Grid = Vec<Vec<Cell>>;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FeetStyle {
     Quote,
     Caret,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct Feet {
     pub style: FeetStyle,
     pub color: Option<Color>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExtensionVariant {
     Tentacle,
     Spike,
@@ -65,7 +66,7 @@ impl ExtensionVariant {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct BodyExtension {
     pub variant: ExtensionVariant,
     pub length: usize,

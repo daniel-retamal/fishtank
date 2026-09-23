@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::f32::consts::TAU;
 
 use rand::{RngExt, SeedableRng, rngs::SmallRng};
@@ -27,6 +28,10 @@ use crate::sprite::{
     mirror_char, painted_span,
 };
 use crate::util::even_indices;
+
+mod record;
+
+use record::FishRecord;
 
 const CHAR_SPREAD: f32 = 1.0;
 const PERCENT_WHOLE: u32 = 100;
@@ -59,7 +64,7 @@ const NIGHTOWL_SINK_DY: f32 = 1.5;
 const FEET_ROW_COUNT: usize = 1;
 pub const ENGULF_WINDOW_SECS: f32 = 10.0;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Direction {
     Left,
     Right,
@@ -107,7 +112,8 @@ pub enum FishState {
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(into = "FishRecord", from = "FishRecord")]
 pub struct Fish {
     pub name: String,
     pub position: Position,
@@ -175,6 +181,18 @@ struct BodyFields {
     sway_speed: f32,
 }
 
+fn random_heading(speed: f32, dy_fraction: f32, rng: &mut impl RngExt) -> (Velocity, Direction) {
+    let angle = rng.random::<f32>() * TAU;
+    let dx = angle.cos() * speed;
+    let dy = angle.sin() * speed * dy_fraction;
+    let facing = if dx < 0.0 {
+        Direction::Left
+    } else {
+        Direction::Right
+    };
+    (Velocity { dx, dy }, facing)
+}
+
 fn programmable_state(species: FishSpecies) -> Option<Box<BotfishState>> {
     species
         .config()
@@ -230,22 +248,16 @@ impl Fish {
         };
         let fields = init_body_fields(species, size_cat, rng);
         let botfish_state = programmable_state(species);
-        let angle = rng.random::<f32>() * TAU;
-        let dx = angle.cos() * fields.speed;
-        let dy = angle.sin() * fields.speed * DY_FRACTION;
+        let (velocity, facing) = random_heading(fields.speed, DY_FRACTION, rng);
         Self {
             name,
             position: Position { x, y },
-            velocity: Velocity { dx, dy },
+            velocity,
             sway: SwayState {
                 phase: rng.random::<f32>() * TAU,
             },
             state: FishState::Idle,
-            facing: if dx < 0.0 {
-                Direction::Left
-            } else {
-                Direction::Right
-            },
+            facing,
             body_size: fields.body_size,
             color: fields.color,
             speed: fields.speed,
@@ -333,22 +345,16 @@ impl Fish {
             UnfishKind::Worm => worm_display_width(WORM_DEFAULT_SEGMENTS, 0, false, 0, 0),
             _ => compute_display_width(FishSpecies::Unfish, 5),
         };
-        let angle = rng.random::<f32>() * TAU;
-        let dx = angle.cos() * speed;
-        let dy = angle.sin() * speed * kind.dy_fraction();
+        let (velocity, facing) = random_heading(speed, kind.dy_fraction(), rng);
         Self {
             name,
             position: Position { x, y },
-            velocity: Velocity { dx, dy },
+            velocity,
             sway: SwayState {
                 phase: rng.random::<f32>() * TAU,
             },
             state: FishState::Idle,
-            facing: if dx < 0.0 {
-                Direction::Left
-            } else {
-                Direction::Right
-            },
+            facing,
             body_size: 5,
             color: WHITE,
             speed,

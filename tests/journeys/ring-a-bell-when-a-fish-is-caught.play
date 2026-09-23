@@ -6,6 +6,7 @@
 # The Nerve's walks: listens, drives, death, birth, sale, catch, abduction.
 
 clear
+include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
 include scenes/buy-at-the-bench.play "Angler Rig" Hands

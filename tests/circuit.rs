@@ -15,6 +15,7 @@ use fishtank::{
     loot::{CIRCUIT_BLUEPRINT_SELL_PRICE, ConsumableKind, StockItem},
     settings::{DEFAULT_STAGES_PER_TICK, STAGES_PER_TICK_MAX},
     tank::{Blueprint, Fabrication, HOURS_PER_DAY, Tank, TankBackground, TankKind, WorldSignal},
+    testing::LAB_STAKE,
     void_ritual::GIVE_RESOURCE_AMOUNT,
 };
 
@@ -373,6 +374,7 @@ fn coffee_multiplies_the_clock() {
     let mut app = App::launch(Launch::Debug);
     assert_eq!(app.tick_fabric(), 1, "one stage at the default clock");
 
+    run(&mut app, "/add coffee 1");
     run(&mut app, "/consume coffee");
 
     assert_eq!(
@@ -2112,6 +2114,7 @@ fn a_blueprint_that_is_not_owned_sells_for_nothing() {
 #[test]
 fn two_printed_latches_remember_different_things_because_their_insides_are_namespaced() {
     let mut app = latch_blueprint_on_an_empty_board();
+    app.purse.earn(LAB_STAKE);
     stock(&mut app, ConsumableKind::Fabricator, 2);
 
     assert!(app.print_blueprint(LATCH_NAME));
@@ -2137,6 +2140,7 @@ fn two_printed_latches_remember_different_things_because_their_insides_are_names
 #[test]
 fn printed_latches_share_their_inputs_and_an_exported_output() {
     let mut app = latch_blueprint_on_an_empty_board();
+    app.purse.earn(LAB_STAKE);
     app.blueprints[0].export("q");
     stock(&mut app, ConsumableKind::Fabricator, 2);
     assert!(app.print_blueprint(LATCH_NAME));
@@ -2164,6 +2168,7 @@ fn printed_latches_share_their_inputs_and_an_exported_output() {
 #[test]
 fn a_print_names_its_fish_after_the_instance_and_keeps_the_arrangement() {
     let mut app = board(&["Left", "Right"]);
+    app.purse.earn(LAB_STAKE);
     gate(&mut app, "Left", &["x"], "nx", COIL);
     gate(&mut app, "Right", &["nx"], "y", BARE);
     placed_at(&mut app, "Left", PLACED_X, PLACED_Y);
@@ -2237,6 +2242,7 @@ fn a_print_into_a_full_tank_fails_cleanly_and_the_blueprint_survives() {
 #[test]
 fn printing_needs_a_fabricator_and_a_blueprint_by_that_name() {
     let mut app = latch_blueprint_on_an_empty_board();
+    app.purse.earn(LAB_STAKE);
 
     assert!(!app.print_blueprint(LATCH_NAME), "no Fabricator");
     stock(&mut app, ConsumableKind::Fabricator, 1);
@@ -2249,6 +2255,7 @@ fn printing_needs_a_fabricator_and_a_blueprint_by_that_name() {
 #[test]
 fn a_printed_botfish_is_worth_nothing_at_the_till() {
     let mut app = latch_board();
+    app.purse.earn(LAB_STAKE);
     captured(&mut app, LATCH_NAME);
     connect(&mut app);
     stock(&mut app, ConsumableKind::Fabricator, 1);
@@ -2872,6 +2879,7 @@ fn an_etched_fish_can_be_captured_and_etched_again() {
 #[test]
 fn etching_needs_a_fabricator_and_the_blueprint_survives() {
     let mut app = latch_board();
+    app.purse.earn(LAB_STAKE);
     captured(&mut app, LATCH_NAME);
     app.tanks[0].fish.clear();
     connect(&mut app);

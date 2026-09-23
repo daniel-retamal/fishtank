@@ -126,6 +126,13 @@ impl Ufo {
         }
     }
 
+    pub fn carried_cow(&self) -> Option<&Cow> {
+        match &self.payload {
+            UfoPayload::DroppingCow(cow) => Some(cow),
+            _ => None,
+        }
+    }
+
     fn release_carried_fish(&mut self) -> Option<UfoTickResult> {
         let placeholder = UfoPayload::AbductingFish {
             fish_name: String::new(),

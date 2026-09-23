@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -66,7 +67,7 @@ impl PinSpec {
 
 pub const OUTPUT_PIN: PinSpec = PinSpec::flag("out");
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 pub enum PinOwner {
     Body,
     Part(Part),
@@ -237,7 +238,7 @@ impl PinReadings {
     }
 }
 
-#[derive(Clone, Default, PartialEq, Eq, Debug)]
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct PinMap {
     wires: BTreeMap<PinOwner, BTreeMap<String, String>>,
 }

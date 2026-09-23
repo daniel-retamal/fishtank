@@ -75,6 +75,7 @@ impl Blessing {
 
 impl App {
     pub fn handle_input(&mut self, event: Event) {
+        self.note_input(&event);
         if let Event::Resize(w, h) = event {
             self.terminal_height = h;
             self.terminal_width = w;
@@ -92,6 +93,8 @@ impl App {
             self.handle_naming_input(event);
         } else if matches!(self.active_overlay, Some(Overlay::Cheat(_))) {
             self.handle_cheat_input(event);
+        } else if matches!(self.active_overlay, Some(Overlay::Notice(_))) {
+            self.handle_notice_input(event);
         } else if matches!(self.active_overlay, Some(Overlay::Fishing(_))) {
             self.handle_fishing_input(event);
         } else if matches!(self.active_overlay, Some(Overlay::Show { .. })) {
@@ -258,6 +261,24 @@ impl App {
                 }
             }
             InputAction::Char(c) => self.editor.insert(c),
+            _ => {}
+        }
+    }
+
+    fn handle_notice_input(&mut self, event: Event) {
+        let Some(action) = classify(&event) else {
+            return;
+        };
+        let Some(Overlay::Notice(state)) = &mut self.active_overlay else {
+            return;
+        };
+        match action {
+            InputAction::Quit => self.running = false,
+            InputAction::Up => state.scroll_up(),
+            InputAction::Down => state.scroll_down(),
+            InputAction::Cancel | InputAction::Confirm | InputAction::Char('q') => {
+                self.close_overlay()
+            }
             _ => {}
         }
     }
@@ -2468,7 +2489,7 @@ impl App {
         }
         let performed = self.perform(action);
         if performed && needed == Clearance::God {
-            self.mint_cheatfish(Cheat::of_switch(Switch::Godmode));
+            self.mint_cheatfish(Cheat::of_switch(Switch::Godmode).fish_name());
         }
         performed
     }
@@ -2738,6 +2759,9 @@ impl App {
                 self.running = false;
                 true
             }
+            commands::Action::Reset => self.reset_game(),
+            commands::Action::Export(path) => self.export_game(&path),
+            commands::Action::Import(path) => self.import_game(&path),
             commands::Action::Cowsay(text) => self.cowsay(text),
             commands::Action::Say(text) => self.say(None, text),
             commands::Action::VoidSpawn => {

@@ -1,10 +1,12 @@
 # SCREENPLAY · a calculator made of fish: say 6 + 4 out loud and a fish answers 10.
-# The wiring table, and why each fish is there, is FISHPUTING_PLAN.md §22, Phase 6.
+# The wiring table, and why each fish is there, is docs/game/worked-builds.md.
 # It is an ADDING machine: it keeps the last two digits it hears and adds them, so the
 # + is only a separator. Eight etched Full Adders do the arithmetic; the tens digit is
 # c4 OR (s3 AND (s1 OR s2)), and the units are the sum plus six whenever that is true.
 
 clear
+# the bench was written against a 40,000 purse; a new game holds 50, so the rest is added here.
+run /add cash 39950
 run /add inverter coil 130
 run /add delay spool 60
 run /add cochlea 1

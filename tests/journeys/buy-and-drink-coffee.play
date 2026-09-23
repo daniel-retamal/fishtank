@@ -3,6 +3,7 @@
 # By hand: cargo run --example fishplay -- tests/journeys/buy-and-drink-coffee.play --size 40 14 --print
 
 clear
+include scenes/start-with-a-stake.play
 run /shop
 expect Buy
 snap the front counter
@@ -21,10 +22,9 @@ key esc
 absent Sell
 
 run /inventory
-key down
-expect Coffee
-expect │ 3
-snap the two coffees joined the one the game starts with, scrolled into view on a small screen
+expect Coff
+expect │ 2
+snap the two coffees are the whole inventory, because a new game starts with none
 key esc
 
 run /consume coffee

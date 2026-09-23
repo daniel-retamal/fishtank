@@ -2,6 +2,7 @@
 # Print spends the Fabricator, a wafer per fish and every part; the blueprint survives and the copy's insides are namespaced.
 
 clear
+include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
@@ -55,8 +56,7 @@ snap the copy is in the circuit
 key esc
 
 run /inventory
-# the inventory is alphabetical and marks its row by style, not `>`, so it is walked by count: Bait, Coffee, Latch, Necronomicon.
-key down 2
+# a new game starts with no items, so the blueprint is the inventory's first row.
 expect Latch (Circuit
 absent Fabricator
 snap the blueprint survives and the Fabricator is spent

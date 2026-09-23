@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use rand::RngExt;
@@ -50,7 +51,7 @@ fn etched_fish(design: &BotfishState) -> u32 {
     })
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct BlueprintFish {
     pub name: String,
     pub design: BotfishState,
@@ -107,7 +108,7 @@ impl BlueprintPins {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Blueprint {
     pub name: String,
     pub fish: Vec<BlueprintFish>,

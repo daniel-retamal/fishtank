@@ -17,6 +17,7 @@ pub mod inventory_overlay;
 pub mod layout;
 pub mod line_editor;
 pub mod modal;
+pub mod notice;
 pub mod panels;
 pub mod shop_overlay;
 pub mod show_overlay;

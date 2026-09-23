@@ -4,6 +4,7 @@
 # The install picker marks its row with style, not '>', so the panel's fish is walked to by count (Ear, then Lcd).
 
 clear
+include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
 include scenes/buy-at-the-bench.play Cochlea Peripherals

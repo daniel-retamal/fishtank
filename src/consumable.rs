@@ -1,4 +1,5 @@
 use rand::RngExt;
+use serde::{Deserialize, Serialize};
 
 use crate::fishes::fish::Fish;
 use crate::fishes::mutations::{Mutation, apply_mutation_to_fish};
@@ -25,7 +26,7 @@ pub const VOLITION_ALPHA: f32 = 0.9;
 pub const PHYSICAL_INSTRUMENT_ALPHA: f32 = 0.9;
 pub const REACTION_SPEED_ALPHA: f32 = 0.9;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub enum MilkStatus {
     VisualCalculus,
     Volition,
@@ -51,7 +52,7 @@ impl MilkStatus {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ActiveMilkStatus {
     pub kind: MilkStatus,
     pub stacks: u32,

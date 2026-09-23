@@ -1,6 +1,7 @@
 # JOURNEY · growing the aquarium: buy a tank, name it, switch to it and back.
 
 clear
+include scenes/start-with-a-stake.play
 run /shop
 key enter
 select Fishtank

@@ -1,5 +1,6 @@
 use rand::RngExt;
 use ratatui::style::Color;
+use serde::{Deserialize, Serialize};
 
 use crate::colors::{
     AMBER_LIGHT, BLUE, BROWN, BROWN_DARK, CREAM, DARK_GRAY, GRAY, GREEN, LIGHT_GREEN,
@@ -32,6 +33,7 @@ const BAIT_WEIGHT: u32 = 20;
 const JUNK_FILLER_CHARS: &[char] = &['&', '@', '€', '%', '$', '#', 'X', '<', '>'];
 const JUNK_COLORS: &[Color] = &[GRAY, BROWN, GREEN, LIGHT_GREEN];
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct JunkSprite {
     pub rows: Vec<Vec<(char, Color)>>,
 }
@@ -126,7 +128,7 @@ const ALIEN_MILK_DESCRIPTION: &str = "Cellular-restructuring xeno-pathway fluid 
 const IRRADIATED_MILK_NAME: &str = "Irradiated Milk";
 const IRRADIATED_MILK_DESCRIPTION: &str = "Rage against the carcase. Entfesselt Sein Fleisch. Let the self dissolve, for a brief moment, in the unnverving experience of letting go. Random mutations";
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum MilkVariant {
     Plain,
     Blueberry,
@@ -285,7 +287,7 @@ impl NameTarget {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum ConsumableKind {
     Coffee,
     Bait,
@@ -907,7 +909,7 @@ pub fn bait_sprite_rows() -> Vec<Vec<(char, Color)>> {
     ]
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub enum CashValue {
     One,
     Two,
@@ -966,6 +968,7 @@ impl CashValue {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub enum ItemKind {
     Junk(JunkSprite),
     Consumable(ConsumableKind),
@@ -980,7 +983,7 @@ impl ItemKind {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum StockItem {
     Consumable(ConsumableKind),
     Junk,
@@ -1035,6 +1038,7 @@ impl StockItem {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub enum LootKind {
     Fish(FishSpecies),
     Cash(CashValue),

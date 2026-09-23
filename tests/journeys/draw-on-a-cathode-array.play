@@ -4,10 +4,11 @@
 # write stores the bit at dot 1 (top row, second dot) and write_byte stores the byte 1 at byte 1, the
 # second row's first dot. Both land in one cell, ⠊; without write_byte it reads ⠈, without write ⠂.
 # Spent: Computer $8000 + botfish $7700 + Cathode Array $7700 + Inverter Coil $496 = $23896 of the
-# $40000 a player starts with.
+# 40,000 stake (scenes/start-with-a-stake.play).
 # The panel walks by count: listens, drives, width, glyphs, addr, bit, write, byte, write_byte.
 
 clear
+include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
 include scenes/buy-at-the-bench.play "Cathode Array" Peripherals

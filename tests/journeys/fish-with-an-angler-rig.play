@@ -4,15 +4,27 @@
 # one second a tick first. caught is high for one stage only, so Bell, a bare botfish that hears caught and
 # its own output, latches it: Bell's dot lights in /circuit once the catch is in.
 # Spent: Computer $8000 + Inverter Coil $496 + Angler Rig $7700 + two botfish $15400 = $31596 of the
-# $40000 a player starts with; the Bait is the one every player starts with.
+# 40,000 stake (scenes/start-with-a-stake.play), and the one Bait is bought at the counter.
 # Rod's panel walks by count: listens, drives, threshold, cast, caught.
 
 clear
+include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
 include scenes/buy-at-the-bench.play "Angler Rig" Hands
 include scenes/buy-a-fish.play Botfish rod
 include scenes/buy-a-fish.play Botfish bell
+
+run /shop
+key enter
+select Bait
+key enter
+expect < 1 >
+snap one bait on the counter
+key enter
+key esc
+key esc
+absent Price/unit
 
 run /consume inverter coil
 key enter

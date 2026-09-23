@@ -1,8 +1,14 @@
 use std::collections::{BTreeSet, HashMap};
 
+use serde::{Deserialize, Serialize};
+
 use super::botfish::{BotfishState, DueCast, DueLine};
 use super::parts::{Display, KeyBinding, Part, Pin, PinDirection, PinMap, PinOwner};
 use crate::tank::{Link, Netlist, Transmission, Wires, WorldView};
+
+mod record;
+
+use record::ChipRecord;
 
 const CHIP_SUFFIX: &str = " chip";
 
@@ -206,7 +212,8 @@ impl Compiled {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(into = "ChipRecord", from = "ChipRecord")]
 pub struct Chip {
     name: String,
     board: Vec<BotfishState>,

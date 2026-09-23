@@ -26,8 +26,7 @@ pub struct Plant {
 }
 
 impl Plant {
-    pub fn new(x: i32, height: usize) -> Self {
-        let mut rng = rand::rng();
+    pub fn new(x: i32, height: usize, rng: &mut impl RngExt) -> Self {
         let colors = [GREEN, LIGHT_GREEN, GREEN_DARK];
         let color = colors[rng.random_range(0..colors.len())];
         Self {

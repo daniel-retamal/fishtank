@@ -3,10 +3,11 @@
 # and, as it rises, the write strobe. data_out reads word 64 every stage onto q; Lcd is a bare delay
 # from the rail onto its own panel's write, so the panel reads q a stage after the word landed.
 # Spent: Computer $8000 + two botfish $15400 + Core Stack $7700 + Glyph Panel $7700 + Inverter Coil $496
-# = $39296 of the $40000 a player starts with.
+# = $39296 of the 40,000 stake (scenes/start-with-a-stake.play).
 # The install picker marks its row with style, not '>', so Lcd is walked to by count (Ram, then Lcd).
 
 clear
+include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
 include scenes/buy-at-the-bench.play "Core Stack" Peripherals

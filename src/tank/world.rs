@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Link, Tank};
@@ -14,7 +15,7 @@ pub const RAD_TANK_RADS: u32 = 10;
 pub const SELECTOR_OPEN: char = '{';
 pub const SELECTOR_CLOSE: char = '}';
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 pub enum WorldSignal {
     Death,
     Birth,
@@ -337,7 +338,7 @@ impl Tank {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct DayClock {
     elapsed: f32,
 }

@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::f32::consts::TAU;
 
@@ -29,7 +30,7 @@ pub fn level_color(level: bool) -> Color {
     if level { HIGH_COLOR } else { LOW_COLOR }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct ScriptRun {
     next_line: usize,
     ticks_left: f32,
@@ -40,7 +41,7 @@ pub struct DueLine {
     pub command: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Cast {
     part: Part,
     secs_left: Option<f32>,
@@ -70,7 +71,7 @@ pub struct DueCast {
     pub tackle: Tackle,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct BotfishState {
     pub trigger: String,
     pub script: Vec<String>,
@@ -80,6 +81,7 @@ pub struct BotfishState {
     chip: Option<Box<Chip>>,
     run: Option<ScriptRun>,
     cast: Option<Cast>,
+    #[serde(skip)]
     blink_phase: f32,
     sensed: bool,
     emitted: bool,

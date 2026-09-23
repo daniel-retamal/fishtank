@@ -1,7 +1,8 @@
 # JOURNEY · selling: a fish the player owns leaves the tank for cash.
-# The sell list opens on the game's starting stock (Coffee, Bait, Necronomicon); the fish is below it.
+# A new game starts with no items, so the sell list opens on the fishes: Adam, Lilith, Eva and Ann.
 
 clear
+include scenes/start-with-a-stake.play
 include scenes/buy-a-fish.play Merluza Ann
 run /shop
 key down

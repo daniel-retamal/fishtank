@@ -3,6 +3,8 @@
 # Cues: size, clear, run, type, key <name> [times], tick, snap, expect, absent.
 
 clear
+# the bench was written against a 40,000 purse; a new game holds 50, so the rest is added here.
+run /add cash 39950
 
 # ── The shop with no Matrixtank: Robotics is listed but locked ──
 run /shop

@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashSet};
 
 use rand::RngExt;
@@ -8,7 +9,8 @@ use crate::colors::{CYAN, GREEN, LIGHT_GREEN, LIGHT_YELLOW, PINK, RED, WHITE};
 
 use crate::economy::{Purchasable, Rarity, Sellable};
 use crate::entities::bubble::{Bubble, BubbleSpawner};
-use crate::entities::cow::{Cow, CowVariant, cow_display_width};
+use crate::entities::components::Position;
+use crate::entities::cow::{Cow, CowVariant};
 use crate::entities::food::Food;
 use crate::entities::ufo::Ufo;
 use crate::fishes::fish::{Fish, FishState};
@@ -29,11 +31,12 @@ mod fabric;
 mod mothership;
 mod mutations;
 mod netlist;
+mod record;
 mod relay;
 mod simulation;
 mod world;
 
-pub use background::TankBackground;
+pub use background::{Scenery, TankBackground};
 pub use blueprint::{
     Blueprint, BlueprintFish, BlueprintPins, Fabrication, FabricationQuote, FabricationRefusal,
     Material, Workshop,
@@ -45,6 +48,7 @@ pub use mothership::{
     speech_ink,
 };
 pub use netlist::{Netlist, Settling};
+pub use record::TankRecord;
 pub use relay::{Link, Transmission};
 pub use world::{
     DAWN_HOUR, DAY_LENGTH_SECS, DUSK_HOUR, DayClock, HOUR_SECS, HOURS_PER_DAY, RAD_TANK_RADS,
@@ -63,7 +67,7 @@ pub enum TankEvent {
     CallHome,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TankKind {
     Base,
     CoralReef,
@@ -463,11 +467,13 @@ impl TankKind {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub enum Exile {
     Fish(Box<Fish>),
     Cow(Box<Cow>),
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ActiveConsumable {
     pub kind: ConsumableKind,
     pub stacks: u32,
@@ -511,6 +517,8 @@ const FOOD_WEIGHT_GAIN_G: u32 = 50;
 pub struct Tank {
     pub name: String,
     pub kind: TankKind,
+    seed: u64,
+    scenery: Scenery,
     pub fish: Vec<Fish>,
     pub cows: Vec<Cow>,
     pub food: Vec<Food>,
@@ -540,11 +548,18 @@ pub struct Tank {
 
 impl Tank {
     pub fn new(name: String, kind: TankKind, dead_names: &[String]) -> Self {
+        Self::seeded(name, kind, dead_names, rand::rng().random())
+    }
+
+    fn seeded(name: String, kind: TankKind, dead_names: &[String], seed: u64) -> Self {
         let mut rng = rand::rng();
-        let background = TankBackground::new(kind, dead_names, &mut rng);
+        let mut scenery = Scenery::new(seed);
+        let background = TankBackground::new(kind, dead_names, &mut scenery);
         Self {
             name,
             kind,
+            seed,
+            scenery,
             fish: Vec::new(),
             cows: Vec::new(),
             food: Vec::new(),
@@ -617,7 +632,8 @@ impl Tank {
         }
         let mut rng = rand::rng();
         if width > old_width {
-            self.background.extend(self.width, dead_names, &mut rng);
+            self.background
+                .extend(self.width, dead_names, &mut self.scenery);
         }
         self.background.init_stars(&mut rng, width, height);
     }
@@ -669,16 +685,22 @@ impl Tank {
             return false;
         }
         let actual_name = self.unique_name(&name);
-        let x_max = (self.width as f32 - FISH_SPAWN_X_MAX_OFFSET).max(FISH_SPAWN_X_SAFE_MIN);
-        let y_max = (self.height as f32 - FISH_SPAWN_Y_MAX_OFFSET).max(FISH_SPAWN_Y_SAFE_MIN);
-        let x = rng.random_range(FISH_SPAWN_X_MIN..x_max);
-        let y = rng.random_range(FISH_SPAWN_Y_MIN..y_max);
+        let Position { x, y } = self.spawn_point(rng);
         let fish = Fish::new(species, actual_name.clone(), x, y, rng);
         if !self.welcomes(&fish) {
             return false;
         }
         self.admit(fish, actual_name);
         true
+    }
+
+    fn spawn_point(&self, rng: &mut impl RngExt) -> Position {
+        let x_max = (self.width as f32 - FISH_SPAWN_X_MAX_OFFSET).max(FISH_SPAWN_X_SAFE_MIN);
+        let y_max = (self.height as f32 - FISH_SPAWN_Y_MAX_OFFSET).max(FISH_SPAWN_Y_SAFE_MIN);
+        Position {
+            x: rng.random_range(FISH_SPAWN_X_MIN..x_max),
+            y: rng.random_range(FISH_SPAWN_Y_MIN..y_max),
+        }
     }
 
     pub fn take_fish(&mut self, index: usize) -> Fish {
@@ -728,10 +750,7 @@ impl Tank {
 
     pub fn place_fish(&mut self, mut fish: Fish, name: String, rng: &mut impl RngExt) {
         let actual_name = self.unique_name(&name);
-        let x_max = (self.width as f32 - FISH_SPAWN_X_MAX_OFFSET).max(FISH_SPAWN_X_SAFE_MIN);
-        let y_max = (self.height as f32 - FISH_SPAWN_Y_MAX_OFFSET).max(FISH_SPAWN_Y_SAFE_MIN);
-        fish.position.x = rng.random_range(FISH_SPAWN_X_MIN..x_max);
-        fish.position.y = rng.random_range(FISH_SPAWN_Y_MIN..y_max);
+        fish.position = self.spawn_point(rng);
         fish.name = actual_name.clone();
         self.admit(fish, actual_name);
     }
@@ -889,14 +908,9 @@ impl Tank {
         let name = self.unique_cow_name("Vaquita");
         let cow = Cow::new(name.clone(), variant, 0.0, 0.0, rng);
         let cow_floor = (self.height as f32) - (Cow::sprite_height() as f32);
-        let max_x = (self.width as i32 - cow_display_width(&cow) as i32).max(0);
-        let x = if max_x > 0 {
-            rng.random_range(0..max_x) as f32
-        } else {
-            0.0
-        };
+        let x = self.cow_spot(&cow, rng);
         self.admit_cow(Cow {
-            position: crate::entities::components::Position {
+            position: Position {
                 x,
                 y: cow_floor.max(0.0),
             },
@@ -919,17 +933,26 @@ impl Tank {
         self.admit_cow(cow);
     }
 
+    pub fn land_cow_delivery(&mut self, cow: Cow) {
+        self.place_cow_dropped(cow);
+        self.cow_abduction_count = self.cow_abduction_count.saturating_add(1);
+    }
+
     pub fn place_cow(&mut self, mut cow: Cow, rng: &mut impl RngExt) {
         cow.name = self.unique_cow_name(&cow.name);
         let cow_floor = (self.height as f32) - (Cow::sprite_height() as f32);
+        cow.position.x = self.cow_spot(&cow, rng);
+        cow.position.y = cow_floor.max(0.0);
+        self.admit_cow(cow);
+    }
+
+    fn cow_spot(&self, cow: &Cow, rng: &mut impl RngExt) -> f32 {
         let max_x = (self.width as i32 - cow.display_width as i32).max(0);
-        cow.position.x = if max_x > 0 {
+        if max_x > 0 {
             rng.random_range(0..max_x) as f32
         } else {
             0.0
-        };
-        cow.position.y = cow_floor.max(0.0);
-        self.admit_cow(cow);
+        }
     }
 
     pub fn cow_count_by_variant(&self, variant: CowVariant) -> u32 {

@@ -3,6 +3,7 @@
 # and no god command (/spawn, /give, /add) appears anywhere in it.
 
 clear
+include scenes/start-with-a-stake.play
 include scenes/buy-a-fish.play Botfish neo
 
 expect 32.3k

@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 pub trait Purchasable {
     fn buy_price(&self) -> u32;
     fn display_name(&self) -> &str;
@@ -151,7 +152,7 @@ mod tests {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct Purse {
     balance: u32,
     bottomless: bool,

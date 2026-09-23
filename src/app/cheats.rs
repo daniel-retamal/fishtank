@@ -56,6 +56,7 @@ impl App {
         let debug = self.debug_mode.then_some(DEBUG_MODE_LABEL);
         debug
             .into_iter()
+            .chain(self.unsaved_label())
             .chain(
                 Switch::ALL
                     .iter()
@@ -103,12 +104,12 @@ impl App {
             None => self.grant(cheat),
         };
         if granted {
-            self.mint_cheatfish(cheat);
+            self.mint_cheatfish(cheat.fish_name());
         }
         granted || cheat.switch().is_some()
     }
 
-    pub(super) fn mint_cheatfish(&mut self, cheat: Cheat) {
+    pub(super) fn mint_cheatfish(&mut self, name: String) {
         if self.debug_mode {
             return;
         }
@@ -119,7 +120,7 @@ impl App {
             0.0,
             &mut rand::rng(),
         );
-        self.land_fish(self.current_tank, fish, cheat.fish_name());
+        self.land_fish(self.current_tank, fish, name);
     }
 
     fn grant(&mut self, cheat: Cheat) -> bool {

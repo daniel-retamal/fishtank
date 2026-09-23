@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
 use rand::RngExt;
@@ -11,7 +12,7 @@ const GLISTEN_PEAK_FACTOR: f32 = 0.65;
 pub const GLISTEN_PEAK_THRESHOLD: f32 = 0.6;
 pub const GLISTEN_MID_THRESHOLD: f32 = 0.1;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum GlisteningMode {
     Wave,
     FullGlow,

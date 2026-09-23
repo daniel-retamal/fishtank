@@ -169,6 +169,7 @@ const SELL_COMMAND: &str = "sell";
 const SELL_ARG: &str = "<item>";
 const NAME_ARG: &str = "<name>";
 const QUANTITY_ARG: &str = "<quantity>";
+const FILE_ARG: &str = "\"<file>\"";
 
 static COMMAND_NAMES: &[(&str, Clearance)] = &[
     ("add", Clearance::Debug),
@@ -184,6 +185,7 @@ static COMMAND_NAMES: &[(&str, Clearance)] = &[
     ("etch", Clearance::Player),
     ("exit", Clearance::Player),
     ("expand", Clearance::God),
+    ("export", Clearance::Player),
     ("feed", Clearance::Player),
     ("fish", Clearance::Player),
     ("fishtanks", Clearance::Player),
@@ -192,6 +194,7 @@ static COMMAND_NAMES: &[(&str, Clearance)] = &[
     ("fps", Clearance::Player),
     ("freeze", Clearance::Player),
     ("give", Clearance::Debug),
+    ("import", Clearance::Player),
     ("index", Clearance::Player),
     ("inventory", Clearance::Player),
     ("kill", Clearance::God),
@@ -202,6 +205,7 @@ static COMMAND_NAMES: &[(&str, Clearance)] = &[
     ("nudge", Clearance::Player),
     ("print", Clearance::Player),
     ("program", Clearance::Player),
+    ("reset", Clearance::Debug),
     ("restore", Clearance::God),
     ("revive", Clearance::God),
     ("say", Clearance::Player),
@@ -1333,6 +1337,7 @@ fn command_args_placeholder(cmd: &str) -> &'static str {
         "etch" => ETCH_ARGS,
         "expand" => "<tank>",
         "give" => "<thing>",
+        "export" | "import" => FILE_ARG,
         "move" => "<entity> <tank>",
         "mutate" => "<name> <mutation>",
         "sell" => SELL_ARG,
@@ -1396,6 +1401,9 @@ pub enum Action {
     Circuit,
     Foundry,
     Exit,
+    Reset,
+    Export(String),
+    Import(String),
     Cowsay(String),
     Say(String),
     VoidSpawn,
@@ -1715,6 +1723,9 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
             }
         }
         "exit" => Action::Exit,
+        "reset" => Action::Reset,
+        "export" => name_command(rest, Action::Export),
+        "import" => name_command(rest, Action::Import),
         "cowsay" => {
             let text = parse_raw_arg(rest);
             if text.is_empty() {
@@ -1766,7 +1777,8 @@ impl Action {
             | StartVoidWish { .. }
             | StartFishAbduction
             | StartCowAbduction
-            | StartCallHome => Clearance::Debug,
+            | StartCallHome
+            | Reset => Clearance::Debug,
             Fish {
                 no_escape,
                 no_fight,
@@ -1789,6 +1801,8 @@ impl Action {
             | Circuit
             | Foundry
             | Exit
+            | Export(_)
+            | Import(_)
             | Cowsay(_)
             | Say(_)
             | Program(_)
@@ -2245,6 +2259,8 @@ mod tests {
             ("revive", "Nemo"),
             ("spawn", "merluza \"Dory\""),
             ("subtract", "cash 5"),
+            ("export", "\"fishtank.ron\""),
+            ("import", "\"fishtank.ron\""),
             ("cheat", ""),
             ("feed", ""),
             ("shop", ""),

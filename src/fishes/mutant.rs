@@ -1,5 +1,6 @@
 use rand::RngExt;
 use ratatui::style::Color;
+use serde::{Deserialize, Serialize};
 use unicode_width::UnicodeWidthChar;
 
 use crate::entities::components::BlinkTimer;
@@ -16,7 +17,7 @@ const WAVE_THRESHOLD: f32 = 0.8;
 pub const EXTRA_BODY_FOR_DOUBLE: usize = 2;
 pub const MIN_BODY_CHARS: usize = 2;
 
-#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug, Serialize, Deserialize)]
 pub enum Circadian {
     #[default]
     Neutral,
@@ -34,7 +35,7 @@ impl Circadian {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum MutantTail {
     Wide,
     Swaying,
@@ -80,7 +81,7 @@ impl MutantTail {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct EyeState {
     blink: BlinkTimer,
     pub color: Option<Color>,
@@ -123,7 +124,7 @@ impl EyeState {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct MutationRecord {
     pub count: u32,
     pub history: Vec<String>,
@@ -144,7 +145,7 @@ impl MutationRecord {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MutantState {
     pub left_eyes: Vec<EyeState>,
     pub right_eyes: Vec<EyeState>,

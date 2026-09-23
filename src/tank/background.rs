@@ -1,4 +1,4 @@
-use rand::RngExt;
+use rand::{RngExt, SeedableRng, rngs::SmallRng};
 
 use ratatui::style::Color;
 
@@ -38,6 +38,34 @@ const CANDY_PINK_PLANT_COLORS: &[Color] = &[
     VIOLET,
     INDIGO,
 ];
+
+#[derive(Clone, Copy)]
+enum Lane {
+    Frame,
+    Growth,
+    Structures,
+    Accents,
+}
+
+const LANES: usize = 4;
+
+pub struct Scenery {
+    lanes: [SmallRng; LANES],
+}
+
+impl Scenery {
+    pub fn new(seed: u64) -> Self {
+        Self {
+            lanes: std::array::from_fn(|lane| {
+                SmallRng::seed_from_u64(seed.wrapping_add(lane as u64))
+            }),
+        }
+    }
+
+    fn lane(&mut self, lane: Lane) -> &mut SmallRng {
+        &mut self.lanes[lane as usize]
+    }
+}
 
 pub enum TankBackground {
     Plain {
@@ -80,116 +108,50 @@ pub enum TankBackground {
 }
 
 impl TankBackground {
-    pub fn new(kind: TankKind, dead_names: &[String], rng: &mut impl RngExt) -> Self {
-        match kind {
-            TankKind::Base => {
-                let mut plants = Vec::new();
-                extend_plants(
-                    &mut plants,
-                    INITIAL_WIDTH as i32 + PLANT_SPAWN_LOOKAHEAD,
-                    rng,
-                );
-                TankBackground::Plain { plants }
-            }
-            TankKind::CoralReef => {
-                let mut plants = Vec::new();
-                let mut corals = Vec::new();
-                let mut floor_algae = Vec::new();
-                extend_plants(
-                    &mut plants,
-                    INITIAL_WIDTH as i32 + PLANT_SPAWN_LOOKAHEAD,
-                    rng,
-                );
-                extend_coral_reef(
-                    &mut corals,
-                    &mut floor_algae,
-                    INITIAL_WIDTH as i32 + CORAL_SPAWN_LOOKAHEAD,
-                    rng,
-                );
-                TankBackground::Coral {
-                    plants,
-                    corals,
-                    floor_algae,
-                }
-            }
-            TankKind::Hell => {
-                let bg = HellBackground::new(rng);
-                let mut plants = Vec::new();
-                extend_hell_plants(
-                    &mut plants,
-                    INITIAL_WIDTH as i32 + PLANT_SPAWN_LOOKAHEAD,
-                    rng,
-                );
-                TankBackground::Hell { bg, plants }
-            }
+    pub fn new(kind: TankKind, dead_names: &[String], scenery: &mut Scenery) -> Self {
+        let mut background = match kind {
+            TankKind::Base => TankBackground::Plain { plants: Vec::new() },
+            TankKind::CoralReef => TankBackground::Coral {
+                plants: Vec::new(),
+                corals: Vec::new(),
+                floor_algae: Vec::new(),
+            },
+            TankKind::Hell => TankBackground::Hell {
+                bg: HellBackground::new(scenery.lane(Lane::Frame)),
+                plants: Vec::new(),
+            },
             TankKind::Void => TankBackground::Void {
                 bg: VoidBackground::new(),
             },
             TankKind::Alien => {
-                let mut bg = AlienBackground::new(rng);
-                let color = bg.color;
-                extend_alien_tentacles(
-                    &mut bg.tentacles,
-                    INITIAL_WIDTH as i32 + PLANT_SPAWN_LOOKAHEAD,
-                    color,
-                    rng,
-                );
-                extend_alien_pyramids(
-                    &mut bg.pyramids,
-                    INITIAL_WIDTH as i32 + CORAL_SPAWN_LOOKAHEAD,
-                    rng,
-                );
-                bg.init_stars(rng, INITIAL_WIDTH, INITIAL_HEIGHT);
+                let mut bg = AlienBackground::new(scenery.lane(Lane::Frame));
+                bg.init_stars(scenery.lane(Lane::Frame), INITIAL_WIDTH, INITIAL_HEIGHT);
                 TankBackground::Alien { bg }
             }
-            TankKind::Haunted => {
-                let mut bg = HauntedBackground::new(rng);
-                extend_haunted(
-                    &mut bg.graves,
-                    &mut bg.pumpkins,
-                    INITIAL_WIDTH as i32 + CORAL_SPAWN_LOOKAHEAD,
-                    dead_names,
-                    rng,
-                );
-                TankBackground::Haunted { bg }
-            }
-            TankKind::Candy => {
-                let mut bg = CandyBackground::new();
-                let target = INITIAL_WIDTH as i32 + CORAL_SPAWN_LOOKAHEAD;
-                extend_candy_plants(&mut bg.plants, target, rng);
-                extend_candy_decos(&mut bg.decos, target, rng);
-                let mut pink_plants = Vec::new();
-                extend_candy_pink_plants(&mut pink_plants, target, rng);
-                TankBackground::Candy { bg, pink_plants }
-            }
+            TankKind::Haunted => TankBackground::Haunted {
+                bg: HauntedBackground::new(scenery.lane(Lane::Frame)),
+            },
+            TankKind::Candy => TankBackground::Candy {
+                bg: CandyBackground::new(),
+                pink_plants: Vec::new(),
+            },
             TankKind::Desert => {
-                let mut bg = DesertSky::new(rng);
-                extend_desert_cacti(
-                    &mut bg.cacti,
-                    INITIAL_WIDTH as i32 + CORAL_SPAWN_LOOKAHEAD,
-                    rng,
-                );
-                bg.init_stars(rng, INITIAL_WIDTH, INITIAL_HEIGHT);
+                let mut bg = DesertSky::new(scenery.lane(Lane::Frame));
+                bg.init_stars(scenery.lane(Lane::Frame), INITIAL_WIDTH, INITIAL_HEIGHT);
                 TankBackground::Desert { bg }
             }
-            TankKind::Rad => {
-                let mut bg = RadBackground::new();
-                extend_rad(
-                    &mut bg.barrels,
-                    &mut bg.floor,
-                    INITIAL_WIDTH as i32 + CORAL_SPAWN_LOOKAHEAD,
-                    rng,
-                );
-                TankBackground::Rad { bg }
-            }
-            TankKind::Matrix => {
-                let bg = MatrixBackground::new(INITIAL_WIDTH as i32, rng);
-                TankBackground::Matrix { bg }
-            }
-            TankKind::Heaven => TankBackground::Heaven {
-                bg: HeavenBackground::new(INITIAL_WIDTH, rng),
+            TankKind::Rad => TankBackground::Rad {
+                bg: RadBackground::new(),
             },
-        }
+            TankKind::Matrix => TankBackground::Matrix {
+                bg: MatrixBackground::new(0, scenery.lane(Lane::Frame)),
+            },
+            TankKind::Heaven => TankBackground::Heaven {
+                bg: HeavenBackground::new(INITIAL_WIDTH, scenery.lane(Lane::Frame)),
+            },
+        };
+        background.extend(INITIAL_WIDTH, dead_names, scenery);
+        background
     }
 
     pub fn tick(&mut self, dt: f32, rng: &mut impl RngExt, width: u16, height: u16) {
@@ -235,68 +197,73 @@ impl TankBackground {
         }
     }
 
-    pub fn extend(&mut self, width: u16, dead_names: &[String], rng: &mut impl RngExt) {
+    pub fn extend(&mut self, width: u16, dead_names: &[String], scenery: &mut Scenery) {
+        let growth_to = width as i32 + PLANT_SPAWN_LOOKAHEAD;
+        let structures_to = width as i32 + CORAL_SPAWN_LOOKAHEAD;
         match self {
             TankBackground::Plain { plants } => {
-                extend_plants(plants, width as i32 + PLANT_SPAWN_LOOKAHEAD, rng);
+                extend_plants(plants, growth_to, scenery.lane(Lane::Growth));
             }
             TankBackground::Coral {
                 plants,
                 corals,
                 floor_algae,
             } => {
-                extend_plants(plants, width as i32 + PLANT_SPAWN_LOOKAHEAD, rng);
+                extend_plants(plants, growth_to, scenery.lane(Lane::Growth));
                 extend_coral_reef(
                     corals,
                     floor_algae,
-                    width as i32 + CORAL_SPAWN_LOOKAHEAD,
-                    rng,
+                    structures_to,
+                    scenery.lane(Lane::Structures),
                 );
             }
             TankBackground::Hell { plants, .. } => {
-                extend_hell_plants(plants, width as i32 + PLANT_SPAWN_LOOKAHEAD, rng);
+                extend_hell_plants(plants, growth_to, scenery.lane(Lane::Growth));
             }
             TankBackground::Void { .. } => {}
             TankBackground::Alien { bg } => {
                 let color = bg.color;
                 extend_alien_tentacles(
                     &mut bg.tentacles,
-                    width as i32 + PLANT_SPAWN_LOOKAHEAD,
+                    growth_to,
                     color,
-                    rng,
+                    scenery.lane(Lane::Growth),
                 );
-                extend_alien_pyramids(&mut bg.pyramids, width as i32 + CORAL_SPAWN_LOOKAHEAD, rng);
+                extend_alien_pyramids(
+                    &mut bg.pyramids,
+                    structures_to,
+                    scenery.lane(Lane::Structures),
+                );
             }
             TankBackground::Haunted { bg } => {
                 extend_haunted(
                     &mut bg.graves,
                     &mut bg.pumpkins,
-                    width as i32 + CORAL_SPAWN_LOOKAHEAD,
+                    structures_to,
                     dead_names,
-                    rng,
+                    scenery.lane(Lane::Structures),
                 );
             }
             TankBackground::Candy { bg, pink_plants } => {
-                let target = width as i32 + CORAL_SPAWN_LOOKAHEAD;
-                extend_candy_plants(&mut bg.plants, target, rng);
-                extend_candy_decos(&mut bg.decos, target, rng);
-                extend_candy_pink_plants(pink_plants, target, rng);
+                extend_candy_plants(&mut bg.plants, structures_to, scenery.lane(Lane::Growth));
+                extend_candy_decos(&mut bg.decos, structures_to, scenery.lane(Lane::Structures));
+                extend_candy_pink_plants(pink_plants, structures_to, scenery.lane(Lane::Accents));
             }
             TankBackground::Desert { bg } => {
-                extend_desert_cacti(&mut bg.cacti, width as i32 + CORAL_SPAWN_LOOKAHEAD, rng);
+                extend_desert_cacti(&mut bg.cacti, structures_to, scenery.lane(Lane::Growth));
             }
             TankBackground::Rad { bg } => {
                 extend_rad(
                     &mut bg.barrels,
                     &mut bg.floor,
-                    width as i32 + CORAL_SPAWN_LOOKAHEAD,
-                    rng,
+                    structures_to,
+                    scenery.lane(Lane::Structures),
                 );
             }
             TankBackground::Matrix { bg } => {
-                extend_matrix(&mut bg.columns, width as i32, rng);
+                extend_matrix(&mut bg.columns, width as i32, scenery.lane(Lane::Growth));
             }
-            TankBackground::Heaven { bg } => bg.extend(width, rng),
+            TankBackground::Heaven { bg } => bg.extend(width, scenery.lane(Lane::Structures)),
         }
     }
 
@@ -385,7 +352,10 @@ fn extend_plants(plants: &mut Vec<Plant>, to_width: i32, rng: &mut impl RngExt) 
         PLANT_SPACING_MIN..=PLANT_SPACING_MAX,
         rng,
         |p| p.x,
-        |x, rng| Plant::new(x, rng.random_range(PLANT_HEIGHT_MIN..=PLANT_HEIGHT_MAX)),
+        |x, rng| {
+            let height = rng.random_range(PLANT_HEIGHT_MIN..=PLANT_HEIGHT_MAX);
+            Plant::new(x, height, rng)
+        },
     );
 }
 
@@ -398,7 +368,8 @@ fn extend_candy_pink_plants(plants: &mut Vec<Plant>, to_width: i32, rng: &mut im
         rng,
         |p| p.x,
         |x, rng| {
-            let mut p = Plant::new(x, rng.random_range(PLANT_HEIGHT_MIN..=PLANT_HEIGHT_MAX));
+            let height = rng.random_range(PLANT_HEIGHT_MIN..=PLANT_HEIGHT_MAX);
+            let mut p = Plant::new(x, height, rng);
             p.color = CANDY_PINK_PLANT_COLORS[rng.random_range(0..CANDY_PINK_PLANT_COLORS.len())];
             p
         },

@@ -17,6 +17,7 @@ fn filmed(name: &str) -> Tui {
     let mut tui = Tui::new();
     tui.film(Path::new(REEL_DIR), name);
     tui.clear_tank();
+    tui.stake();
     tui
 }
 

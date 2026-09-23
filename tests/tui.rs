@@ -1320,6 +1320,7 @@ fn grow_a_matrixtank(tui: &mut Tui) {
 #[test]
 fn the_robotics_bench_is_locked_until_a_matrixtank_is_grown() {
     let mut tui = Tui::new();
+    tui.stake();
     open_buy_categories(&mut tui);
     tui.screen().expect_find(ROBOTICS_ROW);
 
@@ -1363,6 +1364,7 @@ fn a_computer_in_the_inventory_opens_nothing_on_its_own() {
 #[test]
 fn the_fishtank_category_sells_no_tank_you_are_meant_to_find() {
     let mut tui = Tui::new();
+    tui.stake();
     open_buy_categories(&mut tui);
     tui.select(FISHTANK_ROW);
     tui.key(KeyCode::Enter);
@@ -1392,6 +1394,7 @@ fn a_tank_grown_from_an_item_cannot_be_bought_at_all() {
 #[test]
 fn buying_a_tank_with_no_seed_still_names_it_on_the_spot() {
     let mut tui = Tui::new();
+    tui.stake();
     open_buy_categories(&mut tui);
     tui.select(FISHTANK_ROW);
     tui.key(KeyCode::Enter);
@@ -1406,6 +1409,7 @@ fn buying_a_tank_with_no_seed_still_names_it_on_the_spot() {
 #[test]
 fn an_item_that_grows_a_tank_is_sold_nowhere() {
     let mut tui = Tui::new();
+    tui.stake();
     let before = tui.app.purse.balance();
     tui.run(&format!(
         "/buy {}",
@@ -1414,8 +1418,8 @@ fn an_item_that_grows_a_tank_is_sold_nowhere() {
 
     assert_eq!(
         held(&tui, ConsumableKind::Necronomicon),
-        1,
-        "the player keeps the one the game gave them and buys none"
+        0,
+        "a funded player still buys none"
     );
     assert_eq!(tui.app.purse.balance(), before);
 }
@@ -1424,6 +1428,7 @@ fn an_item_that_grows_a_tank_is_sold_nowhere() {
 fn the_tank_catalogue_draws_whole_at_every_size() {
     for (cols, rows) in SHOP_SIZES {
         let mut tui = Tui::with_size(cols, rows);
+        tui.stake();
         tui.film(
             Path::new(env!("CARGO_TARGET_TMPDIR")),
             &format!("shop-tanks-{cols}x{rows}"),
@@ -1450,6 +1455,7 @@ fn the_tank_catalogue_draws_whole_at_every_size() {
 #[test]
 fn buying_a_part_at_the_bench_stocks_it_and_charges_for_it() {
     let mut tui = Tui::new();
+    tui.stake();
     grow_a_matrixtank(&mut tui);
     let before = tui.app.purse.balance();
     open_the_bench_tier(&mut tui, PartTier::Fabric);
@@ -1644,6 +1650,7 @@ fn two_blueprints_given_one_name_are_told_apart() {
 #[test]
 fn a_summoning_item_still_names_a_tank_through_the_same_popup() {
     let mut tui = Tui::new();
+    tui.run("/give necronomicon");
 
     tui.run("/consume necronomicon");
     tui.screen().expect_find("Name your Helltank");
@@ -1723,6 +1730,7 @@ fn the_bench_walks_through_every_tier_at_every_size() {
 #[test]
 fn the_bench_sells_blank_blueprints_on_the_materials_page() {
     let mut tui = Tui::new();
+    tui.stake();
     grow_a_matrixtank(&mut tui);
     let before = tui.app.purse.balance();
     open_the_bench_tier(&mut tui, PartTier::Materials);
@@ -1991,6 +1999,7 @@ fn swims(tui: &Tui, name: &str) -> bool {
 #[test]
 fn p_prints_the_selected_blueprint_and_closes_the_foundry() {
     let mut tui = Tui::new();
+    tui.stake();
     wired_latch(&mut tui);
     tui.run("/give fabricator");
     let before = fabricators(&tui);
@@ -2041,6 +2050,7 @@ fn consuming_a_fabricator_opens_the_foundry_and_spends_nothing_until_a_print() {
 #[test]
 fn a_programmed_script_can_print_a_blueprint() {
     let mut tui = Tui::new();
+    tui.stake();
     wired_latch(&mut tui);
     spawn_frozen_bot(&mut tui);
     tui.run("/give fabricator");
@@ -2050,6 +2060,34 @@ fn a_programmed_script_can_print_a_blueprint() {
     tui.tick_n(SCRIPT_TICKS * 2);
 
     assert!(swims(&tui, PRINTED_Q), "the bot built a board");
+}
+
+#[test]
+fn a_programmed_script_can_neither_reset_nor_export_nor_import_the_game() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("bot-save");
+    std::fs::create_dir_all(&dir).expect("a scratch directory");
+    let kept = dir.join("kept.ron");
+    let smuggled = dir.join("smuggled.ron");
+    let _ = std::fs::remove_file(&smuggled);
+    for line in [
+        "/reset".to_string(),
+        format!("/export \"{}\"", smuggled.display()),
+        format!("/import \"{}\"", kept.display()),
+    ] {
+        let mut tui = Tui::new();
+        spawn_frozen_bot(&mut tui);
+        tui.run(&format!("/export \"{}\"", kept.display()));
+        tui.stake();
+        let purse = tui.app.purse.balance();
+        program(&mut tui, &[line.as_str()]);
+
+        tui.run(DEFAULT_TRIGGER);
+        tui.tick_n(SCRIPT_TICKS * 2);
+
+        assert_eq!(tui.app.purse.balance(), purse, "{line}");
+        assert!(swims(&tui, "Neo"), "{line}");
+    }
+    assert!(!smuggled.exists(), "a bot never writes a file");
 }
 
 #[test]
@@ -2073,6 +2111,7 @@ fn print_autocompletes_the_blueprints_you_own() {
 fn printing_from_the_foundry_draws_whole_at_every_size() {
     for (cols, rows) in POPUP_SIZES {
         let mut tui = Tui::with_size(cols, rows);
+        tui.stake();
         tui.film(
             Path::new(env!("CARGO_TARGET_TMPDIR")),
             &format!("foundry-print-{cols}x{rows}"),
@@ -2169,6 +2208,7 @@ fn latch_with_a_host(tui: &mut Tui) {
 #[test]
 fn e_opens_the_fish_picker_and_enter_burns_the_blueprint_into_the_fish() {
     let mut tui = Tui::new();
+    tui.stake();
     latch_with_a_host(&mut tui);
     let before = fabricators(&tui);
     tui.run("/foundry");
@@ -2194,6 +2234,7 @@ fn e_opens_the_fish_picker_and_enter_burns_the_blueprint_into_the_fish() {
 #[test]
 fn escaping_the_etch_picker_returns_to_the_foundry_on_the_same_blueprint() {
     let mut tui = Tui::new();
+    tui.stake();
     latch_with_a_host(&mut tui);
     tui.run("/foundry");
     tui.type_text("e");
@@ -2222,6 +2263,7 @@ fn e_without_a_fabricator_opens_no_picker() {
 #[test]
 fn an_etched_fish_shows_its_chip_and_its_pins_in_the_circuit_and_the_panel() {
     let mut tui = Tui::new();
+    tui.stake();
     latch_with_a_host(&mut tui);
     tui.run("/etch \"Latch\" \"Neo\"");
 
@@ -2242,6 +2284,7 @@ fn an_etched_fish_shows_its_chip_and_its_pins_in_the_circuit_and_the_panel() {
 #[test]
 fn a_programmed_script_can_etch_a_blueprint() {
     let mut tui = Tui::new();
+    tui.stake();
     wired_latch(&mut tui);
     spawn_frozen_bot(&mut tui);
     tui.run("/spawn botfish \"Tim\"");
@@ -2277,6 +2320,7 @@ fn etch_autocompletes_a_blueprint_and_then_a_botfish() {
 fn etching_from_the_foundry_draws_whole_at_every_size() {
     for (cols, rows) in POPUP_SIZES {
         let mut tui = Tui::with_size(cols, rows);
+        tui.stake();
         tui.film(
             Path::new(env!("CARGO_TARGET_TMPDIR")),
             &format!("foundry-etch-{cols}x{rows}"),

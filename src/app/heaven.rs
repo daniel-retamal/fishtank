@@ -22,6 +22,12 @@ impl App {
             .position(|tank| tank.kind.config().afterlife == Some(afterlife))
     }
 
+    fn souls_bound_for(&self, afterlife: Afterlife) -> impl Iterator<Item = &Fish> {
+        self.graveyard
+            .iter()
+            .filter(move |grave| Afterlife::of(grave) == afterlife)
+    }
+
     pub(super) fn gather_the_dead(&self, tank: &mut Tank) {
         let Some(afterlife) = tank.kind.config().afterlife else {
             return;
@@ -29,12 +35,23 @@ impl App {
         if self.afterlife_tank(afterlife).is_some() {
             return;
         }
-        for grave in self
-            .graveyard
-            .iter()
-            .filter(|grave| Afterlife::of(grave) == afterlife)
-        {
+        for grave in self.souls_bound_for(afterlife) {
             tank.receive_soul(grave.clone());
+        }
+    }
+
+    pub(super) fn hang_the_souls(&mut self) {
+        for index in 0..self.tanks.len() {
+            let Some(afterlife) = self.tanks[index].kind.config().afterlife else {
+                continue;
+            };
+            if self.afterlife_tank(afterlife) != Some(index) {
+                continue;
+            }
+            let souls: Vec<Fish> = self.souls_bound_for(afterlife).cloned().collect();
+            for soul in souls {
+                self.tanks[index].receive_soul(soul);
+            }
         }
     }
 

@@ -2,6 +2,7 @@
 # This is the whole Phase 3 promise in four fish-steps: part, wire, fire pin, script line.
 
 clear
+include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
 include scenes/buy-at-the-bench.play "Command Module" Hands
@@ -18,7 +19,7 @@ key esc
 key esc
 absent Price/unit
 expect food
-expect 100
+expect 160
 include scenes/buy-a-fish.play Botfish clk
 include scenes/buy-a-fish.play Botfish feeder
 

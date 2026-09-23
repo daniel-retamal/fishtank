@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use rand::RngExt;
@@ -12,8 +13,7 @@ use crate::{
     commands,
     consumable::{ActiveMilkStatus, CONSUMABLE_STACK_BONUS, ConsumeTarget},
     economy::Purse,
-    fishes::fish::Fish,
-    fishes::species::FishSpecies,
+    fishes::{fish::Fish, graveyard::Graveyard},
     loot::{ConsumableKind, CowCounts, LootKind, LootPool, StockItem},
     names,
     settings::Settings,
@@ -34,6 +34,7 @@ use crate::{
         inventory_overlay::{InventoryOverlay, InventoryState},
         layout::Screen,
         line_editor::{CommandHistory, LineEditor},
+        notice::{NoticePopup, NoticeState},
         shop_overlay::{NamingPopupWidget, ShopOverlay, ShopState},
         show_overlay::{ShowOverlay, ShowState},
         tank_view::TankView,
@@ -48,12 +49,18 @@ mod cheats;
 mod console;
 mod heaven;
 mod input;
+mod persistence;
+mod snapshot;
 
 pub use cheats::Launch;
+pub use snapshot::{
+    FIRST_FISH, FIRST_TANK_NAME, SAVE_VERSION, STARTING_CASH, STARTING_FOOD, SaveFile,
+};
+
+use persistence::Persistence;
 
 const TERMINAL_HEIGHT_DEFAULT: u16 = 24;
 const TERMINAL_WIDTH_DEFAULT: u16 = 80;
-const STARTING_CASH: u32 = 40_000;
 const ONE_OF_A_KIND: u32 = 1;
 
 enum Overlay {
@@ -80,11 +87,12 @@ enum Overlay {
         kind: ConsumableKind,
     },
     Cheat(TextInput),
+    Notice(NoticeState),
 }
 
 pub const CAJETANS_GRACE_SECS: f32 = 3.0 * 60.0 + 33.0;
 
-#[derive(Default)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct GraceBuff {
     pub stacks: u32,
     pub time_remaining: f32,
@@ -109,13 +117,14 @@ pub struct App {
     active_overlay: Option<Overlay>,
     terminal_height: u16,
     terminal_width: u16,
-    pub graveyard: Vec<Fish>,
+    pub graveyard: Graveyard,
     pub blueprints: Vec<Blueprint>,
     pub void_ritual: VoidRitualState,
     pub next_prayer: usize,
     pub nothing_stacks: u32,
     pending_ufo_dest: HashMap<String, usize>,
     day_clock: DayClock,
+    persistence: Option<Persistence>,
 }
 
 impl Default for App {
@@ -130,62 +139,7 @@ impl App {
     }
 
     pub fn launch(launch: Launch) -> Self {
-        let settings = Settings::default();
-        let mut rng = rand::rng();
-        let initial_ritual_timer = sample_exponential(&mut rng, void_ritual::VOID_RITUAL_MEAN_SECS);
-
-        let initial_name = names::unique_name_in(&HashSet::new(), "Fishtank");
-        let mut used_tank_names = HashSet::new();
-        used_tank_names.insert(initial_name.clone());
-        let mut first_tank = Tank::new(initial_name, TankKind::Base, &[]);
-
-        const STARTER_SCHOOL: [(FishSpecies, &str); 3] = [
-            (FishSpecies::Merluza, "merluza"),
-            (FishSpecies::Betta, "betta"),
-            (FishSpecies::Salmon, "salmon"),
-        ];
-        const STARTER_SCHOOL_ROUNDS: usize = 3;
-        for _ in 0..STARTER_SCHOOL_ROUNDS {
-            for (species, name) in STARTER_SCHOOL {
-                first_tank.spawn_fish(species, name.to_string(), &mut rng);
-            }
-        }
-
-        Self {
-            settings,
-            tanks: vec![first_tank],
-            current_tank: 0,
-            used_tank_names,
-            purse: Purse::holding(STARTING_CASH),
-            debug_mode: launch == Launch::Debug,
-            cheats: Cheats::default(),
-            food_supply: 0,
-            inventory: {
-                let mut inv = HashMap::new();
-                inv.insert(StockItem::COFFEE, 1);
-                inv.insert(StockItem::BAIT, 1);
-                inv.insert(StockItem::NECRONOMICON, 1);
-                inv
-            },
-            active_consumables: Vec::new(),
-            active_statuses: Vec::new(),
-            cajetans_grace: GraceBuff::default(),
-            editor: LineEditor::new(),
-            running: true,
-            history: CommandHistory::new(),
-            active_overlay: None,
-            terminal_height: TERMINAL_HEIGHT_DEFAULT,
-            terminal_width: TERMINAL_WIDTH_DEFAULT,
-            graveyard: Vec::new(),
-            blueprints: Vec::new(),
-            day_clock: DayClock::new(),
-            void_ritual: VoidRitualState::Idle {
-                timer: initial_ritual_timer,
-            },
-            next_prayer: 0,
-            nothing_stacks: 0,
-            pending_ufo_dest: HashMap::new(),
-        }
+        Self::new_game(launch == Launch::Debug)
     }
 
     fn index_state(&self) -> Option<&IndexState> {
@@ -635,7 +589,12 @@ impl App {
         }
         let mut rng = rand::rng();
         let loot = self.roll_catch(self.current_tank, &mut rng);
-        let item_qty = match &loot {
+        let card = self.counted(CatchState::new(loot, &mut rng));
+        self.set_overlay(Overlay::Catch(card));
+    }
+
+    fn counted(&self, mut card: CatchState) -> CatchState {
+        card.item_qty = match &card.loot {
             LootKind::Item(item) => {
                 StockItem::from_item(item)
                     .and_then(|stock| self.inventory.get(&stock).copied())
@@ -644,9 +603,7 @@ impl App {
             }
             _ => 0,
         };
-        let mut cs = CatchState::new(loot, &mut rng);
-        cs.item_qty = item_qty;
-        self.set_overlay(Overlay::Catch(cs));
+        card
     }
 
     pub(super) fn roll_catch(&self, tank_idx: usize, rng: &mut impl RngExt) -> LootKind {
@@ -680,6 +637,7 @@ impl App {
             }
             Some(Overlay::Naming { .. })
             | Some(Overlay::Cheat(_))
+            | Some(Overlay::Notice(_))
             | Some(Overlay::Inventory(_))
             | Some(Overlay::Fishtanks(_))
             | Some(Overlay::Foundry(_))
@@ -773,9 +731,7 @@ impl App {
                         self.tanks[i].place_fish_dropped(*fish);
                     }
                     TankEvent::UfoReleaseCow(cow) => {
-                        self.tanks[i].place_cow_dropped(*cow);
-                        self.tanks[i].cow_abduction_count =
-                            self.tanks[i].cow_abduction_count.saturating_add(1);
+                        self.tanks[i].land_cow_delivery(*cow);
                     }
                     TankEvent::UfoFinished => {}
                     TankEvent::CallHome => self.answer_call_home(i),
@@ -833,32 +789,10 @@ impl App {
         Rect::new(0, 0, self.terminal_width, self.tank_height())
     }
 
-    pub fn draw(&mut self, frame: &mut Frame) {
-        let full_area = frame.area();
-        self.terminal_height = full_area.height;
-        self.terminal_width = full_area.width;
-
-        let [tank_area, command_area] =
-            Layout::vertical([Constraint::Min(0), Constraint::Length(self.bar_height())])
-                .areas(full_area);
-
-        let dead_names = self.graveyard_names();
-        self.tanks[self.current_tank].resize(tank_area.width, tank_area.height, &dead_names);
-
-        {
-            let ritual_blocking = self.void_ritual.is_blocking()
-                && self.tanks[self.current_tank].kind.config().hosts_ritual;
-            let mut tv = TankView::new(self.tank())
-                .with_names(self.settings.show_names)
-                .with_nets(self.settings.show_nets);
-            if ritual_blocking {
-                let text = void_ritual::wish_display_text(&self.void_ritual, self.next_prayer);
-                tv = tv.with_ritual(text);
-            }
-            frame.render_widget(tv, tank_area);
+    fn ghost(&self) -> String {
+        if self.void_ritual.is_blocking() || !self.editor.text.starts_with('/') {
+            return String::new();
         }
-
-        let ritual_blocking = self.void_ritual.is_blocking();
         let fish_names: Vec<&str> = self
             .tank()
             .fish
@@ -913,34 +847,61 @@ impl App {
             .filter(|f| f.is_arrangeable())
             .map(|f| f.name.as_str())
             .collect();
-        let ghost = if ritual_blocking {
-            String::new()
-        } else {
-            commands::autocomplete(
-                &self.editor.text,
-                &commands::CompletionCtx {
-                    fish_names: &fish_names,
-                    consumable_names: &consumable_names,
-                    tank_names: &tank_names,
-                    current_tank: self.tank().name.as_str(),
-                    fish_in_tanks: &fish_in_tanks,
-                    has_cow_in_current: self.tank().has_cow(),
-                    entity_mutations: &entity_mutations_slice,
-                    graveyard_names: &graveyard_names,
-                    programmable_names: &programmable_names,
-                    console_names: &self.console_names(),
-                    blueprint_names: &self.blueprint_names(),
-                    arrangeable_names: &arrangeable_names,
-                    sellable_fish_names: &sellable_fish_names,
-                    sellable_tank_names: &sellable_tank_names,
-                    sellable_stackable_names: &sellable_stackable_strings,
-                    living_fish_names: &living_fish_names,
-                    clearance: self.clearance(),
-                },
-            )
-            .map(|c| c.ghost)
-            .unwrap_or_default()
-        };
+        commands::autocomplete(
+            &self.editor.text,
+            &commands::CompletionCtx {
+                fish_names: &fish_names,
+                consumable_names: &consumable_names,
+                tank_names: &tank_names,
+                current_tank: self.tank().name.as_str(),
+                fish_in_tanks: &fish_in_tanks,
+                has_cow_in_current: self.tank().has_cow(),
+                entity_mutations: &entity_mutations_slice,
+                graveyard_names: &graveyard_names,
+                programmable_names: &programmable_names,
+                console_names: &self.console_names(),
+                blueprint_names: &self.blueprint_names(),
+                arrangeable_names: &arrangeable_names,
+                sellable_fish_names: &sellable_fish_names,
+                sellable_tank_names: &sellable_tank_names,
+                sellable_stackable_names: &sellable_stackable_strings,
+                living_fish_names: &living_fish_names,
+                clearance: self.clearance(),
+            },
+        )
+        .map(|c| c.ghost)
+        .unwrap_or_default()
+    }
+
+    pub fn draw(&mut self, frame: &mut Frame) {
+        let full_area = frame.area();
+        self.terminal_height = full_area.height;
+        self.terminal_width = full_area.width;
+
+        let [tank_area, command_area] =
+            Layout::vertical([Constraint::Min(0), Constraint::Length(self.bar_height())])
+                .areas(full_area);
+
+        let tank = &self.tanks[self.current_tank];
+        if (tank.width, tank.height) != (tank_area.width, tank_area.height) {
+            let dead_names = self.graveyard_names();
+            self.tanks[self.current_tank].resize(tank_area.width, tank_area.height, &dead_names);
+        }
+
+        {
+            let ritual_blocking = self.void_ritual.is_blocking()
+                && self.tanks[self.current_tank].kind.config().hosts_ritual;
+            let mut tv = TankView::new(self.tank())
+                .with_names(self.settings.show_names)
+                .with_nets(self.settings.show_nets);
+            if ritual_blocking {
+                let text = void_ritual::wish_display_text(&self.void_ritual, self.next_prayer);
+                tv = tv.with_ritual(text);
+            }
+            frame.render_widget(tv, tank_area);
+        }
+
+        let ghost = self.ghost();
         let modes = self.modes();
         frame.render_widget(
             CommandBar {
@@ -1022,6 +983,9 @@ impl App {
                 },
                 full_area,
             ),
+            Some(Overlay::Notice(state)) => {
+                frame.render_widget(NoticePopup::new(state, screen), full_area)
+            }
             Some(Overlay::Console(_)) | None => {}
         }
     }
@@ -1177,8 +1141,7 @@ impl App {
             tank.ufos
                 .push(Ufo::new_drop_cow(ufo_x as f32, target_y, cow));
         } else {
-            tank.place_cow_dropped(cow);
-            tank.cow_abduction_count = tank.cow_abduction_count.saturating_add(1);
+            tank.land_cow_delivery(cow);
         }
     }
 

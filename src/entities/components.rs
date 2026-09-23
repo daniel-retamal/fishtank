@@ -1,8 +1,9 @@
+use serde::{Deserialize, Serialize};
 use std::f32::consts::TAU;
 
 use rand::RngExt;
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Position {
     pub x: f32,
     pub y: f32,
@@ -23,7 +24,7 @@ pub fn tick_sway(sway: &mut SwayState, sway_speed: f32) {
     sway.phase = (sway.phase + sway_speed).rem_euclid(TAU);
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct BlinkTimer {
     pub is_open: bool,
     timer: f32,

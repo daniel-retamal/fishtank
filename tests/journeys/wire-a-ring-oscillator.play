@@ -2,6 +2,7 @@
 # One coiled botfish that hears its own channel is a clock; nothing else in the game makes one.
 
 clear
+include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
 include scenes/buy-a-fish.play Botfish osc

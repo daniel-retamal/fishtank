@@ -2,6 +2,7 @@
 # The blank is spent only when a name is given; the capture is what the Foundry will print from.
 
 clear
+include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Blank Circuit Blueprint" Materials
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric

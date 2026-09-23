@@ -3,6 +3,7 @@
 # Its panel walks by count: listens, drives, threshold, rads, hot, mutated.
 
 clear
+include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Geiger Coil" Senses
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric

@@ -1,6 +1,7 @@
 pub mod abduction;
 pub mod app;
 pub mod cheats;
+pub mod closing;
 pub mod colors;
 pub mod commands;
 pub mod consumable;
@@ -17,4 +18,5 @@ pub mod tanks;
 pub mod testing;
 pub mod ui;
 pub mod util;
+pub mod vault;
 pub mod void_ritual;

@@ -3,6 +3,7 @@ use crate::fishes::species::{ALL_SPECIES, FishSpecies};
 use crate::loot::StockItem;
 use crate::tank::TankKind;
 use crate::util::hyperbolic_scale;
+use serde::{Deserialize, Serialize};
 
 pub const PRAYERS: &[&[&str]] = &[
     &[
@@ -43,6 +44,7 @@ pub const RITUAL_MEAN_FLOOR_SECS: f32 = 10.0;
 pub const GIVE_RESOURCE_AMOUNT: u32 = 5000;
 pub const EXPAND_AMOUNT: u32 = 75;
 
+#[derive(Clone, Serialize, Deserialize)]
 pub enum VoidRitualState {
     Idle {
         timer: f32,

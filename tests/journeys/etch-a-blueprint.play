@@ -2,6 +2,7 @@
 # Etch spends the Fabricator, two wafers per fish and every part; the blueprint survives and the fish becomes a chip.
 
 clear
+include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
 include scenes/buy-at-the-bench.play "Blank Circuit Blueprint" Materials

@@ -13,6 +13,7 @@ pub use pins::{
 pub use set::PartSet;
 pub use surface::{DOT_ROWS, Glyphs, Surface};
 
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
 use crate::economy::Rarity;
@@ -474,7 +475,7 @@ pub struct PartSpec {
     pub config: &'static [ConfigSpec],
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 pub enum Part {
     InverterCoil,
     DelaySpool,
