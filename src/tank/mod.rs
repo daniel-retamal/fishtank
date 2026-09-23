@@ -19,6 +19,7 @@ use crate::loot::ConsumableKind;
 use crate::names;
 use crate::settings::Settings;
 use crate::tanks::candy::man_sway_offset;
+use crate::tanks::soul_wall::SoulWall;
 use crate::util::sample_exponential;
 
 mod background;
@@ -78,6 +79,22 @@ pub enum TankKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Afterlife {
+    Blessed,
+    Damned,
+}
+
+impl Afterlife {
+    pub fn of(fish: &Fish) -> Self {
+        if fish.devil_marked {
+            Afterlife::Damned
+        } else {
+            Afterlife::Blessed
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UfoRole {
     DeliversCows,
     AbductsAtNight,
@@ -98,6 +115,7 @@ pub struct TankConfig {
     pub holy_only: bool,
     pub marks_for_devil: bool,
     pub devils_luck: bool,
+    pub afterlife: Option<Afterlife>,
     pub irradiates_milk: bool,
     pub connects: bool,
     pub ufo_frequency_mult: f32,
@@ -124,6 +142,7 @@ impl TankKind {
                 holy_only: false,
                 marks_for_devil: false,
                 devils_luck: false,
+                afterlife: None,
                 irradiates_milk: false,
                 connects: false,
                 ufo_frequency_mult: 1.0,
@@ -146,6 +165,7 @@ impl TankKind {
                 holy_only: false,
                 marks_for_devil: false,
                 devils_luck: false,
+                afterlife: None,
                 irradiates_milk: false,
                 connects: false,
                 ufo_frequency_mult: 1.0,
@@ -168,6 +188,7 @@ impl TankKind {
                 holy_only: false,
                 marks_for_devil: true,
                 devils_luck: true,
+                afterlife: Some(Afterlife::Damned),
                 irradiates_milk: false,
                 connects: false,
                 ufo_frequency_mult: 1.0,
@@ -190,6 +211,7 @@ impl TankKind {
                 holy_only: false,
                 marks_for_devil: false,
                 devils_luck: false,
+                afterlife: None,
                 irradiates_milk: false,
                 connects: false,
                 ufo_frequency_mult: 1.0,
@@ -212,6 +234,7 @@ impl TankKind {
                 holy_only: false,
                 marks_for_devil: false,
                 devils_luck: false,
+                afterlife: None,
                 irradiates_milk: false,
                 connects: false,
                 ufo_frequency_mult: 1.0,
@@ -234,6 +257,7 @@ impl TankKind {
                 holy_only: false,
                 marks_for_devil: false,
                 devils_luck: false,
+                afterlife: None,
                 irradiates_milk: false,
                 connects: false,
                 ufo_frequency_mult: 1.0,
@@ -256,6 +280,7 @@ impl TankKind {
                 holy_only: false,
                 marks_for_devil: false,
                 devils_luck: false,
+                afterlife: None,
                 irradiates_milk: false,
                 connects: false,
                 ufo_frequency_mult: 1.0,
@@ -278,6 +303,7 @@ impl TankKind {
                 holy_only: false,
                 marks_for_devil: false,
                 devils_luck: false,
+                afterlife: None,
                 irradiates_milk: false,
                 connects: false,
                 ufo_frequency_mult: UFO_DESERT_FREQUENCY_MULT,
@@ -300,6 +326,7 @@ impl TankKind {
                 holy_only: false,
                 marks_for_devil: false,
                 devils_luck: false,
+                afterlife: None,
                 irradiates_milk: true,
                 connects: false,
                 ufo_frequency_mult: 1.0,
@@ -322,6 +349,7 @@ impl TankKind {
                 holy_only: false,
                 marks_for_devil: false,
                 devils_luck: false,
+                afterlife: None,
                 irradiates_milk: false,
                 connects: true,
                 ufo_frequency_mult: 1.0,
@@ -344,6 +372,7 @@ impl TankKind {
                 holy_only: true,
                 marks_for_devil: false,
                 devils_luck: false,
+                afterlife: Some(Afterlife::Blessed),
                 irradiates_milk: false,
                 connects: false,
                 ufo_frequency_mult: 1.0,
@@ -667,8 +696,22 @@ impl Tank {
             .release_soul(name, width, height, &mut rand::rng())
     }
 
+    pub fn soul_wall(&self) -> Option<&SoulWall> {
+        self.background.soul_wall()
+    }
+
     pub fn souls(&self) -> Vec<&Fish> {
-        self.background.souls()
+        self.soul_wall()
+            .map(|wall| wall.all().collect())
+            .unwrap_or_default()
+    }
+
+    pub fn soul_count(&self) -> usize {
+        self.soul_wall().map_or(0, SoulWall::len)
+    }
+
+    pub fn take_souls(&mut self) -> Vec<Fish> {
+        self.background.take_souls()
     }
 
     pub fn place_fish(&mut self, mut fish: Fish, name: String, rng: &mut impl RngExt) {

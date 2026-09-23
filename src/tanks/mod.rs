@@ -8,4 +8,5 @@ pub mod heaven;
 pub mod hell;
 pub mod matrix;
 pub mod radioactive;
+pub mod soul_wall;
 pub mod void;

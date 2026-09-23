@@ -1410,13 +1410,7 @@ impl App {
                                     if let Some(pos) =
                                         self.tanks.iter().position(|t| t.name == tank_name)
                                     {
-                                        self.tanks.remove(pos);
-                                        self.used_tank_names.remove(&tank_name);
-                                        if self.current_tank == pos {
-                                            self.current_tank = if pos > 0 { pos - 1 } else { 0 };
-                                        } else if self.current_tank > pos {
-                                            self.current_tank -= 1;
-                                        }
+                                        self.demolish_tank(pos);
                                     }
                                 }
                             }
@@ -2590,14 +2584,10 @@ impl App {
                         let tank = &self.tanks[idx];
                         let fish_with_tanks: Vec<(&str, &Fish)> =
                             tank.fish.iter().map(|f| (tank.name.as_str(), f)).collect();
-                        let souls: Vec<(&str, &Fish)> = tank
-                            .souls()
-                            .into_iter()
-                            .map(|f| (tank.name.as_str(), f))
-                            .collect();
+                        let souls = tank.soul_wall().map(|wall| (tank.name.as_str(), wall));
                         self.set_overlay(Overlay::Index(IndexState::new(
                             &fish_with_tanks,
-                            &souls,
+                            souls,
                             all,
                             false,
                         )));
@@ -2615,7 +2605,7 @@ impl App {
                         .collect();
                     self.set_overlay(Overlay::Index(IndexState::new(
                         &fish_with_tanks,
-                        &[],
+                        None,
                         all,
                         true,
                     )));
@@ -2933,11 +2923,7 @@ impl App {
             return false;
         }
         let price = self.tanks[pos].kind.sell_price();
-        self.used_tank_names.remove(&self.tanks[pos].name);
-        self.tanks.remove(pos);
-        if self.current_tank >= pos && self.current_tank > 0 {
-            self.current_tank -= 1;
-        }
+        self.demolish_tank(pos);
         self.purse.earn(price);
         true
     }

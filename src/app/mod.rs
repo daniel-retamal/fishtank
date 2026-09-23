@@ -459,7 +459,7 @@ impl App {
         if !tank.kind.config().devils_luck {
             return 0;
         }
-        tank.fish.len() as u32
+        (tank.fish.len() + tank.soul_count()) as u32
     }
 
     fn grace_stacks(&self) -> u32 {

@@ -17,6 +17,7 @@ use crate::tanks::heaven::HeavenBackground;
 use crate::tanks::hell::{HellBackground, HellPlant, extend_hell_plants};
 use crate::tanks::matrix::{MatrixBackground, extend_matrix};
 use crate::tanks::radioactive::{RadBackground, extend_rad};
+use crate::tanks::soul_wall::SoulWall;
 use crate::tanks::void::VoidBackground;
 
 use super::{INITIAL_HEIGHT, INITIAL_WIDTH, TankKind};
@@ -313,6 +314,22 @@ impl TankBackground {
         }
     }
 
+    pub fn soul_wall(&self) -> Option<&SoulWall> {
+        match self {
+            TankBackground::Heaven { bg } => Some(&bg.souls),
+            TankBackground::Hell { bg, .. } => Some(&bg.souls),
+            _ => None,
+        }
+    }
+
+    fn soul_wall_mut(&mut self) -> Option<&mut SoulWall> {
+        match self {
+            TankBackground::Heaven { bg } => Some(&mut bg.souls),
+            TankBackground::Hell { bg, .. } => Some(&mut bg.souls),
+            _ => None,
+        }
+    }
+
     pub fn receive_soul(
         &mut self,
         fish: Fish,
@@ -320,10 +337,10 @@ impl TankBackground {
         height: u16,
         rng: &mut impl RngExt,
     ) -> bool {
-        let TankBackground::Heaven { bg } = self else {
+        let Some(wall) = self.soul_wall_mut() else {
             return false;
         };
-        bg.souls.receive(fish, width, height, rng);
+        wall.receive(fish, width, height, rng);
         true
     }
 
@@ -334,17 +351,14 @@ impl TankBackground {
         height: u16,
         rng: &mut impl RngExt,
     ) -> bool {
-        let TankBackground::Heaven { bg } = self else {
-            return false;
-        };
-        bg.souls.release(name, width, height, rng)
+        self.soul_wall_mut()
+            .is_some_and(|wall| wall.release(name, width, height, rng))
     }
 
-    pub fn souls(&self) -> Vec<&Fish> {
-        match self {
-            TankBackground::Heaven { bg } => bg.souls.all().collect(),
-            _ => Vec::new(),
-        }
+    pub fn take_souls(&mut self) -> Vec<Fish> {
+        self.soul_wall_mut()
+            .map(SoulWall::take_all)
+            .unwrap_or_default()
     }
 
     pub fn bubble_color_override(&self) -> Option<Color> {

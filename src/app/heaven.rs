@@ -1,16 +1,58 @@
 use crate::fishes::fish::Fish;
 use crate::names;
-use crate::tank::{Exile, Tank, TankKind, WorldSignal};
+use crate::tank::{Afterlife, Exile, Tank, TankKind, WorldSignal};
 
 use super::App;
 
 impl App {
     pub(super) fn bury(&mut self, fish: Fish) {
-        if !fish.devil_marked {
-            let heaven = self.ensure_heaven();
-            self.tanks[heaven].receive_soul(fish.clone());
+        let wall = match Afterlife::of(&fish) {
+            Afterlife::Blessed => Some(self.ensure_heaven()),
+            Afterlife::Damned => self.afterlife_tank(Afterlife::Damned),
+        };
+        if let Some(tank) = wall {
+            self.tanks[tank].receive_soul(fish.clone());
         }
         self.graveyard.push(fish);
+    }
+
+    fn afterlife_tank(&self, afterlife: Afterlife) -> Option<usize> {
+        self.tanks
+            .iter()
+            .position(|tank| tank.kind.config().afterlife == Some(afterlife))
+    }
+
+    pub(super) fn gather_the_dead(&self, tank: &mut Tank) {
+        let Some(afterlife) = tank.kind.config().afterlife else {
+            return;
+        };
+        if self.afterlife_tank(afterlife).is_some() {
+            return;
+        }
+        for grave in self
+            .graveyard
+            .iter()
+            .filter(|grave| Afterlife::of(grave) == afterlife)
+        {
+            tank.receive_soul(grave.clone());
+        }
+    }
+
+    pub(super) fn demolish_tank(&mut self, index: usize) {
+        let mut tank = self.tanks.remove(index);
+        self.used_tank_names.remove(&tank.name);
+        if self.current_tank >= index && self.current_tank > 0 {
+            self.current_tank -= 1;
+        }
+        let Some(afterlife) = tank.kind.config().afterlife else {
+            return;
+        };
+        let Some(heir) = self.afterlife_tank(afterlife) else {
+            return;
+        };
+        for soul in tank.take_souls() {
+            self.tanks[heir].receive_soul(soul);
+        }
     }
 
     pub(super) fn exhume(&mut self, grave: usize) -> Fish {
@@ -33,7 +75,7 @@ impl App {
     }
 
     fn ensure_heaven(&mut self) -> usize {
-        if let Some(heaven) = self.tanks.iter().position(|t| t.kind == TankKind::Heaven) {
+        if let Some(heaven) = self.afterlife_tank(Afterlife::Blessed) {
             return heaven;
         }
         let name = names::unique_name_in(&self.used_tank_names, TankKind::Heaven.display_name());

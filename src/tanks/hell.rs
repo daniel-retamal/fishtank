@@ -7,9 +7,11 @@ use crate::colors::{LIGHT_RED, RED, RED_DARK};
 use crate::entities::components::{EyeRow, SwayState, extend_spaced, sway_x_offset, tick_sway};
 use crate::entities::plant::Seaweed;
 use crate::fishes::species::EYE_CIRCLE;
+use crate::tanks::soul_wall::SoulWall;
 
 pub const FACE_COLOR: Color = RED_DARK;
 pub const RANDOM_FACE_COLOR: Color = RED;
+pub const SOUL_COLOR: Color = RED_DARK;
 
 pub const H_WAVE_AMPLITUDE: f32 = 3.0;
 pub const H_WAVE_ROW_SPREAD: f32 = 0.3;
@@ -97,6 +99,7 @@ pub struct HellBackground {
     pub is_random: bool,
     pub random_buffer: Vec<char>,
     pub is_frantic: bool,
+    pub souls: SoulWall,
     frantic_timer: f32,
     random_refresh_timer: f32,
     cycle_timer: f32,
@@ -117,6 +120,7 @@ impl HellBackground {
             is_random: false,
             random_buffer: Vec::new(),
             is_frantic: false,
+            souls: SoulWall::new(SOUL_COLOR),
             frantic_timer: 0.0,
             random_refresh_timer: RANDOM_REFRESH_RATE,
             cycle_timer: DIRECTION_CHANGE_INTERVAL,
@@ -124,6 +128,7 @@ impl HellBackground {
     }
 
     pub fn tick(&mut self, dt: f32, rng: &mut impl RngExt, w: u16, h: u16) {
+        self.souls.tick(dt, w, h, rng);
         if self.is_frantic {
             self.frantic_timer -= dt;
             if self.frantic_timer <= 0.0 {

@@ -12,7 +12,7 @@ use ratatui::{
 use crate::colors::{BLACK, STEEL, WHITE};
 use crate::fishes::fish::{Direction, Fish, LineSprite};
 use crate::fishes::unfish::{BALL_HEIGHT, SKULL_HEIGHT, UnfishKind};
-use crate::tanks::heaven::SOUL_COLOR;
+use crate::tanks::soul_wall::SoulWall;
 use crate::ui::fields::{self, FieldKind, FieldValue};
 use crate::ui::grid::{self, CELL_PAD, Grid, HEADER_ROWS, HeaderStyle};
 use crate::ui::hint_bar::HintBar;
@@ -73,12 +73,12 @@ pub struct FishSnapshot {
     tank_name: Option<String>,
     display_height: u16,
     is_unfish: bool,
-    dead: bool,
+    dead: Option<Color>,
 }
 
 impl FishSnapshot {
     fn status(&self) -> &'static str {
-        if self.dead { DEAD } else { ALIVE }
+        if self.dead.is_some() { DEAD } else { ALIVE }
     }
 }
 
@@ -114,7 +114,7 @@ fn still_art(fish: &Fish) -> LineSprite {
 impl IndexState {
     pub fn new(
         fish_with_tanks: &[(&str, &Fish)],
-        souls: &[(&str, &Fish)],
+        souls: Option<(&str, &SoulWall)>,
         all: bool,
         show_tank_col: bool,
     ) -> Self {
@@ -123,9 +123,11 @@ impl IndexState {
         let living = fish_with_tanks
             .iter()
             .filter(|(_, f)| !f.is_invisible())
-            .map(|&(tank, fish)| (tank, fish, false));
-        let dead = souls.iter().map(|&(tank, fish)| (tank, fish, true));
-        let filtered: Vec<(&str, &Fish, bool)> = living.chain(dead).collect();
+            .map(|&(tank, fish)| (tank, fish, None));
+        let dead = souls
+            .into_iter()
+            .flat_map(|(tank, wall)| wall.all().map(move |fish| (tank, fish, Some(wall.color()))));
+        let filtered: Vec<(&str, &Fish, Option<Color>)> = living.chain(dead).collect();
 
         let snapshots: Vec<FishSnapshot> = filtered
             .iter()
@@ -185,7 +187,7 @@ impl IndexState {
             .collect::<Vec<_>>();
 
         let mut fixed = vec![FixedColumn::Name];
-        if !souls.is_empty() {
+        if snapshots.iter().any(|s| s.dead.is_some()) {
             fixed.push(FixedColumn::Status);
         }
         fixed.extend([
@@ -258,7 +260,7 @@ impl IndexState {
     pub fn selected_fish_name(&self) -> Option<&str> {
         self.snapshots
             .get(self.selected)
-            .filter(|s| !s.dead)
+            .filter(|s| s.dead.is_none())
             .map(|s| s.name.as_str())
     }
 
@@ -483,8 +485,8 @@ fn draw_data_row(
     let row_bg = if selected { WHITE } else { BACKGROUND };
     let fg = match (selected, snap.dead) {
         (true, _) => BLACK,
-        (false, true) => SOUL_COLOR,
-        (false, false) => STEEL,
+        (false, Some(soul)) => soul,
+        (false, None) => STEEL,
     };
     let text = Style::default().fg(fg).bg(row_bg);
     let text_y = row_y + row_h / 2;

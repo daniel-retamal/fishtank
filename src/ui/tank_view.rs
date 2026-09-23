@@ -44,12 +44,13 @@ use crate::{
         GATE_BLOCK_MARK_COL, GATE_BLOCK_TILE, GATE_BLOCK_W, GATE_FLOOR_CHAR, Gate,
     },
     tanks::haunted::{BAT_COLOR, BAT_SPRITE, Bat, GRAVE_TRANSPARENT, Ghost},
-    tanks::heaven::{Angel, Cloud, HeavenBackground, SOUL_COLOR},
+    tanks::heaven::{Angel, Cloud, HeavenBackground},
     tanks::hell::{
         FACE_COLOR, H_WAVE_AMPLITUDE, H_WAVE_ROW_SPREAD, HellBackground, RANDOM_FACE_COLOR,
     },
     tanks::matrix::{MatrixBackground, trail_color},
     tanks::radioactive::{FLUID_COLOR, FluidChar, RadBarrel},
+    tanks::soul_wall::SoulWall,
     tanks::void::{VOID_EYE_CENTER_X, VOID_EYE_VERTICAL_OFFSET, VoidBackground},
     ui::overdraw,
     void_ritual::VOID_TEXT_BELOW_EYE_OFFSET,
@@ -125,6 +126,7 @@ impl Widget for TankView<'_> {
             }
             TankBackground::Hell { bg, plants } => {
                 render_hell_background(bg, area, buf);
+                render_soul_wall(&bg.souls, self.show_names, area, buf);
                 for plant in plants {
                     if plant.x >= area.width as i32 {
                         break;
@@ -1810,24 +1812,30 @@ fn draw_gate_line(
 }
 
 fn render_heaven_background(bg: &HeavenBackground, show_names: bool, area: Rect, buf: &mut Buffer) {
-    render_souls(bg, area, buf);
-    if show_names {
-        for soul in bg.souls.drifting() {
-            render_fish_label(soul, SOUL_COLOR, area, buf);
-        }
-    }
+    render_soul_wall(&bg.souls, show_names, area, buf);
     for cloud in &bg.clouds {
         render_cloud(cloud, area, buf);
     }
     render_gate(&bg.gate, area, buf);
 }
 
-fn render_souls(bg: &HeavenBackground, area: Rect, buf: &mut Buffer) {
+fn render_soul_wall(wall: &SoulWall, show_names: bool, area: Rect, buf: &mut Buffer) {
+    render_souls(wall, area, buf);
+    if show_names {
+        for soul in wall.drifting() {
+            render_fish_label(soul, wall.color(), area, buf);
+        }
+    }
+}
+
+fn render_souls(wall: &SoulWall, area: Rect, buf: &mut Buffer) {
     let mut canvas = Buffer::empty(area);
-    for soul in bg.souls.drifting() {
+    for soul in wall.drifting() {
         render_fish(soul, area, &mut canvas);
     }
-    let style = Style::new().fg(SOUL_COLOR).remove_modifier(Modifier::all());
+    let style = Style::new()
+        .fg(wall.color())
+        .remove_modifier(Modifier::all());
     for y in area.top()..area.bottom() {
         for x in area.left()..area.right() {
             let symbol = canvas[(x, y)].symbol();
@@ -2125,7 +2133,7 @@ mod tests {
     use crate::colors::LIGHT_YELLOW;
     use crate::sprite::opaque_line;
     use crate::tank::TankKind;
-    use crate::tanks::heaven::{ANGEL, ANGEL_COLOR};
+    use crate::tanks::heaven::{ANGEL, ANGEL_COLOR, SOUL_COLOR};
     use std::f32::consts::PI;
 
     fn heaven_with_soul(name: &str) -> Tank {
@@ -2274,6 +2282,42 @@ mod tests {
             body.iter().all(|&x| buf[(x, 5)].fg == SOUL_COLOR),
             "every cell of a dead fish is dark gray"
         );
+    }
+
+    #[test]
+    fn a_damned_fish_and_its_name_are_dark_red_behind_the_hell_plants() {
+        use crate::tanks::hell::SOUL_COLOR as DAMNED_COLOR;
+        let mut tank = Tank::new("Helltank".to_string(), TankKind::Hell, &[]);
+        tank.resize(80, 30, &[]);
+        let mut fish = Fish::new(
+            FishSpecies::Salmon,
+            "Cain".to_string(),
+            0.0,
+            0.0,
+            &mut rand::rng(),
+        );
+        fish.devil_marked = true;
+        tank.receive_soul(fish);
+        let TankBackground::Hell { bg, plants } = &mut tank.background else {
+            panic!("a hell");
+        };
+        plants.clear();
+        bg.face_grid.clear();
+        let soul = bg.souls.drifting_mut().next().expect("a soul");
+        soul.position.x = 30.0;
+        soul.position.y = 5.0;
+
+        let buf = render_tank(&tank, true);
+
+        let name_col = row_text(&buf, 4)
+            .find("Cain")
+            .expect("the name floats above its soul");
+        assert_eq!(buf[(name_col as u16, 4)].fg, DAMNED_COLOR);
+        let body: Vec<u16> = (0..buf.area.width)
+            .filter(|&x| buf[(x, 5)].symbol() != " ")
+            .collect();
+        assert!(!body.is_empty(), "the soul is drawn");
+        assert!(body.iter().all(|&x| buf[(x, 5)].fg == DAMNED_COLOR));
     }
 
     #[test]
