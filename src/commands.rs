@@ -716,7 +716,7 @@ fn give_target_names() -> Vec<String> {
         v.push(species.config().name.to_ascii_lowercase());
     }
     for &kind in TankKind::all() {
-        if kind.config().unique {
+        if !kind.config().sellable {
             continue;
         }
         v.push(kind.display_name().to_ascii_lowercase());

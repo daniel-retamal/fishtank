@@ -217,6 +217,8 @@ mod tests {
     use crossterm::event::{Event, KeyCode, KeyEvent};
 
     use super::*;
+    use crate::loot::ConsumableKind;
+    use crate::tank::TankKind;
 
     fn fish_can_get_away(overwhelming: bool) -> bool {
         let mut app = App::new();
@@ -229,6 +231,18 @@ mod tests {
             panic!("/fish opens the fishing overlay");
         };
         !state.no_escape
+    }
+
+    #[test]
+    fn the_void_seed_is_fished_only_while_nothing_claims_the_voidtank() {
+        let mut app = App::new();
+        assert!(!app.withheld_loot().contains(&ConsumableKind::VoidSeed));
+        app.enter_cheat(Cheat::Nothing);
+        assert!(app.withheld_loot().contains(&ConsumableKind::VoidSeed));
+        app.inventory.clear();
+        assert!(app.execute_give(GiveTarget::Tank(TankKind::Void), app.current_tank));
+        assert!(app.withheld_loot().contains(&ConsumableKind::VoidSeed));
+        assert!(!app.withheld_loot().contains(&ConsumableKind::Computer));
     }
 
     #[test]

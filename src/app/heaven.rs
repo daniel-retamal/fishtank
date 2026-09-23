@@ -124,6 +124,6 @@ impl App {
             .iter()
             .enumerate()
             .any(|(i, other)| i != index && !other.kind.config().holy_only);
-        !tank.kind.config().unique && tank.fish.is_empty() && another_home
+        tank.kind.config().sellable && tank.fish.is_empty() && another_home
     }
 }

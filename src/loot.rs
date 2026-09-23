@@ -1135,6 +1135,13 @@ impl LootPool {
         pool
     }
 
+    pub fn without(mut self, withheld: &[ConsumableKind]) -> Self {
+        self.slots.retain(
+            |(_, slot)| !matches!(slot, PoolSlot::Consumable(kind) if withheld.contains(kind)),
+        );
+        self
+    }
+
     fn species_weights(&self) -> impl Iterator<Item = (u32, FishSpecies)> + '_ {
         self.slots.iter().filter_map(|&(weight, slot)| match slot {
             PoolSlot::Species(species) => Some((weight, species)),
@@ -1293,19 +1300,6 @@ impl CowCounts {
     pub fn is_empty(&self) -> bool {
         self.by_milk.values().all(|&cows| cows == 0)
     }
-}
-
-pub fn roll_loot_no_fish(
-    rng: &mut impl RngExt,
-    devils_luck: u32,
-    grace_stacks: u32,
-    cow_counts: &CowCounts,
-) -> LootKind {
-    LootPool::fish_excluded()
-        .with_devils_luck(devils_luck)
-        .with_grace(grace_stacks)
-        .with_cows(cow_counts)
-        .roll(rng)
 }
 
 #[cfg(test)]
@@ -1701,5 +1695,19 @@ mod tests {
                 seed.display_name()
             );
         }
+    }
+
+    #[test]
+    fn a_withheld_item_leaves_the_pool_and_nothing_else_does() {
+        let full = LootPool::default_pool();
+        let withheld = LootPool::default_pool().without(&[ConsumableKind::VoidSeed]);
+        let holds = |pool: &LootPool| {
+            pool.slots
+                .iter()
+                .any(|(_, slot)| matches!(slot, PoolSlot::Consumable(ConsumableKind::VoidSeed)))
+        };
+        assert!(holds(&full));
+        assert!(!holds(&withheld));
+        assert_eq!(withheld.slots.len(), full.slots.len() - 1);
     }
 }

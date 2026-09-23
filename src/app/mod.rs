@@ -14,7 +14,7 @@ use crate::{
     economy::Purse,
     fishes::fish::Fish,
     fishes::species::FishSpecies,
-    loot::{ConsumableKind, CowCounts, LootKind, LootPool, StockItem, roll_loot_no_fish},
+    loot::{ConsumableKind, CowCounts, LootKind, LootPool, StockItem},
     names,
     settings::Settings,
     tank::{
@@ -54,6 +54,7 @@ pub use cheats::Launch;
 const TERMINAL_HEIGHT_DEFAULT: u16 = 24;
 const TERMINAL_WIDTH_DEFAULT: u16 = 80;
 const STARTING_CASH: u32 = 40_000;
+const ONE_OF_A_KIND: u32 = 1;
 
 enum Overlay {
     Index(IndexState),
@@ -490,6 +491,54 @@ impl App {
         self.tanks.iter().any(|t| t.kind.config().connects)
     }
 
+    pub(super) fn claims(&self, kind: TankKind) -> bool {
+        if !kind.config().unique {
+            return false;
+        }
+        let owned = self.tanks.iter().any(|t| t.kind == kind);
+        let held = ConsumableKind::seeds()
+            .into_iter()
+            .filter(|seed| seed.summons_tank() == Some(kind))
+            .any(|seed| self.held(StockItem::Consumable(seed)) > 0);
+        owned || held
+    }
+
+    fn held(&self, stock: StockItem) -> u32 {
+        self.inventory.get(&stock).copied().unwrap_or(0)
+    }
+
+    pub(super) fn room_for(&self, stock: StockItem) -> u32 {
+        let StockItem::Consumable(kind) = stock else {
+            return u32::MAX;
+        };
+        match kind.summons_tank() {
+            Some(tank) if tank.config().unique => {
+                if self.claims(tank) {
+                    0
+                } else {
+                    ONE_OF_A_KIND
+                }
+            }
+            _ => u32::MAX,
+        }
+    }
+
+    pub(super) fn stock_up(&mut self, stock: StockItem, qty: u32) -> bool {
+        let qty = qty.min(self.room_for(stock));
+        if qty == 0 {
+            return false;
+        }
+        *self.inventory.entry(stock).or_insert(0) += qty;
+        true
+    }
+
+    fn withheld_loot(&self) -> Vec<ConsumableKind> {
+        ConsumableKind::seeds()
+            .into_iter()
+            .filter(|&seed| self.room_for(StockItem::Consumable(seed)) == 0)
+            .collect()
+    }
+
     fn consume_item(&mut self, kind: ConsumableKind) {
         let Some(duration) = kind.active_duration_secs() else {
             return;
@@ -605,12 +654,14 @@ impl App {
         let devils_luck = Self::devils_luck_in(tank);
         let cow_counts = Self::cow_counts_in(tank);
         let grace = self.grace_stacks();
-        if self.tanks.iter().all(|t| t.is_full()) {
-            return roll_loot_no_fish(rng, devils_luck, grace, &cow_counts);
-        }
-        LootPool::default_pool()
-            .with_native(tank.kind)
-            .with_bait(self.bait_stacks())
+        let pool = if self.tanks.iter().all(|t| t.is_full()) {
+            LootPool::fish_excluded()
+        } else {
+            LootPool::default_pool()
+                .with_native(tank.kind)
+                .with_bait(self.bait_stacks())
+        };
+        pool.without(&self.withheld_loot())
             .with_devils_luck(devils_luck)
             .with_grace(grace)
             .with_cows(&cow_counts)

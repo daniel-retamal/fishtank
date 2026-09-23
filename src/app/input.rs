@@ -512,7 +512,7 @@ impl App {
             }
             LootKind::Item(item) => {
                 if let Some(stock) = StockItem::from_item(&item) {
-                    *self.inventory.entry(stock).or_insert(0) += 1;
+                    self.stock_up(stock, 1);
                 }
             }
             LootKind::Fish(_) => {}
@@ -1934,13 +1934,10 @@ impl App {
                 self.food_supply += void_ritual::GIVE_RESOURCE_AMOUNT;
                 true
             }
-            GiveTarget::Item(stock) => {
-                *self.inventory.entry(stock).or_insert(0) += stock.gift_quantity();
-                true
-            }
+            GiveTarget::Item(stock) => self.stock_up(stock, stock.gift_quantity()),
             GiveTarget::Fish(species) => self.gift_fish(tank_idx, species, &species.un_name()),
             GiveTarget::Tank(kind) => {
-                if kind.config().unique {
+                if !kind.config().sellable || self.claims(kind) {
                     return false;
                 }
                 let un_name = kind.un_name();
@@ -2528,7 +2525,12 @@ impl App {
                         return false;
                     };
                     let current = self.inventory.get(&stock).copied().unwrap_or(0);
-                    let new_val = (current as i64 + delta as i64).max(0) as u32;
+                    let room = self.room_for(stock);
+                    if delta > 0 && room == 0 {
+                        return false;
+                    }
+                    let new_val = ((current as i64 + delta as i64).max(0) as u32)
+                        .min(current.saturating_add(room));
                     if new_val == 0 {
                         self.inventory.remove(&stock);
                     } else {
