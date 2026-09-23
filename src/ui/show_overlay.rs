@@ -112,21 +112,6 @@ impl ShowState {
             });
         }
 
-        let is_unfish = fish.unfish_state.is_some();
-        let mut push_kind =
-            |kind: FieldKind, rng: &mut dyn FnMut(FieldKind) -> fields::FieldValue| {
-                let (value, swatch) = if is_unfish {
-                    (String::new(), None)
-                } else {
-                    let fv = rng(kind);
-                    (fv.text, fv.swatch)
-                };
-                show_fields.push(ShowField {
-                    label: kind.header(),
-                    value,
-                    swatch,
-                });
-            };
         let kinds: Vec<FieldKind> = if all {
             FieldKind::all().to_vec()
         } else {
@@ -140,9 +125,11 @@ impl ShowState {
                 .collect()
         };
         for kind in kinds {
-            push_kind(kind, &mut |kind| {
-                fields::cached_field_value(fish, kind)
-                    .unwrap_or_else(|| fields::gen_field_value(kind, fish, all_names, rng))
+            let field = fields::field_value(kind, fish, all_names, rng);
+            show_fields.push(ShowField {
+                label: kind.header(),
+                value: field.text,
+                swatch: field.swatch,
             });
         }
 

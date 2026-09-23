@@ -9,7 +9,7 @@ use super::fused::FusedComponent;
 use super::mutant::{Circadian, EXTRA_BODY_FOR_DOUBLE, MutantState, MutationRecord};
 use super::mutations::native_eyes;
 use super::species::{
-    BodyChars, BodyTemplate, EYE_ROUND, FishSpecies, PatternKind, SizeCategory, TailKind,
+    BodyChars, BodyTemplate, EYE_ROUND, FishSpecies, PatternKind, Sin, SizeCategory, TailKind,
 };
 use super::unfish::{
     BALL_WIDTH, BLINKER_BASE_COLOR, BLINKER_GLISTEN_MID, BLINKER_GLISTEN_PEAK, BLINKER_MID_COLOR,
@@ -541,6 +541,13 @@ impl Fish {
             .iter()
             .filter(|&&s| s == species)
             .count() as u32
+    }
+
+    pub fn sin(&self) -> Option<Sin> {
+        match self.unfish_state.as_deref() {
+            Some(us) => us.kind.sin(),
+            None => self.species.config().flavour.sin,
+        }
     }
 
     pub fn is_holy(&self) -> bool {

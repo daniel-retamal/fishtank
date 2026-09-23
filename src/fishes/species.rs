@@ -126,13 +126,48 @@ pub enum Fortune {
     Golden,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sin {
+    Lust,
+    Gluttony,
+    Greed,
+    Sloth,
+    Wrath,
+    Envy,
+    Pride,
+}
+
+impl Sin {
+    pub const ALL: [Sin; 7] = [
+        Sin::Lust,
+        Sin::Gluttony,
+        Sin::Greed,
+        Sin::Sloth,
+        Sin::Wrath,
+        Sin::Envy,
+        Sin::Pride,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Sin::Lust => "Lust",
+            Sin::Gluttony => "Gluttony",
+            Sin::Greed => "Greed",
+            Sin::Sloth => "Sloth",
+            Sin::Wrath => "Wrath",
+            Sin::Envy => "Envy",
+            Sin::Pride => "Pride",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Flavour {
     pub card_color: Tint,
     pub favorite_color: Option<Color>,
     pub fortune: Option<Fortune>,
     pub favorite_quote: Option<&'static str>,
-    pub sin: Option<&'static str>,
+    pub sin: Option<Sin>,
     pub delicious: Option<&'static str>,
     pub has_seen_the_sky: bool,
 }
@@ -152,7 +187,7 @@ const MUTANT_FLAVOUR: Flavour = Flavour {
     favorite_color: None,
     fortune: Some(Fortune::Doomed),
     favorite_quote: Some("OOGHHHHHHH"),
-    sin: Some("Wrath"),
+    sin: Some(Sin::Wrath),
     delicious: Some("NOOOOOOOOOO"),
     has_seen_the_sky: false,
 };
@@ -162,7 +197,7 @@ const CASH_FLAVOUR: Flavour = Flavour {
     favorite_color: Some(GOLD),
     fortune: Some(Fortune::Golden),
     favorite_quote: Some("Gonna be, gonna be golden"),
-    sin: Some("Greed"),
+    sin: Some(Sin::Greed),
     delicious: Some("Yes."),
     has_seen_the_sky: true,
 };
@@ -172,13 +207,24 @@ const HOLY_FLAVOUR: Flavour = Flavour {
     favorite_color: Some(LIGHT_YELLOW),
     fortune: Some(Fortune::Golden),
     favorite_quote: Some("Blessed be the deep, glub"),
-    sin: Some("Pride"),
+    sin: Some(Sin::Lust),
     delicious: Some("Forbidden"),
     has_seen_the_sky: true,
 };
 
 const CANDY_FLAVOUR: Flavour = Flavour {
     card_color: Tint::Fixed(PINK),
+    sin: Some(Sin::Gluttony),
+    ..ORDINARY_FLAVOUR
+};
+
+const CHEAT_FLAVOUR: Flavour = Flavour {
+    sin: Some(Sin::Pride),
+    ..ORDINARY_FLAVOUR
+};
+
+const BOT_FLAVOUR: Flavour = Flavour {
+    sin: Some(Sin::Sloth),
     ..ORDINARY_FLAVOUR
 };
 
@@ -771,6 +817,7 @@ impl FishSpecies {
                 config.abductable = false;
                 config.markable = false;
                 config.programmable = true;
+                config.flavour = BOT_FLAVOUR;
                 config
             }
             Cheatfish => {
@@ -788,6 +835,7 @@ impl FishSpecies {
                 config.sellable = false;
                 config.eyes = CHEATFISH_EYES;
                 config.eye_color = Some(RED);
+                config.flavour = CHEAT_FLAVOUR;
                 config
             }
             Mutantfish => SpeciesConfig {

@@ -8,6 +8,7 @@ use crate::entities::components::BlinkTimer;
 use crate::entities::glistening::GlisteningMode;
 use crate::fishes::fused::FusedComponent;
 use crate::fishes::mutant::{Circadian, random_rgb};
+use crate::fishes::species::Sin;
 use crate::sprite::{BodyExtension, EAR_LEFT, EAR_RIGHT, Feet};
 use crate::util::{even_indices, sample_exponential};
 
@@ -53,6 +54,13 @@ impl UnfishKind {
             UnfishKind::Phantom => (0.3, 0.8),
             UnfishKind::Worm => (2.88, 5.04),
             _ => (2.0, 4.0),
+        }
+    }
+
+    pub fn sin(self) -> Option<Sin> {
+        match self {
+            UnfishKind::Doppleganger => Some(Sin::Envy),
+            _ => None,
         }
     }
 

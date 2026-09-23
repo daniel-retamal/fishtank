@@ -166,18 +166,7 @@ impl IndexState {
             .map(|kind| {
                 let cells: Vec<FieldValue> = fish_clones
                     .iter()
-                    .map(|fish| {
-                        if fish.unfish_state.is_some() {
-                            FieldValue {
-                                text: String::new(),
-                                swatch: None,
-                            }
-                        } else {
-                            fields::cached_field_value(fish, kind).unwrap_or_else(|| {
-                                fields::gen_field_value(kind, fish, &fish_names, &mut rng)
-                            })
-                        }
-                    })
+                    .map(|fish| fields::field_value(kind, fish, &fish_names, &mut rng))
                     .collect();
                 let max_cell_w = cells
                     .iter()

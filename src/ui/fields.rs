@@ -6,7 +6,7 @@ use crate::colors::{
     MAGENTA, ORANGE, RED, TEAL, YELLOW,
 };
 use crate::fishes::fish::Fish;
-use crate::fishes::species::Fortune;
+use crate::fishes::species::{Fortune, Sin};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum FieldKind {
@@ -180,6 +180,25 @@ pub fn cached_field_value(fish: &Fish, kind: FieldKind) -> Option<FieldValue> {
         text: text.clone(),
         swatch: *swatch,
     })
+}
+
+pub fn field_value(
+    kind: FieldKind,
+    fish: &Fish,
+    all_names: &[String],
+    rng: &mut impl RngExt,
+) -> FieldValue {
+    if fish.unfish_state.is_some() {
+        return unfish_field_value(kind, fish);
+    }
+    cached_field_value(fish, kind).unwrap_or_else(|| gen_field_value(kind, fish, all_names, rng))
+}
+
+fn unfish_field_value(kind: FieldKind, fish: &Fish) -> FieldValue {
+    match (kind, fish.sin()) {
+        (FieldKind::Sin, Some(sin)) => plain(sin.name()),
+        _ => plain(""),
+    }
 }
 
 fn plain(s: impl Into<String>) -> FieldValue {
@@ -449,18 +468,11 @@ pub fn gen_field_value(
             plain(S[rng.random_range(0..S.len())])
         }
 
-        FieldKind::Sin => {
-            const SINS: &[&str] = &[
-                "Lust", "Gluttony", "Greed", "Sloth", "Wrath", "Envy", "Pride",
-            ];
-            plain(
-                fish.species
-                    .config()
-                    .flavour
-                    .sin
-                    .unwrap_or_else(|| SINS[rng.random_range(0..SINS.len())]),
-            )
-        }
+        FieldKind::Sin => plain(
+            fish.sin()
+                .unwrap_or_else(|| Sin::ALL[rng.random_range(0..Sin::ALL.len())])
+                .name(),
+        ),
 
         FieldKind::HasSeenTheSky => plain(if fish.species.config().flavour.has_seen_the_sky {
             "Yes"
@@ -516,6 +528,66 @@ pub fn gen_field_value(
                 "\"Give thanks to the Lord, for he is good.\" (Psalm 107:1)",
             ];
             plain(PASSAGES[rng.random_range(0..PASSAGES.len())])
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fishes::species::{ALL_SPECIES, FishSpecies};
+    use crate::fishes::unfish::{SPAWNABLE_UNFISH, UnfishKind};
+
+    fn confessed_sin(fish: &Fish) -> String {
+        field_value(FieldKind::Sin, fish, &[], &mut rand::rng()).text
+    }
+
+    fn fish_of(species: FishSpecies) -> Fish {
+        Fish::new(species, "Ann".to_string(), 0.0, 0.0, &mut rand::rng())
+    }
+
+    fn unfish_of(kind: UnfishKind) -> Fish {
+        Fish::new_unfish(kind, "Ann".to_string(), 0.0, 0.0, &mut rand::rng())
+    }
+
+    #[test]
+    fn each_sinful_fish_confesses_its_own_sin() {
+        let table = [
+            (FishSpecies::Cashfish, Sin::Greed),
+            (FishSpecies::Holyfish, Sin::Lust),
+            (FishSpecies::Candyfish, Sin::Gluttony),
+            (FishSpecies::Mutantfish, Sin::Wrath),
+            (FishSpecies::Cheatfish, Sin::Pride),
+            (FishSpecies::Botfish, Sin::Sloth),
+        ];
+        for (species, sin) in table {
+            assert_eq!(confessed_sin(&fish_of(species)), sin.name(), "{species:?}");
+        }
+        assert_eq!(
+            confessed_sin(&unfish_of(UnfishKind::Doppleganger)),
+            Sin::Envy.name()
+        );
+    }
+
+    #[test]
+    fn every_sin_belongs_to_exactly_one_fish() {
+        let species_sins = ALL_SPECIES
+            .iter()
+            .filter_map(|species| species.config().flavour.sin);
+        let unfish_sins = SPAWNABLE_UNFISH.iter().filter_map(|kind| kind.sin());
+        let owned: Vec<Sin> = species_sins.chain(unfish_sins).collect();
+        for sin in Sin::ALL {
+            let owners = owned.iter().filter(|&&owned| owned == sin).count();
+            assert_eq!(owners, 1, "{} has {owners} fish", sin.name());
+        }
+    }
+
+    #[test]
+    fn an_unfish_without_a_sin_keeps_every_field_blank() {
+        let reversed = unfish_of(UnfishKind::Reversed);
+        for &kind in FieldKind::all() {
+            let field = field_value(kind, &reversed, &[], &mut rand::rng());
+            assert!(field.text.is_empty() && field.swatch.is_none());
         }
     }
 }
