@@ -3,14 +3,15 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::cheats::Cheats;
-use crate::consumable::ActiveMilkStatus;
-use crate::economy::Purse;
+use crate::consumable::{ActiveConsumable, ActiveMilkStatus};
+use crate::economy::{Money, Purse};
 use crate::fishes::fish::Fish;
 use crate::fishes::graveyard::Graveyard;
 use crate::fishes::species::FishSpecies;
+use crate::ledger::Ledger;
 use crate::loot::{LootKind, StockItem};
 use crate::settings::Settings;
-use crate::tank::{ActiveConsumable, Blueprint, DayClock, Tank, TankKind, TankRecord};
+use crate::tank::{Blueprint, DayClock, Tank, TankKind, TankRecord};
 use crate::ui::catch_overlay::CatchState;
 use crate::ui::line_editor::{CommandHistory, LineEditor};
 use crate::util::sample_exponential;
@@ -20,7 +21,7 @@ use crate::void_ritual::{self, VoidRitualState};
 use super::{App, GraceBuff, Overlay, TERMINAL_HEIGHT_DEFAULT, TERMINAL_WIDTH_DEFAULT};
 
 pub const SAVE_VERSION: u32 = 2;
-pub const STARTING_CASH: u32 = 50;
+pub const STARTING_CASH: Money = 50;
 pub const STARTING_FOOD: u32 = 60;
 pub const FIRST_TANK_NAME: &str = "Fishtank";
 pub const FIRST_FISH: [(FishSpecies, &str); 3] = [
@@ -145,6 +146,7 @@ impl App {
             current_tank,
             used_tank_names: _,
             purse,
+            ledger: _,
             debug_mode,
             cheats,
             food_supply,
@@ -221,6 +223,7 @@ impl App {
             current_tank,
             used_tank_names,
             purse: save.purse,
+            ledger: Ledger::new(),
             debug_mode: save.debug_mode,
             cheats: save.cheats,
             food_supply: save.food_supply,

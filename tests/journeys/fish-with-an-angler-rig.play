@@ -1,10 +1,11 @@
-# JOURNEY · fish with an Angler Rig: a rail casts once, the player's one Bait goes down, something comes up.
+# JOURNEY · fish with an Angler Rig: a rail casts once, the player's one Bait goes down, a fish comes up.
 # Rod's coil makes it a rail on go, which is also its rig's cast: it rises once, from the cold first stage.
-# The line waits for a bite as a human's does (2 s, then about 5 s more), so the play slows the world to
-# one second a tick first. caught is high for one stage only, so Bell, a bare botfish that hears caught and
-# its own output, latches it: Bell's dot lights in /circuit once the catch is in.
-# Spent: Computer $8000 + Inverter Coil $496 + Angler Rig $7700 + two botfish $15400 = $31596 of the
-# 40,000 stake (scenes/start-with-a-stake.play), and the one Bait is bought at the counter.
+# A rig never fishes quickly (economy epic): its line stays down RIG_WAIT_MIN_SECS to RIG_WAIT_MAX_SECS
+# (30 to 60 game seconds) and always lands a fish, so the play slows the world to one second a tick and
+# waits 100 ticks. caught is high for one stage only, so Bell, a bare botfish that hears caught and its
+# own output, latches it: Bell's dot lights in /circuit once the catch is in, and the tank holds three.
+# Bought: an Inverter Coil and an Angler Rig at the bench and one Bait at the counter; the Computer and
+# both botfish are found, never sold, so the scenes hand them over.
 # Rod's panel walks by count: listens, drives, threshold, cast, caught.
 
 clear
@@ -12,8 +13,8 @@ include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
 include scenes/buy-at-the-bench.play "Angler Rig" Hands
-include scenes/buy-a-fish.play Botfish rod
-include scenes/buy-a-fish.play Botfish bell
+include scenes/take-a-fish.play botfish rod
+include scenes/take-a-fish.play botfish bell
 
 run /shop
 key enter
@@ -55,7 +56,10 @@ snap Rod is a rail on go, which casts its rig once
 key enter
 absent listens
 
+expect 2/50
 tick 100
+expect 3/50
+snap a fish came up and joined the tank
 run /circuit
 expect ●  Bell
 snap Bell caught the pulse the rig raised when something came up

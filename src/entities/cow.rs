@@ -209,7 +209,7 @@ impl Cow {
     }
 
     pub fn milk_yield(&self) -> u32 {
-        (self.mutant.fused.len() as u32).max(1)
+        (self.milk_components().len() as u32).max(1)
     }
 
     pub fn milk_components(&self) -> Vec<CowVariant> {
@@ -219,7 +219,7 @@ impl Cow {
         self.mutant
             .fused
             .iter()
-            .filter_map(|c| c.cow_variant())
+            .flat_map(|c| c.milk_variants())
             .collect()
     }
 

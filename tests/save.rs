@@ -5,10 +5,12 @@ use crossterm::event::KeyCode;
 use fishtank::app::{
     App, FIRST_FISH, FIRST_TANK_NAME, Launch, SAVE_VERSION, STARTING_CASH, STARTING_FOOD, SaveFile,
 };
+use fishtank::economy::Money;
 use fishtank::entities::plant::SWAY_AMOUNT;
 use fishtank::fishes::fish::Fish;
+use fishtank::ledger::Flow;
 use fishtank::loot::{ConsumableKind, MilkVariant, StockItem};
-use fishtank::tank::TankKind;
+use fishtank::tank::{FEED_PORTION, TankKind};
 use fishtank::testing::{DEFAULT_COLS, DEFAULT_ROWS, Tui};
 use fishtank::vault::{self, Loaded, Vault, VaultError};
 
@@ -18,9 +20,9 @@ const HELL_NAME: &str = "Pit";
 const MATRIX_NAME: &str = "Zion";
 const LATCH: &str = "Latch";
 const HOST: &str = "Host";
-const EARNED: u32 = 1_234;
+const EARNED: Money = 1_234;
 const WIDE_COLS: u16 = 160;
-const FED: u32 = 5;
+const FED: u32 = FEED_PORTION as u32;
 const SWAY_REACH: usize = SWAY_AMOUNT as usize;
 const SEEN_COLS: usize = DEFAULT_COLS as usize - SWAY_REACH;
 
@@ -284,7 +286,7 @@ fn the_status_bar_reads_the_same_after_a_restart() {
 #[test]
 fn food_left_in_the_water_goes_back_in_the_bag() {
     let mut tui = Tui::new();
-    tui.run(&format!("/feed {FED}"));
+    tui.run("/feed");
     assert_eq!(tui.app.food_supply, STARTING_FOOD - FED);
 
     let after = reopened(&tui.app);
@@ -334,7 +336,7 @@ fn the_next_launch_resumes_the_game_the_last_one_left() {
     {
         let vault = Vault::open_in(dir.clone(), Launch::Player).expect("a vault");
         let mut app = App::open(Launch::Player, vault, DEFAULT_COLS, DEFAULT_ROWS).expect("a game");
-        app.purse.earn(EARNED);
+        app.earn(EARNED, Flow::Godsend);
         app.persist();
     }
 
@@ -390,7 +392,7 @@ fn an_exported_game_comes_back_on_import() {
     let mut tui = Tui::as_player(DEFAULT_COLS, DEFAULT_ROWS);
     tui.run(&format!("/export {}", quoted(&file)));
     assert!(file.exists(), "the export is a save file");
-    tui.app.purse.earn(EARNED);
+    tui.app.earn(EARNED, Flow::Godsend);
 
     tui.run(&format!("/import {}", quoted(&file)));
 
@@ -401,7 +403,7 @@ fn an_exported_game_comes_back_on_import() {
 fn importing_nothing_changes_nothing() {
     let dir = scratch("import-nothing");
     let mut tui = Tui::as_player(DEFAULT_COLS, DEFAULT_ROWS);
-    tui.app.purse.earn(EARNED);
+    tui.app.earn(EARNED, Flow::Godsend);
 
     tui.run(&format!("/import {}", quoted(&dir.join("missing.ron"))));
 
@@ -429,7 +431,7 @@ fn reset_starts_over_from_adam_lilith_and_eva() {
 #[test]
 fn a_player_cannot_reset() {
     let mut tui = Tui::as_player(DEFAULT_COLS, DEFAULT_ROWS);
-    tui.app.purse.earn(EARNED);
+    tui.app.earn(EARNED, Flow::Godsend);
 
     tui.run("/reset");
 

@@ -9,7 +9,9 @@ const FALL_SPEED_MIN: f32 = 2.5;
 const FALL_SPEED_MAX: f32 = 5.5;
 const SWAY_SPEED: f32 = 0.06;
 const SWAY_AMOUNT: f32 = 3.0;
-pub const DEFAULT_COUNT: usize = 16;
+pub const FOOD_WEIGHT_GAIN_G: u32 = 50;
+pub const CANDY_GAIN_MULT: u32 = 10;
+pub const FOOD_BUY_PRICE: u32 = 1;
 
 const FOOD_CHARS: [char; 4] = ['·', '•', '◦', '.'];
 

@@ -11,7 +11,7 @@ include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Reflex Arc" Peripherals
 include scenes/buy-at-the-bench.play "Command Module" Hands
-include scenes/buy-a-fish.play Botfish pad
+include scenes/take-a-fish.play botfish pad
 
 run /consume reflex arc
 expect Reflex Arc to the botfishes

@@ -11,15 +11,14 @@ use crate::{
     abduction::Abductable,
     cheats::Cheats,
     commands,
-    consumable::{ActiveMilkStatus, CONSUMABLE_STACK_BONUS, ConsumeTarget},
+    consumable::{ActiveConsumable, ActiveMilkStatus, Buff, Caster, ConsumeTarget},
     economy::Purse,
-    fishes::{fish::Fish, graveyard::Graveyard},
+    fishes::{fish::Fish, graveyard::Graveyard, species::FishSpecies},
+    ledger::{Flow, Ledger},
     loot::{ConsumableKind, CowCounts, LootKind, LootPool, StockItem},
     names,
     settings::Settings,
-    tank::{
-        ActiveConsumable, Blueprint, DayClock, Tank, TankEvent, TankKind, UfoRole, WorldSignal,
-    },
+    tank::{Blueprint, DayClock, Tank, TankEvent, TankKind, UfoRole, WorldSignal},
     ui::{
         catch_overlay::{CatchOverlay, CatchState},
         cheat_popup::CheatPopup,
@@ -33,6 +32,7 @@ use crate::{
         index_overlay::{IndexOverlay, IndexState},
         inventory_overlay::{InventoryOverlay, InventoryState},
         layout::Screen,
+        ledger_overlay::{LedgerOverlay, LedgerState},
         line_editor::{CommandHistory, LineEditor},
         notice::{NoticePopup, NoticeState},
         shop_overlay::{NamingPopupWidget, ShopOverlay, ShopState},
@@ -49,6 +49,7 @@ mod cheats;
 mod console;
 mod heaven;
 mod input;
+mod money;
 mod persistence;
 mod snapshot;
 
@@ -88,6 +89,7 @@ enum Overlay {
     },
     Cheat(TextInput),
     Notice(NoticeState),
+    Ledger(LedgerState),
 }
 
 pub const CAJETANS_GRACE_SECS: f32 = 3.0 * 60.0 + 33.0;
@@ -104,6 +106,7 @@ pub struct App {
     pub current_tank: usize,
     used_tank_names: HashSet<String>,
     pub purse: Purse,
+    pub ledger: Ledger,
     pub debug_mode: bool,
     pub cheats: Cheats,
     pub food_supply: u32,
@@ -494,19 +497,19 @@ impl App {
     }
 
     fn consume_item(&mut self, kind: ConsumableKind) {
-        let Some(duration) = kind.active_duration_secs() else {
-            return;
-        };
-        if let Some(existing) = self.active_consumables.iter_mut().find(|c| c.kind == kind) {
-            existing.stacks += 1;
-            existing.time_remaining += CONSUMABLE_STACK_BONUS;
-        } else {
-            self.active_consumables.push(ActiveConsumable {
-                kind,
-                stacks: 1,
-                time_remaining: duration,
-            });
+        self.active_consumables
+            .extend(ActiveConsumable::fresh(kind));
+    }
+
+    fn spend_a_cast(&mut self, caster: Caster) {
+        for buff in &mut self.active_consumables {
+            buff.spend_cast(caster);
         }
+        self.active_consumables.retain(|buff| !buff.is_spent());
+        for status in &mut self.active_statuses {
+            status.spend_cast(caster);
+        }
+        self.active_statuses.retain(|status| !status.is_spent());
     }
 
     pub fn try_consume_kind(
@@ -589,6 +592,7 @@ impl App {
         }
         let mut rng = rand::rng();
         let loot = self.roll_catch(self.current_tank, &mut rng);
+        self.spend_a_cast(Caster::Angler);
         let card = self.counted(CatchState::new(loot, &mut rng));
         self.set_overlay(Overlay::Catch(card));
     }
@@ -606,23 +610,37 @@ impl App {
         card
     }
 
-    pub(super) fn roll_catch(&self, tank_idx: usize, rng: &mut impl RngExt) -> LootKind {
+    fn catch_pool(&self, tank_idx: usize) -> LootPool {
         let tank = &self.tanks[tank_idx];
-        let devils_luck = Self::devils_luck_in(tank);
-        let cow_counts = Self::cow_counts_in(tank);
-        let grace = self.grace_stacks();
-        let pool = if self.tanks.iter().all(|t| t.is_full()) {
-            LootPool::fish_excluded()
+        LootPool::default_pool()
+            .with_native(tank.kind)
+            .with_bait(self.bait_stacks())
+            .without(&self.withheld_loot())
+            .with_devils_luck(Self::devils_luck_in(tank))
+            .with_grace(self.grace_stacks())
+    }
+
+    pub(super) fn roll_catch(&self, tank_idx: usize, rng: &mut impl RngExt) -> LootKind {
+        let pool = self.catch_pool(tank_idx);
+        let pool = if self.has_room_for_a_catch() {
+            pool
         } else {
-            LootPool::default_pool()
-                .with_native(tank.kind)
-                .with_bait(self.bait_stacks())
+            pool.without_fish()
         };
-        pool.without(&self.withheld_loot())
-            .with_devils_luck(devils_luck)
-            .with_grace(grace)
-            .with_cows(&cow_counts)
+        pool.with_cows(&Self::cow_counts_in(&self.tanks[tank_idx]))
             .roll(rng)
+    }
+
+    pub(super) fn roll_rig_catch(
+        &self,
+        tank_idx: usize,
+        rng: &mut impl RngExt,
+    ) -> Option<FishSpecies> {
+        self.catch_pool(tank_idx).roll_species(rng)
+    }
+
+    pub(super) fn has_room_for_a_catch(&self) -> bool {
+        !self.tanks.iter().all(Tank::is_full)
     }
 
     pub fn tick(&mut self) {
@@ -638,6 +656,7 @@ impl App {
             Some(Overlay::Naming { .. })
             | Some(Overlay::Cheat(_))
             | Some(Overlay::Notice(_))
+            | Some(Overlay::Ledger(_))
             | Some(Overlay::Inventory(_))
             | Some(Overlay::Fishtanks(_))
             | Some(Overlay::Foundry(_))
@@ -662,6 +681,7 @@ impl App {
         }
 
         let dt = 1.0 / self.settings.fps;
+        self.ledger.tick(dt);
 
         if self.day_clock.tick(dt) {
             for tank in &mut self.tanks {
@@ -675,15 +695,10 @@ impl App {
             return;
         }
 
-        for ac in &mut self.active_consumables {
-            ac.time_remaining -= dt;
+        for buff in &mut self.active_consumables {
+            buff.tick(dt);
         }
-        self.active_consumables.retain(|ac| ac.time_remaining > 0.0);
-
-        for s in &mut self.active_statuses {
-            s.time_remaining -= dt;
-        }
-        self.active_statuses.retain(|s| s.time_remaining > 0.0);
+        self.active_consumables.retain(|buff| !buff.is_spent());
 
         if self.cajetans_grace.stacks > 0 {
             self.cajetans_grace.time_remaining -= dt;
@@ -695,8 +710,8 @@ impl App {
         let coffee = self.coffee_stacks();
         for i in 0..self.tanks.len() {
             let events = self.tanks[i].tick(&self.settings, coffee);
-            self.purse.earn(self.tanks[i].pending_star_cash);
-            self.tanks[i].pending_star_cash = 0;
+            let star_cash = std::mem::take(&mut self.tanks[i].pending_star_cash);
+            self.earn(star_cash, Flow::Cashfish);
             for part in std::mem::take(&mut self.tanks[i].pending_loose_parts) {
                 *self
                     .inventory
@@ -985,6 +1000,9 @@ impl App {
             ),
             Some(Overlay::Notice(state)) => {
                 frame.render_widget(NoticePopup::new(state, screen), full_area)
+            }
+            Some(Overlay::Ledger(state)) => {
+                frame.render_widget(LedgerOverlay::new(state, screen), full_area)
             }
             Some(Overlay::Console(_)) | None => {}
         }
@@ -1314,4 +1332,33 @@ fn pick_cow_drop_x(
         }
     }
     rng.random_range(0..=max_x)
+}
+
+#[cfg(test)]
+mod catch_tests {
+    use super::*;
+    use crate::loot::ItemKind;
+
+    const ROLLS: usize = 4_000;
+
+    #[test]
+    fn a_full_house_withholds_the_fish_and_nothing_else() {
+        let mut app = App::launch(Launch::Debug);
+        app.tanks[0] = Tank::new("Zion".to_string(), TankKind::Matrix, &[]);
+        let mut rng = rand::rng();
+        let capacity = app.tanks[0].capacity();
+        for n in app.tanks[0].fish.len()..capacity {
+            app.tanks[0].spawn_fish(FishSpecies::Merluza, format!("Full{n}"), &mut rng);
+        }
+        assert!(!app.has_room_for_a_catch());
+        let mut robotics = false;
+        for _ in 0..ROLLS {
+            match app.roll_catch(0, &mut rng) {
+                LootKind::Fish(species) => panic!("a full house caught a {species:?}"),
+                LootKind::Item(ItemKind::Consumable(ConsumableKind::Part(_))) => robotics = true,
+                _ => {}
+            }
+        }
+        assert!(robotics, "a full Matrixtank still gives up its parts");
+    }
 }

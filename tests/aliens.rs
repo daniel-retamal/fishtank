@@ -1,7 +1,7 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use fishtank::{
     app::{App, Launch},
-    economy::Purse,
+    economy::{Money, Purse},
     entities::cow::CowVariant,
     fishes::mutations::{Mutatable, Mutation, apply_mutation},
     fishes::species::{FishSpecies, Habitat},
@@ -228,7 +228,7 @@ fn a_botfish_hears_an_alien_calling_home() {
         app.tick();
     }
 
-    assert_eq!(app.purse.balance(), GIVE_RESOURCE_AMOUNT);
+    assert_eq!(app.purse.balance(), Money::from(GIVE_RESOURCE_AMOUNT));
 }
 
 #[test]

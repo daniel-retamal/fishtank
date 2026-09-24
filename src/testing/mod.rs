@@ -4,6 +4,8 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
 
 use crate::app::{App, Launch, SaveFile};
+use crate::economy::Money;
+use crate::ledger::Flow;
 
 mod reel;
 mod screenplay;
@@ -15,7 +17,7 @@ pub use stage::{PLAY_EXTENSION, TerminalSize, play_name, plays_in, review, stage
 
 pub const DEFAULT_COLS: u16 = 100;
 pub const DEFAULT_ROWS: u16 = 30;
-pub const LAB_STAKE: u32 = 40_000;
+pub const LAB_STAKE: Money = 40_000;
 
 const SELECTION_MARKER: char = '>';
 const COVERED_CELL: &str = " ";
@@ -78,7 +80,7 @@ impl Tui {
     }
 
     pub fn stake(&mut self) -> &mut Self {
-        self.app.purse.earn(LAB_STAKE);
+        self.app.earn(LAB_STAKE, Flow::Godsend);
         self.draw();
         self
     }

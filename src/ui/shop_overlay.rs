@@ -8,7 +8,10 @@ use std::collections::HashMap;
 
 use crate::colors::{DARK_GRAY, WHITE};
 use crate::{
+    economy::Money,
+    entities::food::FOOD_BUY_PRICE,
     fishes::{fish::Fish, parts::PartTier, species::FishSpecies},
+    ledger::Flow,
     loot::{
         CIRCUIT_BLUEPRINT_NAME, CIRCUIT_BLUEPRINT_SELL_PRICE, ConsumableKind, MilkVariant,
         StockItem,
@@ -49,7 +52,7 @@ const RULE_JOINS_RIGHT: char = '┤';
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ShopAccess {
-    pub cash: u32,
+    pub cash: Money,
     pub connected: bool,
 }
 
@@ -66,7 +69,10 @@ impl BuyList {
             BuyList::Bench(_) => access.connected,
             BuyList::Fishes | BuyList::Tanks => true,
         };
-        open && self.prices().iter().any(|&price| price <= access.cash)
+        open && self
+            .prices()
+            .iter()
+            .any(|&price| affords(price, access.cash))
     }
 
     fn catalogue(self) -> Vec<(&'static str, u32)> {
@@ -104,7 +110,7 @@ impl BuyList {
             .collect()
     }
 
-    fn rows(self, cash: u32) -> Vec<PricedRow> {
+    fn rows(self, cash: Money) -> Vec<PricedRow> {
         priced(self.catalogue(), cash)
     }
 
@@ -131,6 +137,15 @@ impl QtyTarget {
         match self {
             QtyTarget::Stock(item) => item.display_name(),
             QtyTarget::Food => "Food",
+        }
+    }
+
+    pub fn flow(self) -> Flow {
+        match self {
+            QtyTarget::Food => Flow::Food,
+            QtyTarget::Stock(item) if item == StockItem::COFFEE => Flow::Coffee,
+            QtyTarget::Stock(item) if item == StockItem::BAIT => Flow::Bait,
+            QtyTarget::Stock(_) => Flow::Robotics,
         }
     }
 }
@@ -206,14 +221,13 @@ impl BuyCategory {
                 .into_iter()
                 .any(|tier| BuyList::Bench(tier).has_anything_affordable(access)),
             Purchase::Browse(list) => list.has_anything_affordable(access),
-            Purchase::Counted { unit_price, .. } => access.cash >= unit_price,
+            Purchase::Counted { unit_price, .. } => affords(unit_price, access.cash),
         }
     }
 }
 
 const PENGUIN_LINES: &[&str] = &["  __   ", " ( o>  ", " ///\\  ", " \\V_/_ "];
 
-pub const FOOD_BUY_PRICE: u32 = 1;
 pub const JUNK_SELL_PRICE: u32 = 1;
 
 pub struct QtyPopup {
@@ -224,20 +238,20 @@ pub struct QtyPopup {
 }
 
 impl QtyPopup {
-    pub fn new(target: QtyTarget, unit_price: u32, cash: u32) -> Option<Self> {
-        if unit_price == 0 || cash < unit_price {
+    pub fn new(target: QtyTarget, unit_price: u32, cash: Money) -> Option<Self> {
+        if unit_price == 0 || !affords(unit_price, cash) {
             return None;
         }
         Some(Self {
             target,
             unit_price,
             qty: 1,
-            max_qty: cash / unit_price,
+            max_qty: u32::try_from(cash / Money::from(unit_price)).unwrap_or(u32::MAX),
         })
     }
 
-    pub fn cost(&self) -> u32 {
-        self.qty.saturating_mul(self.unit_price)
+    pub fn cost(&self) -> Money {
+        Money::from(self.qty) * Money::from(self.unit_price)
     }
 }
 
@@ -275,7 +289,7 @@ pub enum SellEntry {
     Fish {
         name: String,
         species: FishSpecies,
-        sell_value: u32,
+        sell_value: Money,
     },
     Junk {
         qty: u32,
@@ -335,9 +349,9 @@ impl SellEntry {
         format!("${}", self.unit_price())
     }
 
-    pub fn unit_price(&self) -> u32 {
-        match self {
-            SellEntry::Fish { sell_value, .. } => *sell_value,
+    pub fn unit_price(&self) -> Money {
+        let price = match self {
+            SellEntry::Fish { sell_value, .. } => return *sell_value,
             SellEntry::Junk { .. } => JUNK_SELL_PRICE,
             SellEntry::Coffee { .. } => ConsumableKind::Coffee.sell_price(),
             SellEntry::Bait { .. } => ConsumableKind::Bait.sell_price(),
@@ -347,6 +361,21 @@ impl SellEntry {
             SellEntry::Tank { sell_price, .. } => *sell_price,
             SellEntry::Seed { kind, .. } | SellEntry::Robotics { kind, .. } => kind.sell_price(),
             SellEntry::Blueprint { .. } => CIRCUIT_BLUEPRINT_SELL_PRICE,
+        };
+        Money::from(price)
+    }
+
+    pub fn flow(&self) -> Flow {
+        match self {
+            SellEntry::Fish { .. } => Flow::FishSales,
+            SellEntry::Tank { .. } => Flow::TankSales,
+            SellEntry::Junk { .. }
+            | SellEntry::Coffee { .. }
+            | SellEntry::Bait { .. }
+            | SellEntry::Milk { .. }
+            | SellEntry::Seed { .. }
+            | SellEntry::Robotics { .. }
+            | SellEntry::Blueprint { .. } => Flow::StockSales,
         }
     }
 
@@ -391,7 +420,7 @@ pub struct SellMenuState {
 
 impl SellMenuState {
     pub fn new(
-        tank_fish: &[(String, FishSpecies, u32)],
+        tank_fish: &[(String, FishSpecies, Money)],
         inventory: &HashMap<StockItem, u32>,
         sellable_tanks: &[(String, u32)],
         blueprint_names: &[String],
@@ -489,15 +518,24 @@ impl SellMenuState {
     }
 }
 
-fn first_affordable(prices: &[u32], cash: u32) -> usize {
-    prices.iter().position(|&price| price <= cash).unwrap_or(0)
+fn affords(price: u32, cash: Money) -> bool {
+    Money::from(price) <= cash
 }
 
-fn step_affordable(prices: &[u32], selected: usize, down: bool, cash: u32) -> usize {
+fn first_affordable(prices: &[u32], cash: Money) -> usize {
+    prices
+        .iter()
+        .position(|&price| affords(price, cash))
+        .unwrap_or(0)
+}
+
+fn step_affordable(prices: &[u32], selected: usize, down: bool, cash: Money) -> usize {
     let found = if down {
-        (selected + 1..prices.len()).find(|&index| prices[index] <= cash)
+        (selected + 1..prices.len()).find(|&index| affords(prices[index], cash))
     } else {
-        (0..selected).rev().find(|&index| prices[index] <= cash)
+        (0..selected)
+            .rev()
+            .find(|&index| affords(prices[index], cash))
     };
     found.unwrap_or(selected)
 }
@@ -514,7 +552,7 @@ impl<P> BuyListState<P> {
         self.list
     }
 
-    pub fn new(list: BuyList, cash: u32) -> Self {
+    pub fn new(list: BuyList, cash: Money) -> Self {
         Self {
             list,
             selected: first_affordable(&list.prices(), cash),
@@ -523,11 +561,11 @@ impl<P> BuyListState<P> {
         }
     }
 
-    pub fn scroll_up(&mut self, cash: u32) {
+    pub fn scroll_up(&mut self, cash: Money) {
         self.selected = step_affordable(&self.list.prices(), self.selected, false, cash);
     }
 
-    pub fn scroll_down(&mut self, cash: u32) {
+    pub fn scroll_down(&mut self, cash: Money) {
         self.selected = step_affordable(&self.list.prices(), self.selected, true, cash);
     }
 
@@ -535,11 +573,11 @@ impl<P> BuyListState<P> {
         COLUMN_HEADER_ROWS + self.list.height() as u16
     }
 
-    fn hints(&self, cash: u32, overflowing: bool) -> HintBar {
+    fn hints(&self, cash: Money, overflowing: bool) -> HintBar {
         affordable_hints(&self.list.prices(), self.selected, cash, overflowing)
     }
 
-    fn draw(&self, buf: &mut Buffer, panels: &Panels, cash: u32, cursor_vis: bool, dim: bool) {
+    fn draw(&self, buf: &mut Buffer, panels: &Panels, cash: Money, cursor_vis: bool, dim: bool) {
         draw_priced_list(
             buf,
             panels,
@@ -556,9 +594,9 @@ impl<P> BuyListState<P> {
 }
 
 impl BuyListState<FishNamePopup> {
-    pub fn purchase(&self, cash: u32) -> Option<FishNamePopup> {
+    pub fn purchase(&self, cash: Money) -> Option<FishNamePopup> {
         let species = *FishSpecies::all_buyable().get(self.selected)?;
-        (species.buy_price() <= cash).then(|| FishNamePopup {
+        affords(species.buy_price(), cash).then(|| FishNamePopup {
             catalog_idx: self.selected,
             fish: Fish::new_for_display(species, &mut rand::rng()),
             name_input: TextInput::new(),
@@ -567,9 +605,9 @@ impl BuyListState<FishNamePopup> {
 }
 
 impl BuyListState<BuyTankPopup> {
-    pub fn purchase(&self, cash: u32) -> Option<BuyTankPopup> {
+    pub fn purchase(&self, cash: Money) -> Option<BuyTankPopup> {
         let kind = *TankKind::all_buyable().get(self.selected)?;
-        (kind.buy_price() <= cash).then(|| BuyTankPopup {
+        affords(kind.buy_price(), cash).then(|| BuyTankPopup {
             kind,
             name_input: TextInput::new(),
         })
@@ -577,7 +615,7 @@ impl BuyListState<BuyTankPopup> {
 }
 
 impl BuyListState<QtyPopup> {
-    pub fn purchase(&self, cash: u32) -> Option<QtyPopup> {
+    pub fn purchase(&self, cash: Money) -> Option<QtyPopup> {
         let kind = *self.list.stock().get(self.selected)?;
         QtyPopup::new(
             QtyTarget::Stock(StockItem::Consumable(kind)),
@@ -757,11 +795,11 @@ fn scroll_hints(position: usize, total: usize, overflowing: bool) -> HintBar {
     HintBar::new(HINT_BACK).counted(nav, overflowing.then_some((position, total)))
 }
 
-fn affordable_hints(prices: &[u32], selected: usize, cash: u32, overflowing: bool) -> HintBar {
-    let affordable = prices.iter().filter(|&&price| price <= cash).count();
+fn affordable_hints(prices: &[u32], selected: usize, cash: Money, overflowing: bool) -> HintBar {
+    let affordable = prices.iter().filter(|&&price| affords(price, cash)).count();
     let position = prices[..=selected.min(prices.len().saturating_sub(1))]
         .iter()
-        .filter(|&&price| price <= cash)
+        .filter(|&&price| affords(price, cash))
         .count();
     scroll_hints(position, affordable, overflowing)
 }
@@ -893,10 +931,12 @@ struct ListView<'a> {
     dim: bool,
 }
 
-fn priced(catalogue: Vec<(&'static str, u32)>, cash: u32) -> Vec<PricedRow> {
+fn priced(catalogue: Vec<(&'static str, u32)>, cash: Money) -> Vec<PricedRow> {
     catalogue
         .into_iter()
-        .map(|(name, price)| PricedRow::plain(name.to_string(), format!("${price}"), price <= cash))
+        .map(|(name, price)| {
+            PricedRow::plain(name.to_string(), format!("${price}"), affords(price, cash))
+        })
         .collect()
 }
 
@@ -1077,12 +1117,12 @@ fn draw_qty_popup(
     title: &str,
     qty: u32,
     max_qty: u32,
-    unit_price: u32,
+    unit_price: Money,
     confirm_hint: &str,
     screen: Screen,
 ) {
     let qty_str = format!("< {} >", qty);
-    let total_str = format!("  Total: ${}", qty * unit_price);
+    let total_str = format!("  Total: ${}", Money::from(qty) * unit_price);
     let row_w = table::visual_width(&qty_str) + table::visual_width(&total_str);
     let hints = HintBar::new(confirm_hint).action(HINT_CANCEL);
     let modal = Modal::open(
@@ -1127,7 +1167,7 @@ fn draw_qty_buy_popup(buf: &mut Buffer, popup: &QtyPopup, screen: Screen) {
         &format!(" Buy {} ", popup.target.display_name()),
         popup.qty,
         popup.max_qty,
-        popup.unit_price,
+        Money::from(popup.unit_price),
         HINT_ENTER_BUY,
         screen,
     );
@@ -1290,7 +1330,7 @@ fn draw_sell_confirm_popup(
     let message = format!(
         "Sell {} for ${}?",
         name,
-        confirm.sell_qty * entry.unit_price()
+        Money::from(confirm.sell_qty) * entry.unit_price()
     );
     let hints = HintBar::new(HINT_ENTER_SELL).action(HINT_CANCEL);
     let frame = Frame {
@@ -1472,20 +1512,20 @@ mod tests {
         );
     }
 
-    fn bench(cash: u32) -> BuyListState<QtyPopup> {
+    fn bench(cash: Money) -> BuyListState<QtyPopup> {
         BuyListState::new(BuyList::Bench(PartTier::Fabric), cash)
     }
 
     fn connected_rich() -> ShopAccess {
         ShopAccess {
-            cash: u32::MAX,
+            cash: Money::MAX,
             connected: true,
         }
     }
 
     fn unconnected_rich() -> ShopAccess {
         ShopAccess {
-            cash: u32::MAX,
+            cash: Money::MAX,
             connected: false,
         }
     }
@@ -1511,12 +1551,12 @@ mod tests {
             .min()
             .expect("the bench stocks something");
         let broke = ShopAccess {
-            cash: cheapest - 1,
+            cash: Money::from(cheapest) - 1,
             connected: true,
         };
         assert!(!BuyCategory::Robotics.is_available(broke));
         assert!(BuyCategory::Robotics.is_available(ShopAccess {
-            cash: cheapest,
+            cash: Money::from(cheapest),
             connected: true,
         }));
     }
@@ -1553,14 +1593,14 @@ mod tests {
     #[test]
     fn the_robotics_bench_walks_down_to_its_last_row_and_back() {
         let stock = BuyList::Bench(PartTier::Fabric).catalogue().len();
-        let mut list = bench(u32::MAX);
+        let mut list = bench(Money::MAX);
         assert_eq!(list.selected, 0, "the bench opens on the first part");
         for _ in 0..stock {
-            list.scroll_down(u32::MAX);
+            list.scroll_down(Money::MAX);
         }
         assert_eq!(list.selected, stock - 1);
         for _ in 0..stock {
-            list.scroll_up(u32::MAX);
+            list.scroll_up(Money::MAX);
         }
         assert_eq!(list.selected, 0);
     }
@@ -1621,9 +1661,9 @@ mod tests {
     fn a_tier_page_is_as_tall_as_its_own_rows() {
         for tier in bench_tiers() {
             let list = BuyList::Bench(tier);
-            assert_eq!(list.height(), list.rows(u32::MAX).len());
+            assert_eq!(list.height(), list.rows(Money::MAX).len());
             assert!(
-                list.rows(u32::MAX).len() < ConsumableKind::bench_stock().len(),
+                list.rows(Money::MAX).len() < ConsumableKind::bench_stock().len(),
                 "a tier page is a page, not the whole bench"
             );
         }
@@ -1635,9 +1675,11 @@ mod tests {
             let stock = BuyList::Bench(tier).stock();
             for (index, kind) in stock.iter().enumerate() {
                 let mut list: BuyListState<QtyPopup> =
-                    BuyListState::new(BuyList::Bench(tier), u32::MAX);
+                    BuyListState::new(BuyList::Bench(tier), Money::MAX);
                 list.selected = index;
-                let popup = list.purchase(u32::MAX).expect("a part row opens a counter");
+                let popup = list
+                    .purchase(Money::MAX)
+                    .expect("a part row opens a counter");
                 assert_eq!(
                     popup.target.display_name(),
                     kind.display_name(),
@@ -1650,20 +1692,22 @@ mod tests {
     #[test]
     fn walking_down_a_tier_page_stops_at_its_last_part() {
         let stock = BuyList::Bench(PartTier::Fabric).catalogue().len();
-        let mut list = bench(u32::MAX);
+        let mut list = bench(Money::MAX);
         for _ in 0..stock * 2 {
-            list.scroll_down(u32::MAX);
+            list.scroll_down(Money::MAX);
         }
         assert_eq!(list.selected, stock - 1);
-        assert!(list.purchase(u32::MAX).is_some());
+        assert!(list.purchase(Money::MAX).is_some());
     }
 
     #[test]
     fn enter_on_the_last_materials_row_counts_out_blank_blueprints() {
         let mut list: BuyListState<QtyPopup> =
-            BuyListState::new(BuyList::Bench(PartTier::Materials), u32::MAX);
+            BuyListState::new(BuyList::Bench(PartTier::Materials), Money::MAX);
         list.selected = BuyList::Bench(PartTier::Materials).stock().len() - 1;
-        let popup = list.purchase(u32::MAX).expect("a rich player can buy one");
+        let popup = list
+            .purchase(Money::MAX)
+            .expect("a rich player can buy one");
         assert_eq!(
             popup.target.display_name(),
             ConsumableKind::BlankBlueprint.display_name()
@@ -1686,7 +1730,7 @@ mod tests {
     #[test]
     fn the_robotics_bench_opens_on_a_part_the_player_can_afford() {
         let coil = Part::InverterCoil.price();
-        let list = bench(coil);
+        let list = bench(Money::from(coil));
         assert!(
             ConsumableKind::bench_stock()[list.selected].buy_price() <= coil,
             "the cursor never starts on something unaffordable"
@@ -1706,11 +1750,11 @@ mod tests {
             let popup = QtyPopup::new(
                 QtyTarget::Stock(StockItem::Consumable(kind)),
                 kind.buy_price(),
-                price * 3,
+                Money::from(price) * 3,
             )
             .expect("three of them is affordable");
             assert_eq!(popup.max_qty, 3);
-            assert_eq!(popup.cost(), price, "the popup opens at one");
+            assert_eq!(popup.cost(), Money::from(price), "the popup opens at one");
             assert_eq!(popup.target.display_name(), part.display_name());
         }
     }
@@ -1737,11 +1781,14 @@ mod tests {
         );
         assert_eq!(menu.items[0].max_qty(), 2);
         assert_eq!(menu.items[2].max_qty(), 1, "a design is one of a kind");
-        assert_eq!(menu.items[2].unit_price(), CIRCUIT_BLUEPRINT_SELL_PRICE);
+        assert_eq!(
+            menu.items[2].unit_price(),
+            Money::from(CIRCUIT_BLUEPRINT_SELL_PRICE)
+        );
     }
 
     fn tank_list_on(kind: TankKind) -> BuyListState<BuyTankPopup> {
-        let mut list = BuyListState::new(BuyList::Tanks, u32::MAX);
+        let mut list = BuyListState::new(BuyList::Tanks, Money::MAX);
         list.selected = TankKind::all_buyable()
             .iter()
             .position(|&sold| sold == kind)
@@ -1753,7 +1800,7 @@ mod tests {
     fn every_tank_the_catalogue_sells_is_named_on_the_spot() {
         for kind in TankKind::all_buyable() {
             let popup = tank_list_on(kind)
-                .purchase(u32::MAX)
+                .purchase(Money::MAX)
                 .expect("a tank row opens the naming popup");
             assert_eq!(popup.kind, kind);
         }
@@ -1762,7 +1809,10 @@ mod tests {
     #[test]
     fn a_tank_row_a_player_cannot_pay_for_opens_nothing() {
         let list = tank_list_on(TankKind::Base);
-        assert!(list.purchase(TankKind::Base.buy_price() - 1).is_none());
+        assert!(
+            list.purchase(Money::from(TankKind::Base.buy_price()) - 1)
+                .is_none()
+        );
     }
 
     #[test]
@@ -1798,7 +1848,7 @@ mod tests {
             assert!(labels.contains(&row), "the sell menu lost {row}");
         }
         for (item, seed) in menu.items.iter().zip(ConsumableKind::seeds()) {
-            assert_eq!(item.unit_price(), seed.sell_price());
+            assert_eq!(item.unit_price(), Money::from(seed.sell_price()));
         }
     }
 

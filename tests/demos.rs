@@ -2,10 +2,13 @@ use std::path::Path;
 
 use crossterm::event::KeyCode;
 use fishtank::{
+    economy::Money,
+    fishes::parts::{RIG_WAIT_MAX_SECS, RIG_WAIT_MIN_SECS},
     fishes::{
         parts::{Part, PartTier},
         species::FishSpecies,
     },
+    ledger::{Direction, Flow},
     loot::{ConsumableKind, StockItem},
     testing::Tui,
 };
@@ -296,7 +299,7 @@ const BREEDER_FLOOR: &str = "3";
 const REAPER_SETTLE: usize = 12;
 const SCRIPT_TICKS: usize = 40;
 
-fn mutants(tui: &Tui) -> Vec<(String, u32)> {
+fn mutants(tui: &Tui) -> Vec<(String, Money)> {
     tui.app.tanks[tui.app.current_tank]
         .fish
         .iter()
@@ -398,7 +401,7 @@ fn build_the_reaper(tui: &mut Tui) {
         &[(2, "restock"), (4, "/clone {cheapest mutantfish}")],
         NO_SHOT,
     );
-    set_fields(tui, "Feeder", &[(2, "clk"), (4, "/feed 10")], NO_SHOT);
+    set_fields(tui, "Feeder", &[(2, "clk"), (4, "/feed")], NO_SHOT);
 }
 
 const FISHTANK_ROW: &str = "Fishtank";
@@ -417,7 +420,7 @@ const FAT_SNAPPER: &str = "700";
 const SNAPPER_CEILING: &str = "8";
 const SNAPPER_CEILING_COUNT: usize = 8;
 const SNAPPER_FLOOR: &str = "1";
-const MUTANT_SPREAD_AFTER: u32 = 120;
+const MUTANT_SPREAD_AFTER: Money = 120;
 
 fn grow_the_matrixtank(tui: &mut Tui) {
     tui.run("/shop");
@@ -1138,16 +1141,23 @@ fn fish_with_the_rig(tui: &mut Tui) {
         Some("4 · /program \"Rod\" — a rail that casts once"),
     );
     let mut lowest = bait(tui);
-    let landed = (0..BITE_WAIT_TICKS).any(|_| {
+    let shoal = tui.app.tanks[tui.app.current_tank].fish.len();
+    let landed = (0..BITE_WAIT_TICKS).position(|_| {
         tui.tick_n(1);
         lowest = lowest.min(bait(tui));
         probe_lit(tui, "Bell")
     });
-    assert!(landed, "something always comes up");
+    let landed = landed.expect("a rig always lands a fish");
+    let waited = (landed + 1) as f32 / tui.app.settings.fps;
+    assert!(
+        (RIG_WAIT_MIN_SECS..=RIG_WAIT_MAX_SECS + 1.0).contains(&waited),
+        "the line stayed down {waited} game seconds"
+    );
+    assert_eq!(lowest + 1, bait_before, "one cast, one bait");
     assert_eq!(
-        lowest + 1,
-        bait_before,
-        "one cast, one bait, though the catch may be a Bait"
+        tui.app.tanks[tui.app.current_tank].fish.len(),
+        shoal + 1,
+        "and what came up was a fish"
     );
     tui.run("/circuit");
     tui.screen().expect_find("●  Bell");
@@ -1208,5 +1218,202 @@ fn the_phase_five_demo_written_in_the_plan_still_runs_keystroke_for_keystroke() 
     tui.run("/fps 30");
     tui.run("/switch Fishtank");
     assert_eq!(tui.app.current_tank, 0);
+    assert_no_broken_borders(&tui);
+}
+
+const DEMO_SECONDS_AT_30: usize = 30;
+const FEED_ROUNDS_MAX: usize = 8;
+const FEED_WAIT_SECS: usize = 12;
+const COINS: [&str; 5] = ["Coin1", "Coin2", "Coin3", "Coin4", "Coin5"];
+const COIN_PAYOUT_SECS: usize = 12;
+const LEFTOVER_WAIT_SECS: usize = 30;
+const COIN_RATE_DRIFT: f64 = 0.45;
+const REEL_TICKS: usize = 240;
+const RIG_WATCH_TICKS: usize = 70;
+const CASH_TOPUP: &str = "/add cash 5000";
+
+fn tank_fish<'a>(tui: &'a Tui, name: &str) -> &'a fishtank::fishes::fish::Fish {
+    tui.app.tanks[tui.app.current_tank]
+        .fish
+        .iter()
+        .find(|fish| fish.name == name)
+        .unwrap_or_else(|| panic!("{name} is in the tank"))
+}
+
+fn seconds_at(tui: &mut Tui, fps: usize, seconds: usize) {
+    tui.tick_n(fps * seconds);
+}
+
+fn ledger_line(tui: &Tui, direction: Direction, flow: Flow) -> Money {
+    tui.app.ledger.since_launch().line(direction, flow)
+}
+
+fn hurry_the_coins(tui: &mut Tui, fps: usize) -> Money {
+    let before = ledger_line(tui, Direction::In, Flow::Cashfish);
+    tui.run("/cheat");
+    tui.type_text("hardcore to the mega");
+    tui.key(KeyCode::Enter);
+    seconds_at(tui, fps, COIN_PAYOUT_SECS);
+    ledger_line(tui, Direction::In, Flow::Cashfish) - before
+}
+
+fn land_one_cast(tui: &mut Tui) {
+    tui.run("/fish --no-fight");
+    tui.key(KeyCode::Down);
+    let card = |tui: &mut Tui| {
+        let screen = tui.screen();
+        screen.contains("ENTER capture") || screen.contains("ESC/q close")
+    };
+    let mut shown = false;
+    for _ in 0..REEL_TICKS {
+        tui.tick_n(1);
+        if card(tui) {
+            shown = true;
+            break;
+        }
+    }
+    assert!(shown, "holding the reel with --no-fight lands the cast");
+    tui.release(KeyCode::Down);
+    tui.type_text("Bo");
+    tui.key(KeyCode::Enter);
+    assert!(!card(tui), "the card closed");
+}
+
+#[test]
+fn the_economy_demo_runs_keystroke_for_keystroke() {
+    let mut tui = Tui::new();
+    tui.film(Path::new(REEL_DIR), "economy-demo");
+    tui.run("/reset");
+    tui.run(CASH_TOPUP);
+    tui.run("/sell fish \"Adam\"");
+    tui.run("/sell fish \"Lilith\"");
+    tui.run("/sell fish \"Eva\"");
+    tui.snap("0 · a fresh debug game: the starters sold, $5,000 to play with");
+
+    tui.run("/give merluza \"Kip\"");
+    let caught = tank_fish(&tui, "Kip").sell_value();
+    tui.run("/shop");
+    tui.key(KeyCode::Down);
+    tui.key(KeyCode::Enter);
+    tui.screen().expect_find("Kip (Merluza)");
+    tui.snap("1 · /shop, Sell: Kip's price before a single pellet");
+    tui.key(KeyCode::Esc);
+    tui.key(KeyCode::Esc);
+    tui.run("/buy food 200");
+    let bag = tui.app.food_supply;
+    tui.run("/feed");
+    assert_eq!(
+        tui.app.food_supply,
+        bag - 30,
+        "/feed alone drops one portion"
+    );
+    tui.snap("1 · /feed: thirty pellets shower down");
+    let mut rounds = 1;
+    seconds_at(&mut tui, DEMO_SECONDS_AT_30, FEED_WAIT_SECS);
+    while tank_fish(&tui, "Kip").seeks_food() && rounds < FEED_ROUNDS_MAX {
+        tui.run("/feed");
+        seconds_at(&mut tui, DEMO_SECONDS_AT_30, FEED_WAIT_SECS);
+        rounds += 1;
+    }
+    let kip = tank_fish(&tui, "Kip");
+    assert!(
+        !kip.seeks_food(),
+        "Kip reached its cap in {rounds} portions"
+    );
+    let fattened = kip.sell_value();
+    let config = kip.species.config();
+    let size = kip.size_category as usize;
+    let pellets = Money::from((config.weight_cap[size] - config.weight_base[size]) / 50);
+    assert!(
+        fattened - caught > pellets,
+        "Kip's worth rose ${} on {pellets} pellets",
+        fattened - caught
+    );
+    tui.run("/shop");
+    tui.key(KeyCode::Down);
+    tui.key(KeyCode::Enter);
+    tui.snap("1 · /shop, Sell: Kip at its cap is worth more than the food it ate");
+    tui.key(KeyCode::Esc);
+    tui.key(KeyCode::Esc);
+    tui.run("/sell fish \"Kip\"");
+
+    for coin in COINS {
+        tui.run(&format!("/give cashfish \"{coin}\""));
+    }
+    seconds_at(&mut tui, DEMO_SECONDS_AT_30, LEFTOVER_WAIT_SECS);
+    assert!(
+        tui.app.tanks[tui.app.current_tank].food.is_empty(),
+        "the coins ate every leftover pellet"
+    );
+    tui.run("/fps 30");
+    let at_30 = hurry_the_coins(&mut tui, 30);
+    tui.snap("2 · /fps 30: five coins zoom, $ bubbles rise and pay");
+    tui.run("/fps 120");
+    let at_120 = hurry_the_coins(&mut tui, 120);
+    tui.snap("2 · /fps 120: the same zoomies pay about the same");
+    tui.run("/fps 30");
+    assert!(at_30 > 0 && at_120 > 0, "{at_30} and {at_120}");
+    let drift = (at_120 as f64 - at_30 as f64).abs() / at_30 as f64;
+    assert!(
+        drift < COIN_RATE_DRIFT,
+        "${at_30} at 30 fps, ${at_120} at 120 fps"
+    );
+
+    tui.run("/add bait 5");
+    tui.run("/consume bait");
+    tui.run("/consume bait");
+    tui.screen().expect_find("baiting II: 5 casts");
+    tui.snap("3 · two Baits: two stacks of five casts");
+    land_one_cast(&mut tui);
+    tui.screen().expect_find("baiting II: 4 casts");
+    tui.snap("3 · one cast landed: both stacks spent one");
+    land_one_cast(&mut tui);
+    tui.screen().expect_find("baiting II: 3 casts");
+
+    tui.run("/give botfish \"Rod\"");
+    tui.run("/add inverter coil 1");
+    tui.run("/add angler rig 1");
+    tui.run("/consume inverter coil");
+    tui.key(KeyCode::Enter);
+    tui.run("/consume angler rig");
+    tui.key(KeyCode::Enter);
+    tui.run("/program \"Rod\"");
+    tui.type_text("go");
+    tui.key(KeyCode::Down);
+    tui.type_text("go");
+    tui.key(KeyCode::Down);
+    tui.key(KeyCode::Down);
+    tui.type_text("go");
+    tui.snap("4 · Rod listens to go, drives go, and casts on go");
+    tui.key(KeyCode::Enter);
+    tui.run("/fps 1");
+    let shoal = tui.app.tanks[tui.app.current_tank].fish.len();
+    let landed = (0..RIG_WATCH_TICKS).position(|_| {
+        tui.tick_n(1);
+        tui.app.tanks[tui.app.current_tank].fish.len() > shoal
+    });
+    let landed = landed.expect("the rig landed a fish") + 1;
+    assert!(
+        (RIG_WAIT_MIN_SECS as usize..=RIG_WAIT_MAX_SECS as usize + 2).contains(&landed),
+        "the rig's fish came up after {landed} s"
+    );
+    tui.run("/names");
+    tui.snap("4 · a fish named Un-something joined after half a minute or more");
+    tui.run("/names");
+    tui.run("/fps 30");
+
+    tui.run("/ledger");
+    for line in ["Fish sales", "Cashfish", "Food", "Godsend"] {
+        tui.screen().expect_find(line);
+    }
+    tui.snap("5 · /ledger: every line the demo moved");
+    for _ in 0..16 {
+        tui.key(KeyCode::Down);
+    }
+    tui.screen().expect_find("Per minute");
+    tui.snap("5 · the net and the net per minute");
+    tui.key(KeyCode::Esc);
+    tui.screen().expect_absent("Ledger#show");
+    assert!(ledger_line(&tui, Direction::Out, Flow::Food) >= 200);
     assert_no_broken_borders(&tui);
 }

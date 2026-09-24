@@ -20,6 +20,8 @@ use crate::economy::Rarity;
 use crate::tank::{Link, Selector, WorldSignal, WorldView};
 
 const NARROW_BUS_WIDTH: u8 = 8;
+pub const RIG_WAIT_MIN_SECS: f32 = 30.0;
+pub const RIG_WAIT_MAX_SECS: f32 = 60.0;
 const WIDE_BUS_WIDTH: u8 = 16;
 
 const INVERTER_COIL_DESCRIPTION: &str = "The wound against itself. Everything it is told, it denies. Not. Will invert the fish's output";

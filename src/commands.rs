@@ -158,7 +158,6 @@ fn entity_mutation_tokens(
     tokens
 }
 
-const FEED_ARG: &str = "<amount>";
 const FPS_ARG: &str = "<n>";
 const CLOCK_ARG: &str = "<stages>";
 const BLUEPRINT_ARG: &str = "<blueprint>";
@@ -189,6 +188,7 @@ static COMMAND_NAMES: &[(&str, Clearance)] = &[
     ("feed", Clearance::Player),
     ("fish", Clearance::Player),
     ("fishtanks", Clearance::Player),
+    ("ledger", Clearance::Player),
     ("flip", Clearance::Player),
     ("foundry", Clearance::Player),
     ("fps", Clearance::Player),
@@ -249,7 +249,6 @@ pub fn autocomplete(input: &str, ctx: &CompletionCtx) -> Option<Completion> {
             "add" => complete_add_subtract("add", rest),
             "buy" => complete_buy(rest),
             "consume" => complete_consume(rest, ctx.consumable_names),
-            "feed" => complete_single_arg(rest, FEED_ARG),
             "fps" => complete_single_arg(rest, FPS_ARG),
             "clock" => complete_single_arg(rest, CLOCK_ARG),
             "index" => complete_index(rest, ctx.tank_names),
@@ -1326,7 +1325,6 @@ fn command_args_placeholder(cmd: &str) -> &'static str {
         "consume" => "<consumable>",
         "cowsay" => "\"<text>\"",
         "say" => "\"<text>\"",
-        "feed" => FEED_ARG,
         "fps" => FPS_ARG,
         "clock" => CLOCK_ARG,
         "index" | "show" | "switch" => "<name>",
@@ -1363,7 +1361,7 @@ fn longest_common_prefix<'a>(strings: &[&'a str]) -> &'a str {
 }
 
 pub enum Action {
-    Feed(usize),
+    Feed,
     SetFps(f32),
     SetClock(u32),
     Spawn(FishSpecies, String),
@@ -1398,6 +1396,7 @@ pub enum Action {
         tank: String,
     },
     Fishtanks,
+    Ledger,
     Circuit,
     Foundry,
     Exit,
@@ -1632,10 +1631,10 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
             }
         }
         "feed" => {
-            if rest.is_empty() {
-                return Action::Feed(0);
+            if rest.is_empty() || rest.parse::<u64>().is_ok() {
+                return Action::Feed;
             }
-            rest.parse().map(Action::Feed).unwrap_or(Action::Unknown)
+            Action::Unknown
         }
         "fps" => rest.parse().map(Action::SetFps).unwrap_or(Action::Unknown),
         "clock" => rest
@@ -1753,6 +1752,7 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
             }
         }
         "fishtanks" => Action::Fishtanks,
+        "ledger" => Action::Ledger,
         "circuit" => Action::Circuit,
         "foundry" => Action::Foundry,
         "inventory" => Action::Inventory,
@@ -1783,7 +1783,7 @@ impl Action {
                 no_escape,
                 no_fight,
             } if *no_escape || *no_fight => Clearance::Debug,
-            Feed(_)
+            Feed
             | SetFps(_)
             | SetClock(_)
             | Show { .. }
@@ -1798,6 +1798,7 @@ impl Action {
             | Switch(_)
             | Move { .. }
             | Fishtanks
+            | Ledger
             | Circuit
             | Foundry
             | Exit
@@ -1830,15 +1831,15 @@ mod tests {
     }
 
     #[test]
-    fn parse_feed_no_arg_returns_feed_zero() {
+    fn parse_feed_is_the_whole_command() {
         let (fish, tanks) = no_names();
-        assert!(matches!(parse("/feed", fish, tanks), Action::Feed(0)));
+        assert!(matches!(parse("/feed", fish, tanks), Action::Feed));
     }
 
     #[test]
-    fn parse_feed_with_number() {
+    fn a_saved_script_s_feed_with_a_number_still_drops_one_portion() {
         let (fish, tanks) = no_names();
-        assert!(matches!(parse("/feed 5", fish, tanks), Action::Feed(5)));
+        assert!(matches!(parse("/feed 5", fish, tanks), Action::Feed));
     }
 
     #[test]
@@ -2225,9 +2226,21 @@ mod tests {
 
     #[test]
     fn autocomplete_exact_command_with_args_ghost() {
-        let result = autocomplete("/feed", &CompletionCtx::default());
+        let result = autocomplete("/fps", &CompletionCtx::default());
         let c = result.unwrap();
-        assert_eq!(c.ghost, " <amount>");
+        assert_eq!(c.ghost, " <n>");
+    }
+
+    #[test]
+    fn feed_is_offered_whole_and_never_with_an_amount() {
+        let player = CompletionCtx::default();
+        assert!(
+            autocomplete("/feed", &player).is_none(),
+            "nothing follows /feed"
+        );
+        assert!(autocomplete("/feed ", &player).is_none());
+        let ghost = autocomplete("/fee", &player).expect("a ghost").ghost;
+        assert_eq!(ghost, "d", "the ghost is the command alone");
     }
 
     #[test]
@@ -2298,9 +2311,9 @@ mod tests {
 
     #[test]
     fn autocomplete_exact_command_tab_result_adds_space() {
-        let result = autocomplete("/feed", &CompletionCtx::default());
+        let result = autocomplete("/fps", &CompletionCtx::default());
         let c = result.unwrap();
-        assert_eq!(c.tab_result, Some("/feed ".to_string()));
+        assert_eq!(c.tab_result, Some("/fps ".to_string()));
     }
 
     #[test]

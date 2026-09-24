@@ -8,6 +8,7 @@ pub mod consumable;
 pub mod economy;
 pub mod entities;
 pub mod fishes;
+pub mod ledger;
 pub mod loot;
 pub mod names;
 pub mod restore;

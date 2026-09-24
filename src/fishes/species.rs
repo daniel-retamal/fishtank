@@ -4,6 +4,7 @@ use std::sync::LazyLock;
 use ratatui::style::Color;
 
 use crate::economy::{Purchasable, Rarity, Sellable};
+use crate::entities::food::{FOOD_BUY_PRICE, FOOD_WEIGHT_GAIN_G};
 use crate::tank::TankKind;
 
 pub const SINGLE_EYE: usize = 1;
@@ -31,12 +32,31 @@ use crate::colors::{
     RED_DARK, SILVER, VIOLET, WHITE, YELLOW,
 };
 
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum SizeCategory {
     S = 0,
     M = 1,
     L = 2,
     XL = 3,
+}
+
+impl SizeCategory {
+    pub const ALL: [SizeCategory; 4] = [
+        SizeCategory::S,
+        SizeCategory::M,
+        SizeCategory::L,
+        SizeCategory::XL,
+    ];
+    pub const ODDS_TOTAL: u32 = 100;
+
+    pub fn odds(self) -> u32 {
+        match self {
+            SizeCategory::S => 55,
+            SizeCategory::M => 30,
+            SizeCategory::L => 12,
+            SizeCategory::XL => 3,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -261,7 +281,6 @@ pub struct SpeciesConfig {
 }
 
 pub const MUTANT_SELL_BASE: u32 = 500;
-pub const MUTANT_SELL_PER_MUTATION: u32 = 100;
 pub const MUTANT_SELL_WEIGHT_DIVISOR: u32 = 10;
 
 const COMMON_SIZES: [usize; 4] = [3, 5, 7, 9];
@@ -272,11 +291,41 @@ const STD_WEIGHT_BASE: [u32; 4] = [100, 250, 500, 1_000];
 const STD_WEIGHT_CAP: [u32; 4] = [2_500, 7_500, 20_000, 40_000];
 
 const COMMON_SELL_BASE: [u32; 4] = [12, 27, 65, 175];
-const COMMON_SELL_CAP: [u32; 4] = [40, 115, 280, 610];
 const RARE_SELL_BASE: [u32; 4] = [30, 75, 175, 500];
-const RARE_SELL_CAP: [u32; 4] = [110, 310, 750, 1_850];
 const LEGENDARY_SELL_BASE: [u32; 4] = [200, 800, 2_000, 3_500];
-const LEGENDARY_SELL_CAP: [u32; 4] = [900, 2_500, 5_000, 7_000];
+const SMALLEST: usize = SizeCategory::S as usize;
+
+pub fn pellets_to_cap() -> [u32; 4] {
+    std::array::from_fn(|size| (STD_WEIGHT_CAP[size] - STD_WEIGHT_BASE[size]) / FOOD_WEIGHT_GAIN_G)
+}
+
+pub fn fattening_profit(rarity: Rarity, size: SizeCategory) -> u32 {
+    let pellets = pellets_to_cap();
+    let reach = (pellets[SMALLEST] * pellets[size as usize]) as f32;
+    (rarity.value_multiplier() * reach.sqrt()).round() as u32
+}
+
+pub fn fed_catch_worth(rarity: Rarity) -> u32 {
+    let pellets = pellets_to_cap();
+    let caps = rarity_arrays(rarity).2;
+    let expected: u32 = SizeCategory::ALL
+        .into_iter()
+        .map(|size| {
+            let i = size as usize;
+            size.odds() * (caps[i] - pellets[i] * FOOD_BUY_PRICE)
+        })
+        .sum();
+    (expected + SizeCategory::ODDS_TOTAL / 2) / SizeCategory::ODDS_TOTAL
+}
+
+fn fattened_caps(rarity: Rarity, sell_base: [u32; 4]) -> [u32; 4] {
+    let pellets = pellets_to_cap();
+    std::array::from_fn(|size| {
+        sell_base[size]
+            + pellets[size] * FOOD_BUY_PRICE
+            + fattening_profit(rarity, SizeCategory::ALL[size])
+    })
+}
 
 pub const ALL_SPECIES: &[FishSpecies] = &[
     FishSpecies::Merluza,
@@ -466,11 +515,12 @@ static BOTFISH_L: [&str; 1] = ["-º]]]]]-]"];
 static BOTFISH_R: [&str; 1] = ["[-[[[[[º-"];
 
 fn rarity_arrays(rarity: Rarity) -> ([usize; 4], [u32; 4], [u32; 4]) {
-    match rarity {
-        Rarity::Common => (COMMON_SIZES, COMMON_SELL_BASE, COMMON_SELL_CAP),
-        Rarity::Rare => (RARE_SIZES, RARE_SELL_BASE, RARE_SELL_CAP),
-        Rarity::Legendary => (LEGENDARY_SIZES, LEGENDARY_SELL_BASE, LEGENDARY_SELL_CAP),
-    }
+    let (sizes, sell_base) = match rarity {
+        Rarity::Common => (COMMON_SIZES, COMMON_SELL_BASE),
+        Rarity::Rare => (RARE_SIZES, RARE_SELL_BASE),
+        Rarity::Legendary => (LEGENDARY_SIZES, LEGENDARY_SELL_BASE),
+    };
+    (sizes, sell_base, fattened_caps(rarity, sell_base))
 }
 
 fn standard_config(
@@ -781,6 +831,7 @@ impl FishSpecies {
                     (2.0, 3.5),
                     Legendary,
                 );
+                config.buyable = false;
                 config.habitat = Habitat::Native(TankKind::Hell);
                 config.eye_color = Some(LIGHT_YELLOW);
                 config.flavour = CASH_FLAVOUR;
@@ -814,6 +865,7 @@ impl FishSpecies {
                     (1.0, 2.0),
                     Legendary,
                 );
+                config.buyable = false;
                 config.habitat = Habitat::Native(TankKind::Matrix);
                 config.abductable = false;
                 config.markable = false;
@@ -847,7 +899,7 @@ impl FishSpecies {
                 sway_speed: 0.11,
                 speed_range: (2.0, 5.0),
                 rarity: Legendary,
-                buyable: true,
+                buyable: false,
                 habitat: Habitat::Native(TankKind::Rad),
                 abductable: true,
                 mutatable: true,
@@ -916,12 +968,10 @@ impl FishSpecies {
         }
     }
 
-    pub fn sell_value(self, weight_g: u32, size_cat: SizeCategory, mutation_count: u32) -> u32 {
+    pub fn sell_value(self, weight_g: u32, size_cat: SizeCategory) -> u32 {
         let config = self.config();
         if config.auto_mutate {
-            return MUTANT_SELL_BASE
-                + mutation_count * MUTANT_SELL_PER_MUTATION
-                + weight_g / MUTANT_SELL_WEIGHT_DIVISOR;
+            return MUTANT_SELL_BASE.saturating_add(weight_g / MUTANT_SELL_WEIGHT_DIVISOR);
         }
         let i = size_cat as usize;
         let (weight_base, weight_cap, sell_base, sell_cap) = (
@@ -971,5 +1021,24 @@ impl Sellable for FishSpecies {
     }
     fn display_name(&self) -> &str {
         self.config().name
+    }
+}
+
+#[cfg(test)]
+mod fattening_tests {
+    use super::*;
+
+    const PLANNED_CAPS: [(Rarity, [u32; 4]); 3] = [
+        (Rarity::Common, [108, 255, 592, 1_148]),
+        (Rarity::Rare, [213, 455, 951, 1_825]),
+        (Rarity::Legendary, [992, 2_238, 4_511, 7_279]),
+    ];
+
+    #[test]
+    fn every_cap_is_the_one_the_feeding_law_derives() {
+        assert_eq!(pellets_to_cap(), [48, 145, 390, 780]);
+        for (rarity, caps) in PLANNED_CAPS {
+            assert_eq!(rarity_arrays(rarity).2, caps, "{rarity:?}");
+        }
     }
 }

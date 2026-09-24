@@ -6,8 +6,8 @@ clear
 include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Ledger Nerve" Senses
-include scenes/buy-a-fish.play Botfish ledger
-include scenes/buy-a-fish.play Botfish rich
+include scenes/take-a-fish.play botfish ledger
+include scenes/take-a-fish.play botfish rich
 
 run /consume ledger nerve
 key enter

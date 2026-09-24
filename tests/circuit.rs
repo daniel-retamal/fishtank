@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use fishtank::{
     app::{App, Launch},
-    economy::Purse,
+    economy::{self, Money, Purse},
     fishes::{
         botfish::BotfishState,
         chip::Chip,
@@ -12,6 +12,7 @@ use fishtank::{
         parts::{Display, Part, PinOwner},
         species::FishSpecies,
     },
+    ledger::Flow,
     loot::{CIRCUIT_BLUEPRINT_SELL_PRICE, ConsumableKind, StockItem},
     settings::{DEFAULT_STAGES_PER_TICK, STAGES_PER_TICK_MAX},
     tank::{Blueprint, Fabrication, HOURS_PER_DAY, Tank, TankBackground, TankKind, WorldSignal},
@@ -231,7 +232,7 @@ fn ever_seeks_food(app: &mut App, name: &str) -> bool {
     app.tanks[0].width = FEEDING_TANK_W;
     app.tanks[0].height = FEEDING_TANK_H;
     app.food_supply = FOOD_DROPPED as u32;
-    run(app, &format!("/feed {FOOD_DROPPED}"));
+    run(app, "/feed");
     assert!(!app.tanks[0].food.is_empty(), "the food really fell");
     for _ in 0..TICKS_FEEDING {
         app.tick();
@@ -493,7 +494,7 @@ fn set(app: &mut App, channel: &str, level: bool) {
 }
 
 fn step(app: &mut App) {
-    let cash = app.purse.balance();
+    let cash = economy::reading(app.purse.balance());
     let mut world = app.tanks[0].observe(cash, NOON);
     app.tanks[0].advance_stage(&mut world);
 }
@@ -956,7 +957,7 @@ fn a_startle_nerve_fires_for_exactly_one_stage_when_a_fish_is_born() {
     stock_tank(&mut app, FishSpecies::Merluza, 1);
 
     let mut world = {
-        let cash = app.purse.balance();
+        let cash = economy::reading(app.purse.balance());
         app.tanks[0].observe(cash, NOON)
     };
     app.tanks[0].advance_stage(&mut world);
@@ -1009,7 +1010,7 @@ fn an_assay_scale_weighs_the_richest_fish_it_can_find() {
         .map(|fish| fish.sell_value())
         .max()
         .expect("the pen has merluza in it");
-    assert_eq!(bus_value(&app, "worth", 16), richest);
+    assert_eq!(Money::from(bus_value(&app, "worth", 16)), richest);
 }
 
 #[test]
@@ -1097,7 +1098,7 @@ fn a_tank_of_senses_stays_inside_its_stage_budget() {
 const BONUS_FISH: &str = "Berry";
 const PLAIN_FISH: &str = "Plain";
 
-fn worth(app: &App, name: &str) -> u32 {
+fn worth(app: &App, name: &str) -> Money {
     app.tanks[0]
         .fish
         .iter()
@@ -1205,13 +1206,14 @@ fn a_fish_with_no_bonus_is_paid_exactly_its_base_price() {
         .fish
         .iter()
         .find(|f| f.name == PLAIN_FISH)
-        .map(|f| {
-            f.species
-                .sell_value(f.weight_g, f.size_category, f.mutation_count())
-        })
+        .map(|f| f.species.sell_value(f.weight_g, f.size_category))
         .expect("the fish exists");
 
-    assert_eq!(worth(&app, PLAIN_FISH), base, "no bonus, no change");
+    assert_eq!(
+        worth(&app, PLAIN_FISH),
+        Money::from(base),
+        "no bonus, no change"
+    );
 }
 
 const PULSE_STAGES: usize = 2;
@@ -1221,7 +1223,7 @@ fn nerve(app: &mut App, name: &str, pin: &str, channel: &str) {
 }
 
 fn first_stage(app: &mut App) -> bool {
-    let cash = app.purse.balance();
+    let cash = economy::reading(app.purse.balance());
     let mut world = app.tanks[0].observe(cash, NOON);
     app.tanks[0].advance_stage(&mut world);
     true
@@ -1374,7 +1376,7 @@ fn a_tank_nobody_senses_does_not_pay_to_look_at_itself() {
         !app.tanks[0].reads_world(),
         "a coil computes, it does not look"
     );
-    let cash = app.purse.balance();
+    let cash = economy::reading(app.purse.balance());
     assert!(
         app.tanks[0].observe(cash, NOON).shoal().is_empty(),
         "an unobserved view never counts the fish"
@@ -1397,7 +1399,7 @@ fn installing_one_sense_makes_the_whole_tank_worth_observing() {
     );
 
     assert!(app.tanks[0].reads_world());
-    let cash = app.purse.balance();
+    let cash = economy::reading(app.purse.balance());
     assert_eq!(
         app.tanks[0].observe(cash, NOON).shoal().len(),
         5,
@@ -1411,7 +1413,7 @@ fn an_unobserved_tank_still_drains_its_pulses_instead_of_hoarding_them() {
     gate(&mut app, "Coil", &["x"], "nx", COIL);
     stock_tank(&mut app, FishSpecies::Merluza, 1);
 
-    let cash = app.purse.balance();
+    let cash = economy::reading(app.purse.balance());
     assert!(
         app.tanks[0].observe(cash, NOON).pulsed(WorldSignal::Birth),
         "the pulse is drained even though nothing listens"
@@ -1448,7 +1450,7 @@ const CASH_BUS_CEILING: u32 = 65_535;
 #[test]
 fn a_purse_bigger_than_the_bus_pegs_it_instead_of_wrapping_to_nothing() {
     let mut app = board(&["Bank"]);
-    app.purse = Purse::holding(CASH_BUS_CEILING * 4);
+    app.purse = Purse::holding(Money::from(CASH_BUS_CEILING) * 4);
     sense(
         &mut app,
         "Bank",
@@ -1482,7 +1484,7 @@ fn a_landed_catch_is_both_a_catch_and_a_birth() {
     app.tanks[0].signal(WorldSignal::Catch);
     app.tanks[0].signal(WorldSignal::Birth);
 
-    let cash = app.purse.balance();
+    let cash = economy::reading(app.purse.balance());
     let mut world = app.tanks[0].observe(cash, NOON);
     app.tanks[0].advance_stage(&mut world);
 
@@ -1505,7 +1507,7 @@ fn the_clock_bus_never_reports_an_hour_that_does_not_exist() {
     );
 
     for hour in 0..HOURS_PER_DAY {
-        let cash = app.purse.balance();
+        let cash = economy::reading(app.purse.balance());
         let mut world = app.tanks[0].observe(cash, hour);
         app.tanks[0].advance_stage(&mut world);
         assert_eq!(
@@ -1567,7 +1569,7 @@ fn a_rising_fire_wire_runs_the_command_modules_program() {
 
     assert_eq!(
         app.purse.balance(),
-        GIVE_RESOURCE_AMOUNT,
+        Money::from(GIVE_RESOURCE_AMOUNT),
         "the rise ran the program"
     );
 }
@@ -1582,7 +1584,7 @@ fn a_wire_held_high_runs_the_program_exactly_once() {
 
     assert_eq!(
         app.purse.balance(),
-        GIVE_RESOURCE_AMOUNT,
+        Money::from(GIVE_RESOURCE_AMOUNT),
         "a level is not a stream of triggers"
     );
 }
@@ -1598,7 +1600,7 @@ fn a_falling_wire_runs_nothing_and_the_next_rise_runs_it_again() {
     tick_n(&mut app, SCRIPT_TICKS);
     assert_eq!(
         app.purse.balance(),
-        GIVE_RESOURCE_AMOUNT,
+        Money::from(GIVE_RESOURCE_AMOUNT),
         "a fall is not a trigger"
     );
 
@@ -1607,7 +1609,7 @@ fn a_falling_wire_runs_nothing_and_the_next_rise_runs_it_again() {
 
     assert_eq!(
         app.purse.balance(),
-        GIVE_RESOURCE_AMOUNT * 2,
+        Money::from(GIVE_RESOURCE_AMOUNT) * 2,
         "a fresh rise is a fresh run"
     );
 }
@@ -1623,7 +1625,7 @@ fn a_gate_can_pull_the_trigger() {
 
     assert_eq!(
         app.purse.balance(),
-        GIVE_RESOURCE_AMOUNT,
+        Money::from(GIVE_RESOURCE_AMOUNT),
         "the fabric itself pulled the trigger"
     );
 }
@@ -1641,7 +1643,7 @@ fn a_coil_fires_the_program_when_its_input_goes_low() {
     set(&mut app, GATE_INPUT, false);
     tick_n(&mut app, SCRIPT_TICKS);
 
-    assert_eq!(app.purse.balance(), GIVE_RESOURCE_AMOUNT);
+    assert_eq!(app.purse.balance(), Money::from(GIVE_RESOURCE_AMOUNT));
 }
 
 #[test]
@@ -1696,7 +1698,7 @@ fn a_circuit_can_wake_another_circuit_by_saying_its_trigger() {
 
     assert_eq!(
         app.purse.balance(),
-        GIVE_RESOURCE_AMOUNT,
+        Money::from(GIVE_RESOURCE_AMOUNT),
         "the announcement reached the listener"
     );
 }
@@ -1772,7 +1774,7 @@ fn a_scripted_sell_resolves_its_selector_to_the_richest_fish() {
     assert!(swims_in(&app, 0, POOR_FISH), "the cheap one is seed corn");
     assert_eq!(
         app.purse.balance(),
-        price + GIVE_RESOURCE_AMOUNT,
+        price + Money::from(GIVE_RESOURCE_AMOUNT),
         "the selector resolved before parse, so the line paid out and the script carried on"
     );
 }
@@ -2083,7 +2085,10 @@ fn selling_by_kind_takes_only_the_blueprint_the_tank_or_the_fish_that_was_named(
 
     run(&mut app, "/sell blueprint \"latch\"");
     assert!(app.blueprints.is_empty());
-    assert_eq!(app.purse.balance(), purse + CIRCUIT_BLUEPRINT_SELL_PRICE);
+    assert_eq!(
+        app.purse.balance(),
+        purse + Money::from(CIRCUIT_BLUEPRINT_SELL_PRICE)
+    );
     assert!(
         fish_here(&app) && app.tanks.len() == tanks_before,
         "only the blueprint went"
@@ -2114,7 +2119,7 @@ fn a_blueprint_that_is_not_owned_sells_for_nothing() {
 #[test]
 fn two_printed_latches_remember_different_things_because_their_insides_are_namespaced() {
     let mut app = latch_blueprint_on_an_empty_board();
-    app.purse.earn(LAB_STAKE);
+    app.earn(LAB_STAKE, Flow::Godsend);
     stock(&mut app, ConsumableKind::Fabricator, 2);
 
     assert!(app.print_blueprint(LATCH_NAME));
@@ -2140,7 +2145,7 @@ fn two_printed_latches_remember_different_things_because_their_insides_are_names
 #[test]
 fn printed_latches_share_their_inputs_and_an_exported_output() {
     let mut app = latch_blueprint_on_an_empty_board();
-    app.purse.earn(LAB_STAKE);
+    app.earn(LAB_STAKE, Flow::Godsend);
     app.blueprints[0].export("q");
     stock(&mut app, ConsumableKind::Fabricator, 2);
     assert!(app.print_blueprint(LATCH_NAME));
@@ -2168,7 +2173,7 @@ fn printed_latches_share_their_inputs_and_an_exported_output() {
 #[test]
 fn a_print_names_its_fish_after_the_instance_and_keeps_the_arrangement() {
     let mut app = board(&["Left", "Right"]);
-    app.purse.earn(LAB_STAKE);
+    app.earn(LAB_STAKE, Flow::Godsend);
     gate(&mut app, "Left", &["x"], "nx", COIL);
     gate(&mut app, "Right", &["nx"], "y", BARE);
     placed_at(&mut app, "Left", PLACED_X, PLACED_Y);
@@ -2210,7 +2215,7 @@ fn a_print_spends_held_stock_first_and_pays_only_for_what_is_missing() {
 
     assert_eq!(
         app.purse.balance(),
-        cash - ConsumableKind::BlankWafer.buy_price()
+        cash - Money::from(ConsumableKind::BlankWafer.buy_price())
     );
     assert_eq!(held(&app, ConsumableKind::BlankWafer), 0);
     assert_eq!(held(&app, ConsumableKind::Part(Part::InverterCoil)), 1);
@@ -2242,7 +2247,7 @@ fn a_print_into_a_full_tank_fails_cleanly_and_the_blueprint_survives() {
 #[test]
 fn printing_needs_a_fabricator_and_a_blueprint_by_that_name() {
     let mut app = latch_blueprint_on_an_empty_board();
-    app.purse.earn(LAB_STAKE);
+    app.earn(LAB_STAKE, Flow::Godsend);
 
     assert!(!app.print_blueprint(LATCH_NAME), "no Fabricator");
     stock(&mut app, ConsumableKind::Fabricator, 1);
@@ -2255,7 +2260,7 @@ fn printing_needs_a_fabricator_and_a_blueprint_by_that_name() {
 #[test]
 fn a_printed_botfish_is_worth_nothing_at_the_till() {
     let mut app = latch_board();
-    app.purse.earn(LAB_STAKE);
+    app.earn(LAB_STAKE, Flow::Godsend);
     captured(&mut app, LATCH_NAME);
     connect(&mut app);
     stock(&mut app, ConsumableKind::Fabricator, 1);
@@ -2879,7 +2884,7 @@ fn an_etched_fish_can_be_captured_and_etched_again() {
 #[test]
 fn etching_needs_a_fabricator_and_the_blueprint_survives() {
     let mut app = latch_board();
-    app.purse.earn(LAB_STAKE);
+    app.earn(LAB_STAKE, Flow::Godsend);
     captured(&mut app, LATCH_NAME);
     app.tanks[0].fish.clear();
     connect(&mut app);
@@ -2977,7 +2982,7 @@ fn a_run_trigger_inside_a_chip_answers_to_the_host_name() {
     run(&mut app, &format!("/run {HOST}"));
     tick_n(&mut app, SCRIPT_TICKS);
 
-    assert_eq!(app.purse.balance(), GIVE_RESOURCE_AMOUNT);
+    assert_eq!(app.purse.balance(), Money::from(GIVE_RESOURCE_AMOUNT));
 }
 
 #[test]
@@ -3731,7 +3736,7 @@ fn bait(app: &App) -> u32 {
     app.inventory.get(&StockItem::BAIT).copied().unwrap_or(0)
 }
 
-fn haul(app: &App) -> (u32, u32, u32, usize) {
+fn haul(app: &App) -> (Money, u32, u32, usize) {
     let stock: u32 = app.inventory.values().sum();
     (
         app.purse.balance(),
@@ -3742,7 +3747,7 @@ fn haul(app: &App) -> (u32, u32, u32, usize) {
 }
 
 #[test]
-fn one_cast_spends_one_bait_brings_one_thing_up_and_caught_pulses_once() {
+fn one_cast_spends_one_bait_brings_one_fish_up_and_caught_pulses_once() {
     let mut app = rig_board(&[], "go", 1);
     let mut pulses = 0;
     let mut line_down = None;
@@ -3755,11 +3760,7 @@ fn one_cast_spends_one_bait_brings_one_thing_up_and_caught_pulses_once() {
     }
     let line_down = line_down.expect("the one cast took the one bait");
     assert_eq!(pulses, 1, "caught is one stage, once");
-    assert_ne!(
-        haul(&app),
-        line_down,
-        "something always comes up, a Bait on the hook included"
-    );
+    assert_ne!(haul(&app), line_down, "a fish always comes up");
     assert_eq!(
         level(&app, "low"),
         bait(&app) == 0,

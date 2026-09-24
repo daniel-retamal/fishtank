@@ -1,7 +1,7 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use fishtank::{
     app::{App, Launch},
-    economy::Rarity,
+    economy::{Money, Rarity},
     entities::cow::CowVariant,
     fishes::{fish::Fish, species::FishSpecies},
     loot::{ConsumableKind, StockItem},
@@ -460,7 +460,10 @@ fn execute_give_cash_increases_cash() {
     let mut app = App::launch(Launch::Debug);
     let before = app.purse.balance();
     submit_wish(&mut app, "give cash");
-    assert_eq!(app.purse.balance(), before + GIVE_RESOURCE_AMOUNT);
+    assert_eq!(
+        app.purse.balance(),
+        before + Money::from(GIVE_RESOURCE_AMOUNT)
+    );
 }
 
 #[test]
@@ -705,7 +708,10 @@ fn four_invalid_wishes_then_valid_executes_and_aborts() {
     app.editor.set("give cash".to_string());
     app.submit_ritual_input();
     assert!(is_idle(&app));
-    assert_eq!(app.purse.balance(), before_cash + GIVE_RESOURCE_AMOUNT);
+    assert_eq!(
+        app.purse.balance(),
+        before_cash + Money::from(GIVE_RESOURCE_AMOUNT)
+    );
 }
 
 #[test]
@@ -1009,7 +1015,10 @@ fn command_give_cash_matches_wish_outcome() {
     let mut app = App::launch(Launch::Debug);
     let before = app.purse.balance();
     submit_command(&mut app, "/give cash");
-    assert_eq!(app.purse.balance(), before + GIVE_RESOURCE_AMOUNT);
+    assert_eq!(
+        app.purse.balance(),
+        before + Money::from(GIVE_RESOURCE_AMOUNT)
+    );
 }
 
 fn held(app: &App, item: StockItem) -> u32 {
@@ -1081,21 +1090,27 @@ fn anything_grants_two_of_the_boons_give_grants() {
     let (coffee, bait) = (held(&app, StockItem::COFFEE), held(&app, StockItem::BAIT));
     submit_wish(&mut app, "anything");
     let deltas = [
-        (app.purse.balance() - cash, GIVE_RESOURCE_AMOUNT),
-        (app.food_supply - food, GIVE_RESOURCE_AMOUNT),
         (
-            held(&app, StockItem::COFFEE) - coffee,
-            StockItem::COFFEE.gift_quantity(),
+            app.purse.balance() - cash,
+            Money::from(GIVE_RESOURCE_AMOUNT),
         ),
         (
-            held(&app, StockItem::BAIT) - bait,
-            StockItem::BAIT.gift_quantity(),
+            Money::from(app.food_supply - food),
+            Money::from(GIVE_RESOURCE_AMOUNT),
+        ),
+        (
+            Money::from(held(&app, StockItem::COFFEE) - coffee),
+            Money::from(StockItem::COFFEE.gift_quantity()),
+        ),
+        (
+            Money::from(held(&app, StockItem::BAIT) - bait),
+            Money::from(StockItem::BAIT.gift_quantity()),
         ),
     ];
     for (delta, boon) in deltas {
         assert_eq!(delta % boon, 0, "anything grants whole boons only");
     }
-    let boons: u32 = deltas.iter().map(|(delta, boon)| delta / boon).sum();
+    let boons: Money = deltas.iter().map(|(delta, boon)| delta / boon).sum();
     assert_eq!(boons, 2);
 }
 

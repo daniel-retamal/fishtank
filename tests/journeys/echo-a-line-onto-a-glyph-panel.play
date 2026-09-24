@@ -9,8 +9,8 @@ include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
 include scenes/buy-at-the-bench.play Cochlea Peripherals
 include scenes/buy-at-the-bench.play "Glyph Panel" Peripherals
-include scenes/buy-a-fish.play Botfish ear
-include scenes/buy-a-fish.play Botfish lcd
+include scenes/take-a-fish.play botfish ear
+include scenes/take-a-fish.play botfish lcd
 
 run /consume inverter coil
 key enter

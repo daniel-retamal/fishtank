@@ -12,7 +12,7 @@ include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
 include scenes/buy-at-the-bench.play "Cathode Array" Peripherals
-include scenes/buy-a-fish.play Botfish crt
+include scenes/take-a-fish.play botfish crt
 
 run /consume inverter coil
 key enter

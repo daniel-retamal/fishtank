@@ -6,7 +6,7 @@ use fishtank::fishes::unfish::{BALL_HEIGHT, SKULL_HEIGHT, UnfishKind};
 use fishtank::sprite::{BodyExtension, ExtensionVariant, mirror_char};
 use fishtank::tank::{Tank, TankKind};
 
-const STRAWBERRY_SELL_BONUS_PCT: u8 = 25;
+const STRAWBERRY_SELL_BONUS_PCT: u32 = 25;
 
 fn make_tank() -> Tank {
     Tank::new("Test".to_string(), TankKind::Base, &[])

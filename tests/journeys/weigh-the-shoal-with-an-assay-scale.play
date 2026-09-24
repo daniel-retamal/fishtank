@@ -6,8 +6,8 @@ clear
 include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Assay Scale" Senses
-include scenes/buy-a-fish.play Botfish scale
-include scenes/buy-a-fish.play Botfish fat
+include scenes/take-a-fish.play botfish scale
+include scenes/take-a-fish.play botfish fat
 
 run /consume assay scale
 key enter

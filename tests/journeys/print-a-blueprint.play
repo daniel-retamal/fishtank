@@ -7,8 +7,8 @@ include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
 include scenes/buy-at-the-bench.play "Blank Circuit Blueprint" Materials
-include scenes/buy-a-fish.play Botfish q
-include scenes/buy-a-fish.play Botfish qn
+include scenes/take-a-fish.play botfish q
+include scenes/take-a-fish.play botfish qn
 run /consume inverter coil
 key enter
 key down

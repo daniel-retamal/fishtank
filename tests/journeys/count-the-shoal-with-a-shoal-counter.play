@@ -6,8 +6,8 @@ clear
 include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Shoal Counter" Senses
-include scenes/buy-a-fish.play Botfish counter
-include scenes/buy-a-fish.play Botfish crowd
+include scenes/take-a-fish.play botfish counter
+include scenes/take-a-fish.play botfish crowd
 
 run /consume shoal counter
 key enter

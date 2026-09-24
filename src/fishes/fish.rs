@@ -19,7 +19,9 @@ use super::unfish::{
 };
 use crate::colors::{PINK, WHITE};
 use crate::consumable::{COFFEE_SPEED_MULT, COFFEE_SWAY_MULT, COFFEE_ZOOMIE_DT_MULT};
+use crate::economy::Money;
 use crate::entities::components::{Position, SwayState, Velocity, tick_sway};
+use crate::entities::food::FOOD_WEIGHT_GAIN_G;
 use crate::entities::glistening::{GlisteningMode, color_for_glisten, derive_glistening_palette};
 use crate::entities::speech::SpeechBubble;
 use crate::settings::Settings;
@@ -34,7 +36,7 @@ mod record;
 use record::FishRecord;
 
 const CHAR_SPREAD: f32 = 1.0;
-const PERCENT_WHOLE: u32 = 100;
+const PERCENT_WHOLE: Money = 100;
 pub const EATING_DURATION: f32 = 0.15;
 const MOUTH_WIDTH: i32 = 1;
 const ZOOMIE_COOLDOWN_MIN: f32 = 120.0;
@@ -136,7 +138,7 @@ pub struct Fish {
     pub devil_marked: bool,
     pub unfish_state: Option<Box<UnfishState>>,
     pub botfish_state: Option<Box<BotfishState>>,
-    pub sell_price_bonus_pct: u8,
+    pub sell_price_bonus_pct: u32,
     pub abduction_lock: bool,
     pub frozen: bool,
     pub engulf_timer: f32,
@@ -147,6 +149,7 @@ pub struct Fish {
     pub field_cache: Vec<Option<(String, Option<Color>)>>,
     direction_timer: u32,
     zoomie_timer: f32,
+    zoomed_secs: f32,
 }
 
 pub const BLESSING_INTERVAL_SECS: f32 = 33.0 * 60.0;
@@ -154,18 +157,12 @@ pub const BLESSING_GLOW_SECS: f32 = 3.0;
 const BLESSING_GLOW_SPEED: f32 = 14.0;
 
 fn roll_size_category(rng: &mut impl RngExt) -> SizeCategory {
-    const WEIGHTS: [(u32, SizeCategory); 4] = [
-        (55, SizeCategory::S),
-        (30, SizeCategory::M),
-        (12, SizeCategory::L),
-        (3, SizeCategory::XL),
-    ];
-    let mut v = rng.random_range(0u32..100);
-    for (w, cat) in WEIGHTS {
-        if v < w {
-            return cat;
+    let mut v = rng.random_range(0..SizeCategory::ODDS_TOTAL);
+    for size in SizeCategory::ALL {
+        if v < size.odds() {
+            return size;
         }
-        v -= w;
+        v -= size.odds();
     }
     SizeCategory::XL
 }
@@ -264,6 +261,7 @@ impl Fish {
             seek_boost: 0.0,
             direction_timer: rng.random_range(DIRECTION_TIMER_MIN..DIRECTION_TIMER_MAX),
             zoomie_timer: rng.random_range(ZOOMIE_INITIAL_TIMER_MIN..ZOOMIE_INITIAL_TIMER_MAX),
+            zoomed_secs: 0.0,
             species,
             pattern_seed: fields.pattern_seed,
             display_width: fields.display_width,
@@ -307,6 +305,7 @@ impl Fish {
             seek_boost: 0.0,
             direction_timer: DIRECTION_TIMER_DISPLAY_DEFAULT,
             zoomie_timer: ZOOMIE_TIMER_DISPLAY_DEFAULT,
+            zoomed_secs: 0.0,
             species,
             pattern_seed: fields.pattern_seed,
             display_width: fields.display_width,
@@ -361,6 +360,7 @@ impl Fish {
             seek_boost: 0.0,
             direction_timer: rng.random_range(DIRECTION_TIMER_MIN..DIRECTION_TIMER_MAX),
             zoomie_timer: rng.random_range(ZOOMIE_INITIAL_TIMER_MIN..ZOOMIE_INITIAL_TIMER_MAX),
+            zoomed_secs: 0.0,
             species: FishSpecies::Unfish,
             pattern_seed: rng.random(),
             display_width,
@@ -532,7 +532,10 @@ impl Fish {
         if fused.is_empty() {
             return vec![self.species];
         }
-        fused.iter().filter_map(|c| c.fish_species()).collect()
+        fused
+            .iter()
+            .flat_map(FusedComponent::ability_species)
+            .collect()
     }
 
     pub fn fused_self_component(&self) -> FusedComponent {
@@ -583,14 +586,24 @@ impl Fish {
             .all(|species| species.config().sellable)
     }
 
-    pub fn sell_value(&self) -> u32 {
+    pub fn sell_value(&self) -> Money {
+        self.worth_at(self.weight_g)
+    }
+
+    fn worth_at(&self, weight_g: u32) -> Money {
         if !self.is_sellable() || self.script().is_some_and(BotfishState::is_printed) {
             return 0;
         }
-        let base =
-            self.species
-                .sell_value(self.weight_g, self.size_category, self.mutation_count());
-        base + base * self.sell_price_bonus_pct as u32 / PERCENT_WHOLE
+        let base = Money::from(self.species.sell_value(weight_g, self.size_category));
+        base + base * Money::from(self.sell_price_bonus_pct) / PERCENT_WHOLE
+    }
+
+    pub fn earns_from_food(&self) -> bool {
+        self.worth_at(self.weight_g.saturating_add(FOOD_WEIGHT_GAIN_G)) > self.sell_value()
+    }
+
+    pub fn seeks_food(&self) -> bool {
+        self.ability_stacks(FishSpecies::Candyfish) > 0 || self.earns_from_food()
     }
 
     pub fn circadian_state(&self) -> Circadian {
@@ -1624,6 +1637,7 @@ impl Fish {
     ) {
         let dt = 1.0 / settings.fps;
         let coffee = self.coffee_response(coffee_stacks);
+        self.zoomed_secs = 0.0;
 
         if self.engulf_timer > 0.0 {
             self.engulf_timer = (self.engulf_timer - dt).max(0.0);
@@ -1668,6 +1682,7 @@ impl Fish {
                 will_turn,
                 has_turned,
             } => {
+                self.zoomed_secs = time_remaining.min(dt);
                 let new_time = time_remaining - dt;
                 let should_turn =
                     will_turn && !has_turned && new_time < total_duration * ZOOMIE_TURN_THRESHOLD;
@@ -1762,6 +1777,10 @@ impl Fish {
         }
 
         self.direction_timer = rng.random_range(DIRECTION_TIMER_MIN..DIRECTION_TIMER_MAX);
+    }
+
+    pub fn zoomed_secs(&self) -> f32 {
+        self.zoomed_secs
     }
 
     pub fn hurry_zoomie(&mut self) -> bool {

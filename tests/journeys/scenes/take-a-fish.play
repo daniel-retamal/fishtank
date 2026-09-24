@@ -1,0 +1,8 @@
+# SCENE · take one fish no shop sells and name it: $1 is the species, $2 the name.
+# A Legendary is caught on its banner, never bought (economy epic, 2026-09-24), and a journey cannot
+# fish on cue, so the catch is handed over in debug mode, which is switched straight back off, like
+# the Computer in grow-a-matrixtank.play. It lands named, the way a catch card names a caught fish.
+
+run !debugmode
+run /give $1 "$2"
+run !debugmode

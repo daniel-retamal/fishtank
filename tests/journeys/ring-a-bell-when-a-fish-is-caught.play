@@ -11,9 +11,9 @@ include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
 include scenes/buy-at-the-bench.play "Angler Rig" Hands
 include scenes/buy-at-the-bench.play "Startle Nerve" Senses
-include scenes/buy-a-fish.play Botfish rod
-include scenes/buy-a-fish.play Botfish nerve
-include scenes/buy-a-fish.play Botfish bell
+include scenes/take-a-fish.play botfish rod
+include scenes/take-a-fish.play botfish nerve
+include scenes/take-a-fish.play botfish bell
 
 run /shop
 key enter

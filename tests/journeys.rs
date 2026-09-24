@@ -127,6 +127,7 @@ fn takes_what_no_shop_sells(command: &str, line: &str) -> bool {
         return false;
     }
     let rest = line[command.len()..].trim();
+    let rest = rest.split_once('"').map_or(rest, |(thing, _)| thing.trim());
     let named = rest
         .rsplit_once(' ')
         .filter(|(_, tail)| tail.parse::<u32>().is_ok())
@@ -147,6 +148,14 @@ fn a_journey_may_take_only_what_no_shop_sells() {
     assert!(
         !takes_what_no_shop_sells("/add", "/add bait 2"),
         "the shop sells bait by the counter"
+    );
+    assert!(
+        takes_what_no_shop_sells("/give", "/give botfish \"neo\""),
+        "a Legendary is caught, never bought, so a journey may be handed one, named"
+    );
+    assert!(
+        !takes_what_no_shop_sells("/give", "/give merluza \"ann\""),
+        "a name does not hide a fish the shop sells"
     );
     assert!(
         !takes_what_no_shop_sells("/spawn", "/spawn botfish \"Neo\""),

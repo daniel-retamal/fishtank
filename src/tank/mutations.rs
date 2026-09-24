@@ -9,14 +9,14 @@ use crate::fishes::mutant::{
 use crate::fishes::mutations::{
     MutantBacked, Mutatable, Mutation, MutationOutcome, apply_mutation, ensure_fish_mutant,
 };
-use crate::fishes::species::{BodyTemplate, FishSpecies};
+use crate::fishes::species::BodyTemplate;
 use crate::fishes::unfish::{UnfishKind, worm_display_width};
 use crate::util::{exponential_event, hyperbolic_scale, sample_exponential};
 
 use super::{
     MIN_SPLIT_BODY_SIZE, MUTATION_ALPHA, MUTATION_INTERVAL_BASE, MUTATION_MEAN_FLOOR_SECS,
-    RAD_AUTO_MUTANT_MEAN_SECS, RAD_MILK_MUTATION_TICK_INTERVAL, RAD_MUTATION_MEAN_SECS,
-    RAD_WEIGHT_GAIN_G, RAD_WEIGHT_INTERVAL_SECS,
+    MUTATION_TIMER_UNARMED, RAD_AUTO_MUTANT_MEAN_SECS, RAD_MILK_MUTATIONS_PER_SEC,
+    RAD_MUTATION_MEAN_SECS, RAD_WEIGHT_GAIN_G, RAD_WEIGHT_INTERVAL_SECS,
 };
 use super::{Tank, WorldSignal};
 
@@ -64,7 +64,6 @@ fn restore_cow_from_snapshot(snapshot: &Cow, x: f32, y: f32) -> Cow {
     cow.engulf_timer = 0.0;
     cow.mutant.is_double = false;
     cow.mutant.backwards = false;
-    cow.mutant.fused.clear();
     cow.mutant.double_head_eyes.clear();
     cow.recompute_display_width();
     cow
@@ -78,13 +77,17 @@ impl Tank {
         }
         let mutant_count: u32 = self.fish.iter().map(|f| f.auto_mutate_stacks()).sum();
         if mutant_count == 0 {
+            self.mutation_timer = MUTATION_TIMER_UNARMED;
             return;
+        }
+        let mut rng = rand::rng();
+        let mean = hyperbolic_scale(MUTATION_INTERVAL_BASE, mutant_count, MUTATION_ALPHA)
+            .max(MUTATION_MEAN_FLOOR_SECS);
+        if self.mutation_timer == MUTATION_TIMER_UNARMED {
+            self.mutation_timer = sample_exponential(&mut rng, mean);
         }
         self.mutation_timer -= dt;
         if self.mutation_timer <= 0.0 {
-            let mut rng = rand::rng();
-            let mean = hyperbolic_scale(MUTATION_INTERVAL_BASE, mutant_count, MUTATION_ALPHA)
-                .max(MUTATION_MEAN_FLOOR_SECS);
             self.mutation_timer = sample_exponential(&mut rng, mean);
             self.apply_random_mutation();
         }
@@ -164,24 +167,23 @@ impl Tank {
         self.mutate_fish(fish_idx, "");
     }
 
-    pub(super) fn tick_irradiated_milk_mutations(&mut self) {
-        if !self
-            .candy_tick
-            .is_multiple_of(RAD_MILK_MUTATION_TICK_INTERVAL)
-        {
-            return;
-        }
-        let pending: Vec<String> = self
-            .fish
-            .iter()
-            .filter(|f| f.pending_rad_mutations > 0)
-            .map(|f| f.name.clone())
-            .collect();
-        for name in pending {
-            if let Some(fish) = self.fish.iter_mut().find(|f| f.name == name) {
-                fish.pending_rad_mutations -= 1;
+    pub(super) fn tick_irradiated_milk_mutations(&mut self, dt: f32) {
+        let beats = self
+            .milk_clock
+            .beats(dt, RAD_MILK_MUTATIONS_PER_SEC.recip());
+        for _ in 0..beats {
+            let pending: Vec<String> = self
+                .fish
+                .iter()
+                .filter(|f| f.pending_rad_mutations > 0)
+                .map(|f| f.name.clone())
+                .collect();
+            for name in pending {
+                if let Some(fish) = self.fish.iter_mut().find(|f| f.name == name) {
+                    fish.pending_rad_mutations -= 1;
+                }
+                self.apply_named_mutation(&name, "");
             }
-            self.apply_named_mutation(&name, "");
         }
     }
 
@@ -273,10 +275,10 @@ impl Tank {
         merged.mutations = host_mutations;
         merged.devil_marked = host_devil_marked;
         merged.engulf_timer = 0.0;
-        let mut ledger = components;
-        for component in &mut ledger {
-            component.snapshot = None;
-        }
+        let mut ledger: Vec<_> = components
+            .into_iter()
+            .flat_map(|component| component.flattened())
+            .collect();
         if merged.botfish_state.is_some()
             && let Some(circuit) = ledger
                 .iter_mut()
@@ -495,13 +497,9 @@ impl Tank {
         }
 
         let new_name = self.unique_name(&parent_name);
-        let mut new_fish = Fish::new(
-            FishSpecies::Mutantfish,
-            new_name.clone(),
-            spawn_x,
-            spawn_y,
-            &mut rng,
-        );
+        let parent_species = self.fish[idx].species;
+        let mut new_fish = Fish::new(parent_species, new_name.clone(), spawn_x, spawn_y, &mut rng);
+        ensure_fish_mutant(&mut new_fish, &mut rng);
         new_fish.color = parent_color;
         new_fish.sway_speed = parent_sway_speed;
         new_fish.body_size = other_half;

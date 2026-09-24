@@ -118,6 +118,19 @@ pub fn put(buf: &mut Buffer, cell: Rect, text: &str, style: Style) {
     buf.set_stringn(text_area.x, cell.y, ellipsize(text, room), room, style);
 }
 
+pub fn put_money(buf: &mut Buffer, cell: Rect, text: &str, style: Style) {
+    if cell.width == 0 || cell.height == 0 {
+        return;
+    }
+    let width = cell.width as usize;
+    buf.set_stringn(cell.x, cell.y, " ".repeat(width), width, style);
+    let text_area = inside(cell);
+    let room = text_area.width as usize;
+    let shown = visual_width(text).min(room);
+    let x = text_area.right().saturating_sub(shown as u16);
+    buf.set_stringn(x, cell.y, ellipsize(text, room), room, style);
+}
+
 pub fn text_column(header: &str, cells: impl Iterator<Item = usize>, min: u16) -> FlexItem {
     let widest = cells.max().unwrap_or(0).max(visual_width(header)) as u16;
     FlexItem::new(widest + CELL_PAD * 2, min)
@@ -142,6 +155,14 @@ mod tests {
         put(&mut buf, Rect::new(0, 0, 8, 1), "Neo", Style::default());
         let row: String = (0..8).map(|x| buf[(x, 0)].symbol().to_string()).collect();
         assert_eq!(row, " Neo    ");
+    }
+
+    #[test]
+    fn money_sits_flush_right_one_space_inside_its_rules() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 8, 1));
+        put_money(&mut buf, Rect::new(0, 0, 8, 1), "$120", Style::default());
+        let row: String = (0..8).map(|x| buf[(x, 0)].symbol().to_string()).collect();
+        assert_eq!(row, "   $120 ");
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use fishtank::{
     app::{App, Launch},
-    economy::Purse,
+    economy::{Money, Purse},
     entities::cow::CowVariant,
     fishes::species::{FishSpecies, Habitat},
     tank::Tank,
@@ -42,8 +42,8 @@ fn botfish_species_is_a_special_legendary() {
     let config = FishSpecies::Botfish.config();
     assert!(config.programmable);
     assert!(
-        config.buyable,
-        "a botfish is bought, and the shop is the one source a journey uses"
+        !config.buyable,
+        "a botfish is a Legendary: caught on its banner, never bought"
     );
     assert_eq!(
         config.habitat,
@@ -62,7 +62,7 @@ fn player_speech_runs_the_botfish_script() {
     speak(&mut app, "wake up");
     tick_n(&mut app, 40);
 
-    assert_eq!(app.purse.balance(), GIVE_RESOURCE_AMOUNT);
+    assert_eq!(app.purse.balance(), Money::from(GIVE_RESOURCE_AMOUNT));
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn cowsay_triggers_a_botfish_in_the_same_tank() {
     speak(&mut app, "/cowsay moo");
     tick_n(&mut app, 40);
 
-    assert_eq!(app.purse.balance(), GIVE_RESOURCE_AMOUNT);
+    assert_eq!(app.purse.balance(), Money::from(GIVE_RESOURCE_AMOUNT));
 }
 
 #[test]
@@ -140,7 +140,7 @@ fn a_typed_say_triggers_a_botfish_in_the_tank_you_are_watching() {
     speak(&mut app, "/say \"wake up\"");
     tick_n(&mut app, 40);
 
-    assert_eq!(app.purse.balance(), GIVE_RESOURCE_AMOUNT);
+    assert_eq!(app.purse.balance(), Money::from(GIVE_RESOURCE_AMOUNT));
 }
 
 #[test]

@@ -18,6 +18,7 @@ pub enum Rarity {
 
 const PART_PLATFORM_RARITY: Rarity = Rarity::Legendary;
 const GIFT_UNIT_RARITY: Rarity = Rarity::Legendary;
+const VALUE_REFERENCE_RARITY: Rarity = Rarity::Common;
 
 impl Rarity {
     pub fn catch_weight(self) -> u32 {
@@ -43,6 +44,14 @@ impl Rarity {
 
     pub fn gift_quantity(self) -> u32 {
         self.catch_weight() / GIFT_UNIT_RARITY.catch_weight()
+    }
+
+    pub fn catch_worth(self) -> u32 {
+        crate::fishes::species::fed_catch_worth(self)
+    }
+
+    pub fn value_multiplier(self) -> f32 {
+        VALUE_REFERENCE_RARITY.catch_weight() as f32 / self.catch_weight() as f32
     }
 }
 
@@ -152,21 +161,27 @@ mod tests {
     }
 }
 
+pub type Money = u64;
+
+pub fn reading(money: Money) -> u32 {
+    u32::try_from(money).unwrap_or(u32::MAX)
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct Purse {
-    balance: u32,
+    balance: Money,
     bottomless: bool,
 }
 
 impl Purse {
-    pub const fn holding(balance: u32) -> Self {
+    pub const fn holding(balance: Money) -> Self {
         Self {
             balance,
             bottomless: false,
         }
     }
 
-    pub fn balance(self) -> u32 {
+    pub fn balance(self) -> Money {
         self.balance
     }
 
@@ -178,18 +193,18 @@ impl Purse {
         self.bottomless = bottomless;
     }
 
-    pub fn spendable(self) -> u32 {
+    pub fn spendable(self) -> Money {
         if self.bottomless {
-            return u32::MAX;
+            return Money::MAX;
         }
         self.balance
     }
 
-    pub fn can_afford(self, cost: u32) -> bool {
-        cost <= self.spendable()
+    pub fn can_afford(self, cost: impl Into<Money>) -> bool {
+        cost.into() <= self.spendable()
     }
 
-    pub fn spend(&mut self, cost: u32) -> bool {
+    pub(crate) fn spend(&mut self, cost: Money) -> bool {
         if !self.can_afford(cost) {
             return false;
         }
@@ -199,28 +214,24 @@ impl Purse {
         true
     }
 
-    pub fn earn(&mut self, amount: u32) {
+    pub(crate) fn earn(&mut self, amount: Money) {
         self.balance = self.balance.saturating_add(amount);
     }
 
-    pub fn lose(&mut self, amount: u32) {
-        self.balance = self.balance.saturating_sub(amount);
-    }
-
-    pub fn shown(self) -> Option<u32> {
+    pub fn shown(self) -> Option<Money> {
         (!self.bottomless).then_some(self.balance)
     }
 }
 
 #[cfg(test)]
 mod purse_tests {
-    use super::Purse;
+    use super::{Money, Purse, reading};
 
     #[test]
     fn a_bottomless_purse_pays_for_anything_and_keeps_its_balance() {
         let mut purse = Purse::holding(10);
         purse.set_bottomless(true);
-        assert!(purse.spend(u32::MAX));
+        assert!(purse.spend(Money::MAX));
         assert_eq!(purse.balance(), 10);
         assert_eq!(purse.shown(), None);
         purse.set_bottomless(false);
@@ -236,9 +247,22 @@ mod purse_tests {
     }
 
     #[test]
-    fn earnings_never_overflow() {
-        let mut purse = Purse::holding(u32::MAX);
+    fn a_purse_keeps_counting_past_the_old_ceiling() {
+        let mut purse = Purse::holding(Money::from(u32::MAX));
         purse.earn(1);
-        assert_eq!(purse.balance(), u32::MAX);
+        assert_eq!(purse.balance(), Money::from(u32::MAX) + 1);
+    }
+
+    #[test]
+    fn earnings_never_overflow() {
+        let mut purse = Purse::holding(Money::MAX);
+        purse.earn(1);
+        assert_eq!(purse.balance(), Money::MAX);
+    }
+
+    #[test]
+    fn a_fortune_too_big_for_a_reading_reads_as_the_largest_one() {
+        assert_eq!(reading(700), 700);
+        assert_eq!(reading(Money::from(u32::MAX) * 3), u32::MAX);
     }
 }

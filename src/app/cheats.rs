@@ -1,10 +1,9 @@
 use crate::cheats::{CHEAT_RESOURCE_AMOUNT, Cheat, DEBUG_MODE_LABEL, Switch};
 use crate::commands::Clearance;
-use crate::consumable::{
-    ActiveMilkStatus, MILK_STATUS_DURATION, MILK_STATUS_STACK_BONUS, MilkStatus,
-};
+use crate::consumable::{ActiveMilkStatus, MilkStatus};
 use crate::fishes::fish::Fish;
 use crate::fishes::species::FishSpecies;
+use crate::ledger::Flow;
 use crate::loot::StockItem;
 use crate::tank::Tank;
 use crate::ui::text_input::TextInput;
@@ -127,24 +126,32 @@ impl App {
         let here = self.current_tank;
         match cheat {
             Cheat::ShowMeTheMoney => {
-                self.purse.earn(CHEAT_RESOURCE_AMOUNT);
+                self.earn(CHEAT_RESOURCE_AMOUNT, Flow::Godsend);
                 true
             }
             Cheat::BreatheDeep => {
                 self.food_supply = self.food_supply.saturating_add(CHEAT_RESOURCE_AMOUNT);
                 true
             }
-            Cheat::ThereIsNoCowLevel => self.execute_give(GiveTarget::Cow(None), here),
+            Cheat::ThereIsNoCowLevel => {
+                self.execute_give(GiveTarget::Cow(None), here, Flow::Godsend)
+            }
             Cheat::StayingAlive => self.revive_latest(),
             Cheat::ThereIsNoSpoon => self.gift_fish(here, FishSpecies::Botfish, SPOON_BOY),
             Cheat::ModifyThePhaseVariance => {
-                self.execute_give(GiveTarget::Item(StockItem::COMPUTER), here)
+                self.execute_give(GiveTarget::Item(StockItem::COMPUTER), here, Flow::Godsend)
             }
-            Cheat::HighwayToHell => {
-                self.execute_give(GiveTarget::Item(StockItem::NECRONOMICON), here)
+            Cheat::HighwayToHell => self.execute_give(
+                GiveTarget::Item(StockItem::NECRONOMICON),
+                here,
+                Flow::Godsend,
+            ),
+            Cheat::Electrochemistry => {
+                self.execute_give(GiveTarget::Item(StockItem::COFFEE), here, Flow::Godsend)
             }
-            Cheat::Electrochemistry => self.execute_give(GiveTarget::Item(StockItem::COFFEE), here),
-            Cheat::Nothing => self.execute_give(GiveTarget::Item(StockItem::VOID_SEED), here),
+            Cheat::Nothing => {
+                self.execute_give(GiveTarget::Item(StockItem::VOID_SEED), here, Flow::Godsend)
+            }
             Cheat::TheTruthIsOutThere => self.plan_abduction(here, &mut rand::rng()),
             Cheat::RadioFreeFishtank => self.mutate_everyone(here),
             Cheat::SomethingForNothing => {
@@ -193,16 +200,7 @@ impl App {
     }
 
     pub(super) fn gain_status(&mut self, kind: MilkStatus) {
-        if let Some(existing) = self.active_statuses.iter_mut().find(|s| s.kind == kind) {
-            existing.stacks += 1;
-            existing.time_remaining += MILK_STATUS_STACK_BONUS;
-            return;
-        }
-        self.active_statuses.push(ActiveMilkStatus {
-            kind,
-            stacks: 1,
-            time_remaining: MILK_STATUS_DURATION,
-        });
+        self.active_statuses.push(ActiveMilkStatus::fresh(kind));
     }
 
     pub(super) fn found_tank(&mut self, mut tank: Tank) -> usize {
@@ -241,7 +239,11 @@ mod tests {
         app.enter_cheat(Cheat::Nothing);
         assert!(app.withheld_loot().contains(&ConsumableKind::VoidSeed));
         app.inventory.clear();
-        assert!(app.execute_give(GiveTarget::Tank(TankKind::Void), app.current_tank));
+        assert!(app.execute_give(
+            GiveTarget::Tank(TankKind::Void),
+            app.current_tank,
+            Flow::Godsend
+        ));
         assert!(app.withheld_loot().contains(&ConsumableKind::VoidSeed));
         assert!(!app.withheld_loot().contains(&ConsumableKind::Computer));
     }

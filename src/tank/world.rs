@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Link, Tank};
+use crate::economy;
 use crate::fishes::botfish::BotfishState;
 use crate::fishes::fish::Fish;
 use crate::fishes::species::FishSpecies;
@@ -83,7 +84,7 @@ impl SensedFish {
             name: fish.name.clone(),
             species: fish.species,
             weight_g: fish.weight_g,
-            value: fish.sell_value(),
+            value: economy::reading(fish.sell_value()),
         }
     }
 }

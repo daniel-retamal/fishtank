@@ -15,6 +15,7 @@ pub mod index_overlay;
 pub mod input_action;
 pub mod inventory_overlay;
 pub mod layout;
+pub mod ledger_overlay;
 pub mod line_editor;
 pub mod modal;
 pub mod notice;

@@ -11,13 +11,13 @@ fn rng() -> impl rand::RngExt {
     rand::rng()
 }
 
-const STRAWBERRY_SELL_BONUS_PCT: u8 = 25;
+const STRAWBERRY_SELL_BONUS_PCT: u32 = 25;
 const CHOCOLATE_WEIGHT_BONUS_G: u32 = 5000;
 
 #[test]
 fn unfish_sells_for_nothing_regardless_of_weight() {
     assert_eq!(
-        FishSpecies::Unfish.sell_value(9999, SizeCategory::XL, 5),
+        FishSpecies::Unfish.sell_value(9999, SizeCategory::XL),
         0,
         "an unfish must always sell for 0"
     );
@@ -26,7 +26,7 @@ fn unfish_sells_for_nothing_regardless_of_weight() {
 #[test]
 fn common_fish_below_weight_base_sells_at_base() {
     assert_eq!(
-        FishSpecies::Merluza.sell_value(0, SizeCategory::S, 0),
+        FishSpecies::Merluza.sell_value(0, SizeCategory::S),
         12,
         "a small Merluza at zero weight sells at its base price"
     );
@@ -35,25 +35,25 @@ fn common_fish_below_weight_base_sells_at_base() {
 #[test]
 fn common_fish_at_weight_cap_sells_at_cap() {
     assert_eq!(
-        FishSpecies::Merluza.sell_value(2500, SizeCategory::S, 0),
-        40,
-        "a small Merluza at the weight cap sells at its cap price"
+        FishSpecies::Merluza.sell_value(2500, SizeCategory::S),
+        108,
+        "a small Merluza at the weight cap sells for its base, its 48 pellets and as much again"
     );
 }
 
 #[test]
-fn mutantfish_sell_value_is_base_plus_mutations_plus_weight_tenth() {
+fn mutantfish_sell_value_is_base_plus_weight_tenth() {
     assert_eq!(
-        FishSpecies::Mutantfish.sell_value(100, SizeCategory::M, 2),
-        710,
-        "mutantfish = 500 base + 2*100 per mutation + 100/10 weight"
+        FishSpecies::Mutantfish.sell_value(100, SizeCategory::M),
+        510,
+        "mutantfish = 500 base + 100/10 weight; a mutation is a look, never money"
     );
 }
 
 #[test]
 fn sell_value_is_monotonic_in_weight() {
-    let light = FishSpecies::Snapper.sell_value(500, SizeCategory::M, 0);
-    let heavy = FishSpecies::Snapper.sell_value(5000, SizeCategory::M, 0);
+    let light = FishSpecies::Snapper.sell_value(500, SizeCategory::M);
+    let heavy = FishSpecies::Snapper.sell_value(5000, SizeCategory::M);
     assert!(heavy >= light, "heavier fish must never sell for less");
 }
 
@@ -95,12 +95,13 @@ fn alien_milk_alienates_fish_to_light_green() {
 fn chocolate_milk_adds_weight() {
     let mut rng = rng();
     let mut fish = Fish::new_for_display(FishSpecies::Mutantfish, &mut rng);
-    let weight = fish.weight_g;
+    let fed = fish.weight_g + CHOCOLATE_WEIGHT_BONUS_G;
+    let body = fish.body_size as u32;
     apply_milk_to_fish(MilkVariant::Chocolate, &mut fish, &mut rng);
     assert_eq!(
         fish.weight_g,
-        weight + CHOCOLATE_WEIGHT_BONUS_G,
-        "chocolate milk adds a fixed weight bonus"
+        fed + fed / body,
+        "chocolate milk adds a fixed weight bonus, then its sizeincrease adds one segment's mass"
     );
 }
 
@@ -108,12 +109,13 @@ fn chocolate_milk_adds_weight() {
 fn chocolate_milk_on_non_mutant_fish_does_not_panic() {
     let mut rng = rng();
     let mut fish = Fish::new_for_display(FishSpecies::Merluza, &mut rng);
-    let weight = fish.weight_g;
+    let fed = fish.weight_g + CHOCOLATE_WEIGHT_BONUS_G;
+    let body = fish.body_size as u32;
     apply_milk_to_fish(MilkVariant::Chocolate, &mut fish, &mut rng);
     assert_eq!(
         fish.weight_g,
-        weight + CHOCOLATE_WEIGHT_BONUS_G,
-        "chocolate milk on a mutant-less fish must add weight without panicking"
+        fed + fed / body,
+        "chocolate milk on a mutant-less fish must add weight without panicking, then its sizeincrease adds one segment's mass"
     );
 }
 

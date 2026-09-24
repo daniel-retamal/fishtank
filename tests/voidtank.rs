@@ -1,5 +1,6 @@
 use crossterm::event::KeyCode;
 use fishtank::{
+    economy::Money,
     loot::{ConsumableKind, StockItem},
     tank::TankKind,
     testing::Tui,
@@ -96,7 +97,10 @@ fn the_voidtank_can_be_sold_and_then_the_void_seed_comes_back() {
     tui.run(&format!("/sell tank \"{GIFTED_VOIDTANK}\""));
 
     assert_eq!(voidtanks(&tui), 0);
-    assert_eq!(tui.app.purse.balance(), cash + TankKind::Void.sell_price());
+    assert_eq!(
+        tui.app.purse.balance(),
+        cash + Money::from(TankKind::Void.sell_price())
+    );
     say_nothing(&mut tui);
     assert_eq!(void_seeds(&tui), 1);
 }

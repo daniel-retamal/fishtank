@@ -20,8 +20,8 @@ key esc
 absent Price/unit
 expect food
 expect 160
-include scenes/buy-a-fish.play Botfish clk
-include scenes/buy-a-fish.play Botfish feeder
+include scenes/take-a-fish.play botfish clk
+include scenes/take-a-fish.play botfish feeder
 
 run /consume inverter coil
 key enter
@@ -40,12 +40,13 @@ expect fire[1]
 key down 2
 type clk
 key down 2
-type /feed 1
+type /feed
 snap the fire pin and the script line
 key enter
 
 tick 120
-absent food: 100
+absent food: 160
+absent food 160
 snap the module spent food from the supply on its own
 run /circuit
 expect fire ◂ clk

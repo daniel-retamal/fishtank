@@ -11,8 +11,9 @@ use crate::colors::{CYAN, DARK_GRAY, LIGHT_GREEN, LIGHT_RED, LIGHT_YELLOW, RED, 
 use crate::consumable::{
     PHYSICAL_INSTRUMENT_ALPHA, REACTION_SPEED_ALPHA, VISUAL_CALCULUS_ALPHA, VOLITION_ALPHA,
 };
+use crate::settings::DEFAULT_FPS;
 use crate::ui::{hints::HINT_CLOSE, table};
-use crate::util::hyperbolic_scale;
+use crate::util::{Metronome, hyperbolic_scale};
 
 const FISH_FORCE: f32 = 0.022;
 const DAMPING: f32 = 0.95;
@@ -40,6 +41,7 @@ const REEL_HANDLE_FREQ: u32 = 6;
 const BACKGROUND: Color = Color::Reset;
 
 const FLASH_PERIOD: u32 = 6;
+const REEL_STEP_SECS: f32 = 1.0 / DEFAULT_FPS;
 
 const BITE_MIN_WAIT_SECS: f32 = 2.0;
 const BITE_MEAN_WAIT_SECS: f32 = 5.0;
@@ -149,6 +151,7 @@ pub struct FishingState {
     waves_seeded: bool,
     wave_spawn_timer: f32,
     idle_timer: f32,
+    reel_clock: Metronome,
     pub fish_pos: f32,
     pub completion: f32,
     pub fish_velocity: f32,
@@ -181,6 +184,7 @@ impl FishingState {
             waves_seeded: false,
             wave_spawn_timer: sample_exp(WAVE_SPAWN_MEAN_SECS, WAVE_SPAWN_MIN_SECS, rng),
             idle_timer: 0.0,
+            reel_clock: Metronome::default(),
             fish_pos: 0.5,
             completion: COMPLETION_START,
             fish_velocity: 0.0,
@@ -226,10 +230,15 @@ impl FishingState {
         self.idle_timer = (self.idle_timer + dt).rem_euclid(HOOK_IDLE_PERIOD_SECS);
         self.tick_waves(dt, geom.as_ref());
 
-        if matches!(self.phase, FishPhase::Reel) {
-            self.tick_reel(fps, coffee_stacks, milk);
-        } else {
+        if !matches!(self.phase, FishPhase::Reel) {
             self.tick_catch(dt);
+            return;
+        }
+        for _ in 0..self.reel_clock.beats(dt, REEL_STEP_SECS) {
+            if self.game_over || self.captured {
+                return;
+            }
+            self.tick_reel(coffee_stacks, milk);
         }
     }
 
@@ -289,7 +298,7 @@ impl FishingState {
         }
     }
 
-    fn tick_reel(&mut self, fps: f32, coffee_stacks: u32, milk: MilkBuffs) {
+    fn tick_reel(&mut self, coffee_stacks: u32, milk: MilkBuffs) {
         let safe_zone = milk.safe_zone();
         let grace_secs = milk.grace_secs();
         let fish_force = FISH_FORCE * milk.fish_force_mult();
@@ -359,7 +368,7 @@ impl FishingState {
 
         if self.completion <= DANGER_THRESHOLD {
             self.danger_timer += 1.0;
-            if self.danger_timer >= fps * grace_secs && !self.no_escape {
+            if self.danger_timer >= DEFAULT_FPS * grace_secs && !self.no_escape {
                 self.game_over = true;
             }
         } else {
@@ -1016,5 +1025,50 @@ mod milk_buff_spec_tests {
         assert_eq!(buffs.safe_zone(), REEL_PENALTY_THRESHOLD);
         assert_eq!(buffs.grace_secs(), BASE_GRACE_SECS);
         assert_eq!(buffs.fish_force_mult(), 1.0);
+    }
+}
+
+#[cfg(test)]
+mod reel_clock_tests {
+    use super::*;
+
+    const ONE_SECOND_OF_STEPS: f32 = DEFAULT_FPS;
+
+    #[test]
+    fn a_second_of_reeling_fills_the_bar_as_far_at_any_frame_rate() {
+        let expected = COMPLETION_START + ONE_SECOND_OF_STEPS * REEL_RATE;
+        for fps in [1.0, 30.0, 60.0, 120.0] {
+            let mut state = FishingState {
+                no_fight: true,
+                is_reeling: true,
+                ..FishingState::default()
+            };
+            state.start_reeling();
+            for _ in 0..fps as usize {
+                state.tick(fps, 0, MilkBuffs::default(), None);
+            }
+            assert!(
+                (state.completion - expected).abs() < 1e-4,
+                "at {fps} fps a second of reeling reached {}",
+                state.completion
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod cast_cycle_tests {
+    use super::*;
+    use crate::consumable::{BAIT_DURATION, CASTS_PER_BUFF};
+
+    const CARD_READ_SECS: f32 = 4.0;
+
+    #[test]
+    fn a_buff_lasts_the_casts_a_human_makes_in_a_minute_of_bait() {
+        let bite_wait = BITE_MIN_WAIT_SECS
+            + BITE_MEAN_WAIT_SECS * (-BITE_MIN_WAIT_SECS / BITE_MEAN_WAIT_SECS).exp();
+        let reel = (1.0 - COMPLETION_START) / REEL_RATE / DEFAULT_FPS;
+        let cycle = bite_wait + reel + CARD_READ_SECS;
+        assert_eq!(CASTS_PER_BUFF, (BAIT_DURATION / cycle).round() as u32);
     }
 }

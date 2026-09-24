@@ -97,6 +97,7 @@ pub enum GiveTarget {
     Food,
     Item(StockItem),
     Fish(FishSpecies),
+    NamedFish { species: FishSpecies, name: String },
     Tank(TankKind),
     Cow(Option<CowVariant>),
 }
@@ -247,12 +248,19 @@ pub fn parse_give_target(rest: &str) -> Option<GiveTarget> {
         return Some(GiveTarget::Item(stock));
     }
 
-    if let Some(species) = ALL_SPECIES
-        .iter()
-        .filter(|species| species.is_obtainable())
-        .find(|&&s| s.config().name.to_ascii_lowercase() == rest.trim())
-        .copied()
-    {
+    if let Some((species, name)) = trimmed.split_once('"') {
+        let name = name.trim_end_matches('"').trim();
+        let species = obtainable_species(species.trim())?;
+        if name.is_empty() {
+            return None;
+        }
+        return Some(GiveTarget::NamedFish {
+            species,
+            name: name.to_string(),
+        });
+    }
+
+    if let Some(species) = obtainable_species(trimmed) {
         return Some(GiveTarget::Fish(species));
     }
 
@@ -261,6 +269,14 @@ pub fn parse_give_target(rest: &str) -> Option<GiveTarget> {
     }
 
     None
+}
+
+fn obtainable_species(name: &str) -> Option<FishSpecies> {
+    ALL_SPECIES
+        .iter()
+        .filter(|species| species.is_obtainable())
+        .find(|&&s| s.config().name.eq_ignore_ascii_case(name))
+        .copied()
 }
 
 pub fn random_give_target(rng: &mut impl rand::RngExt) -> GiveTarget {

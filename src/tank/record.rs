@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 
 use super::{ChannelRegistry, Exile, Tank, TankKind, WorldSignal};
+use crate::economy::Money;
 use crate::entities::cow::Cow;
 use crate::fishes::fish::Fish;
 use crate::fishes::parts::Part;
@@ -29,7 +30,7 @@ pub struct TankRecord {
     rad_weight_timer: f32,
     void_spawn_timer: f32,
     ufo_timer: f32,
-    pending_star_cash: u32,
+    pending_star_cash: Money,
     pending_graveyard: Vec<Fish>,
     pending_loose_parts: Vec<Part>,
     pending_exiles: Vec<Exile>,
@@ -68,6 +69,8 @@ impl TankRecord {
             ufo_timer,
             ufos,
             candy_tick: _,
+            candy_scan: _,
+            milk_clock: _,
         } = tank;
         let cargo = ufos
             .iter()

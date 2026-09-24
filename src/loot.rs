@@ -3,11 +3,11 @@ use ratatui::style::Color;
 use serde::{Deserialize, Serialize};
 
 use crate::colors::{
-    AMBER_LIGHT, BLUE, BROWN, BROWN_DARK, CREAM, DARK_GRAY, GRAY, GREEN, LIGHT_GREEN,
-    LIGHT_MAGENTA, LIGHT_YELLOW, NAVY_LIGHT, OLIVE_LIGHT, ORANGE, PINK, PURPLE_LIGHT, RED, SILVER,
-    STEEL, TAN, TERRACOTTA, WHITE,
+    AMBER_LIGHT, BLUE, BROWN, BROWN_DARK, CREAM, DARK_GRAY, GOLD, GOLD_BRIGHT, GOLD_PALE, GRAY,
+    GREEN, LIGHT_GREEN, LIGHT_MAGENTA, LIGHT_YELLOW, NAVY_LIGHT, OLIVE_LIGHT, ORANGE, PINK,
+    PURPLE_LIGHT, RED, SILVER, STEEL, TAN, TERRACOTTA, WHITE,
 };
-use crate::consumable::MilkStatus;
+use crate::consumable::{Measure, MilkStatus};
 use crate::economy::{Purchasable, Rarity, Sellable};
 use crate::entities::cow::CowVariant;
 use crate::entities::glistening::GlisteningMode;
@@ -24,6 +24,13 @@ pub const FOOD_AMOUNT_MAX: u32 = 80;
 const DEVILS_LUCK_CASH_BONUS: u32 = 30;
 const CASH_TIER_SHIFT: u32 = 12;
 const CASH_CENTER_IDX: usize = 3;
+const JACKPOTS: [CashValue; 3] = [
+    CashValue::TenThousand,
+    CashValue::HundredThousand,
+    CashValue::Million,
+];
+const JACKPOT_SHARE_OF_THE_TIER_BELOW: u64 = 2;
+const JACKPOT_WEIGHT_SCALE: u64 = 100_000;
 
 const JUNK_NAME: &str = "Junk";
 const JUNK_WEIGHT: u32 = 21;
@@ -482,10 +489,10 @@ impl ConsumableKind {
         }
     }
 
-    pub fn active_duration_secs(self) -> Option<f32> {
+    pub fn active_measure(self) -> Option<Measure> {
         match self {
-            ConsumableKind::Coffee => Some(crate::consumable::COFFEE_DURATION),
-            ConsumableKind::Bait => Some(crate::consumable::BAIT_DURATION),
+            ConsumableKind::Coffee => Some(Measure::Seconds(crate::consumable::COFFEE_DURATION)),
+            ConsumableKind::Bait => Some(Measure::Casts(crate::consumable::CASTS_PER_BUFF)),
             ConsumableKind::Milk(_)
             | ConsumableKind::Necronomicon
             | ConsumableKind::DemonCore
@@ -518,6 +525,10 @@ impl ConsumableKind {
     }
 
     pub fn sell_price(self) -> u32 {
+        self.resale().min(self.rarity().catch_worth())
+    }
+
+    fn resale(self) -> u32 {
         if self.summons_tank().is_some() {
             return resale_price(self.buy_price());
         }
@@ -918,6 +929,9 @@ pub enum CashValue {
     Twenty,
     Hundred,
     Thousand,
+    TenThousand,
+    HundredThousand,
+    Million,
 }
 
 const CASH_TABLE: &[(u32, CashValue)] = &[
@@ -940,6 +954,9 @@ impl CashValue {
             CashValue::Twenty => 20,
             CashValue::Hundred => 100,
             CashValue::Thousand => 1000,
+            CashValue::TenThousand => 10_000,
+            CashValue::HundredThousand => 100_000,
+            CashValue::Million => 1_000_000,
         }
     }
 
@@ -952,6 +969,9 @@ impl CashValue {
             CashValue::Twenty => ORANGE,
             CashValue::Hundred => RED,
             CashValue::Thousand => LIGHT_YELLOW,
+            CashValue::TenThousand => GOLD_PALE,
+            CashValue::HundredThousand => GOLD,
+            CashValue::Million => GOLD_BRIGHT,
         }
     }
 
@@ -963,7 +983,11 @@ impl CashValue {
         match self {
             CashValue::One | CashValue::Two => Rarity::Common,
             CashValue::Five | CashValue::Ten | CashValue::Twenty => Rarity::Rare,
-            CashValue::Hundred | CashValue::Thousand => Rarity::Legendary,
+            CashValue::Hundred
+            | CashValue::Thousand
+            | CashValue::TenThousand
+            | CashValue::HundredThousand
+            | CashValue::Million => Rarity::Legendary,
         }
     }
 }
@@ -1132,11 +1156,10 @@ impl LootPool {
         self
     }
 
-    pub fn fish_excluded() -> Self {
-        let mut pool = Self::default_pool();
-        pool.slots
+    pub fn without_fish(mut self) -> Self {
+        self.slots
             .retain(|(_, s)| !matches!(s, PoolSlot::Species(_)));
-        pool
+        self
     }
 
     pub fn without(mut self, withheld: &[ConsumableKind]) -> Self {
@@ -1144,6 +1167,14 @@ impl LootPool {
             |(_, slot)| !matches!(slot, PoolSlot::Consumable(kind) if withheld.contains(kind)),
         );
         self
+    }
+
+    pub fn roll_species(&self, rng: &mut impl RngExt) -> Option<FishSpecies> {
+        let table: Vec<(u32, FishSpecies)> = self.species_weights().collect();
+        if table.is_empty() {
+            return None;
+        }
+        Some(roll_weighted(&table, rng))
     }
 
     fn species_weights(&self) -> impl Iterator<Item = (u32, FishSpecies)> + '_ {
@@ -1254,12 +1285,13 @@ fn milk_weight_for_cow_count(other_total: u32, cow_count: u32) -> u32 {
     ((other_total as f32) * p / (1.0 - p)).round().max(1.0) as u32
 }
 
-fn roll_weighted<T: Copy>(table: &[(u32, T)], rng: &mut impl RngExt) -> T {
-    let total: u32 = table.iter().map(|(w, _)| w).sum();
+fn roll_weighted<T: Copy, W: Copy + Into<u64>>(table: &[(W, T)], rng: &mut impl RngExt) -> T {
+    let total: u64 = table.iter().map(|&(w, _)| w.into()).sum();
     let mut v = rng.random_range(0..total);
-    for (weight, item) in table {
-        if v < *weight {
-            return *item;
+    for &(weight, item) in table {
+        let weight = weight.into();
+        if v < weight {
+            return item;
         }
         v -= weight;
     }
@@ -1270,21 +1302,41 @@ fn roll_cash_with_luck(rng: &mut impl RngExt, devils_luck: u32) -> CashValue {
     if devils_luck == 0 {
         return CashValue::roll(rng);
     }
-    let shifted: Vec<(u32, CashValue)> = CASH_TABLE
+    roll_weighted(&lucky_cash_table(devils_luck), rng)
+}
+
+fn luck_shift(devils_luck: u32, rank: usize) -> u64 {
+    let rank_dist = rank.abs_diff(CASH_CENTER_IDX) as u64;
+    u64::from(CASH_TIER_SHIFT) * u64::from(devils_luck) * rank_dist
+}
+
+fn lucky_cash_table(devils_luck: u32) -> Vec<(u64, CashValue)> {
+    let mut table: Vec<(u64, CashValue)> = CASH_TABLE
         .iter()
         .enumerate()
-        .map(|(i, (w, v))| {
-            let rank_dist = (i as i32 - CASH_CENTER_IDX as i32).unsigned_abs();
-            let shift = CASH_TIER_SHIFT * devils_luck * rank_dist;
-            let new_w = if i < CASH_CENTER_IDX {
-                w.saturating_sub(shift).max(1)
+        .map(|(rank, &(weight, value))| {
+            let weight = u64::from(weight);
+            let shift = luck_shift(devils_luck, rank);
+            let lucky = if rank < CASH_CENTER_IDX {
+                weight.saturating_sub(shift).max(1)
             } else {
-                w + shift
+                weight + shift
             };
-            (new_w, *v)
+            (lucky * JACKPOT_WEIGHT_SCALE, value)
         })
         .collect();
-    roll_weighted(&shifted, rng)
+    let top = CASH_TABLE.len() - 1;
+    let mut below = (
+        luck_shift(devils_luck, top) * JACKPOT_WEIGHT_SCALE,
+        CASH_TABLE[top].1,
+    );
+    for jackpot in JACKPOTS {
+        let weight = below.0 * u64::from(below.1.amount())
+            / (u64::from(jackpot.amount()) * JACKPOT_SHARE_OF_THE_TIER_BELOW);
+        table.push((weight, jackpot));
+        below = (weight, jackpot);
+    }
+    table
 }
 
 #[derive(Default)]
@@ -1466,12 +1518,12 @@ mod tests {
     }
 
     #[test]
-    fn robotics_stock_resells_at_the_house_ratio_and_never_above_the_bench() {
+    fn robotics_stock_resells_at_the_house_ratio_capped_by_a_fed_catch_of_its_rarity() {
         for kind in ConsumableKind::bench_stock() {
             assert_eq!(
                 kind.sell_price(),
-                kind.buy_price() * RESALE_PERCENT / PERCENT,
-                "{} resells off the house ratio",
+                (kind.buy_price() * RESALE_PERCENT / PERCENT).min(kind.rarity().catch_worth()),
+                "{} resells off the house ratio, never above what fish of its rarity earn",
                 kind.display_name()
             );
             assert!(kind.sell_price() < kind.buy_price());
@@ -1592,7 +1644,11 @@ mod tests {
             ]
         );
         assert_eq!(ConsumableKind::Fabricator.buy_price(), 400);
-        assert_eq!(ConsumableKind::Fabricator.sell_price(), 320);
+        assert_eq!(
+            ConsumableKind::Fabricator.sell_price(),
+            Rarity::Rare.catch_worth(),
+            "a Rare found item resells for a fed Rare catch, below its house resale of 320"
+        );
         assert!(ConsumableKind::Fabricator.can_be_consumed());
     }
 
@@ -1676,7 +1732,7 @@ mod tests {
     }
 
     #[test]
-    fn a_tank_seed_costs_exactly_the_tank_it_grows_and_resells_at_the_house_rate() {
+    fn a_tank_seed_costs_exactly_the_tank_it_grows_and_resells_like_a_fed_legendary() {
         let seeds = ConsumableKind::seeds();
         assert!(
             !seeds.is_empty(),
@@ -1694,8 +1750,8 @@ mod tests {
             );
             assert_eq!(
                 seed.sell_price(),
-                resale_price(seed.buy_price()),
-                "{} must resell at the house rate like every other item",
+                resale_price(seed.buy_price()).min(seed.rarity().catch_worth()),
+                "{} resells at the house rate, capped by a fed catch of its rarity",
                 seed.display_name()
             );
         }
@@ -1713,5 +1769,66 @@ mod tests {
         assert!(holds(&full));
         assert!(!holds(&withheld));
         assert_eq!(withheld.slots.len(), full.slots.len() - 1);
+    }
+}
+
+#[cfg(test)]
+mod jackpot_tests {
+    use super::*;
+
+    const HUNDRED_SOULS: u32 = 100;
+    const MILLION_ODDS_AT_A_HUNDRED_SOULS: f64 = 17_383.0;
+
+    fn weight_of(table: &[(u64, CashValue)], value: CashValue) -> u64 {
+        table
+            .iter()
+            .find(|(_, v)| v.amount() == value.amount())
+            .map(|&(w, _)| w)
+            .expect("the tier is on the table")
+    }
+
+    #[test]
+    fn no_jackpot_without_the_devils_luck() {
+        let table = lucky_cash_table(0);
+        for jackpot in JACKPOTS {
+            assert_eq!(weight_of(&table, jackpot), 0);
+        }
+    }
+
+    #[test]
+    fn every_jackpot_carries_half_the_expected_value_of_the_tier_below() {
+        let table = lucky_cash_table(HUNDRED_SOULS);
+        let mut below = CashValue::Thousand;
+        let shift = luck_shift(HUNDRED_SOULS, CASH_TABLE.len() - 1) * JACKPOT_WEIGHT_SCALE;
+        let mut below_value = shift * u64::from(below.amount());
+        for jackpot in JACKPOTS {
+            let value = weight_of(&table, jackpot) * u64::from(jackpot.amount());
+            assert_eq!(
+                value * 2,
+                below_value,
+                "{} against {}",
+                jackpot.amount(),
+                below.amount()
+            );
+            below = jackpot;
+            below_value = value;
+        }
+    }
+
+    #[test]
+    fn a_million_comes_about_once_in_seventeen_thousand_cash_rolls_at_a_hundred_souls() {
+        let table = lucky_cash_table(HUNDRED_SOULS);
+        let total: u64 = table.iter().map(|(w, _)| w).sum();
+        let odds = total as f64 / weight_of(&table, CashValue::Million) as f64;
+        assert!(
+            (odds - MILLION_ODDS_AT_A_HUNDRED_SOULS).abs() < 1.0,
+            "1 in {odds}"
+        );
+    }
+
+    #[test]
+    fn a_legion_of_souls_never_overflows_the_table() {
+        let table = lucky_cash_table(u32::MAX);
+        assert!(weight_of(&table, CashValue::Million) > 0);
     }
 }

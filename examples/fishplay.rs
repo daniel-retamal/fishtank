@@ -2,12 +2,14 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use fishtank::app::Launch;
 use fishtank::testing::{DEFAULT_COLS, DEFAULT_ROWS, Screenplay, Tui};
 
-const USAGE: &str = "usage: cargo run --example fishplay -- <play-file> [--out <dir>] [--size <cols> <rows>] [--print]
+const USAGE: &str = "usage: cargo run --example fishplay -- <play-file> [--out <dir>] [--size <cols> <rows>] [--print] [--player]
 
 Performs a screenplay against the real App and films every `snap` cue.
 --size starts the terminal at that size, which is how a journey is checked on a small screen.
+--player plays as a player, the way every journey runs; without it the play is the debug lab bench.
 Cues, one per line (# starts a note):
   size <cols> <rows>     resize the terminal (starts at 100 30)
   clear                  empty the current tank of fish, cows and food
@@ -27,6 +29,7 @@ The reel is written as <out>/reels/<play-name>.txt (ruled text) and .html (colou
 const OUT_FLAG: &str = "--out";
 const SIZE_FLAG: &str = "--size";
 const PRINT_FLAG: &str = "--print";
+const PLAYER_FLAG: &str = "--player";
 const TARGET_DIR_VAR: &str = "CARGO_TARGET_DIR";
 const DEFAULT_TARGET_DIR: &str = "target";
 const PLAY_DIR: &str = "fishplay";
@@ -71,7 +74,12 @@ fn main() -> ExitCode {
     };
 
     let (cols, rows) = size_value(&args).unwrap_or((DEFAULT_COLS, DEFAULT_ROWS));
-    let mut tui = Tui::with_size(cols, rows);
+    let launch = if args.iter().any(|arg| arg == PLAYER_FLAG) {
+        Launch::Player
+    } else {
+        Launch::Debug
+    };
+    let mut tui = Tui::launched(launch, cols, rows);
     tui.film(&out, name);
     let outcome = play.perform(&mut tui);
     let reel = tui.reel();

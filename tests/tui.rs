@@ -3,6 +3,7 @@ use std::path::Path;
 use crossterm::event::KeyCode;
 use fishtank::{
     consumable::ConsumeTarget,
+    economy::Money,
     entities::cow::CowVariant,
     fishes::botfish::{BotfishState, level_color},
     fishes::fish::Direction,
@@ -1470,7 +1471,10 @@ fn buying_a_part_at_the_bench_stocks_it_and_charges_for_it() {
         2,
         "the popup opened at one and RIGHT bought a second"
     );
-    assert_eq!(tui.app.purse.balance(), before - coil.price() * 2);
+    assert_eq!(
+        tui.app.purse.balance(),
+        before - Money::from(coil.price()) * 2
+    );
 }
 
 const WAFER_NAME: &str = "Blank Wafer";
@@ -1743,7 +1747,7 @@ fn the_bench_sells_blank_blueprints_on_the_materials_page() {
     assert_eq!(blanks(&tui), 1);
     assert_eq!(
         tui.app.purse.balance(),
-        before - ConsumableKind::BlankBlueprint.buy_price()
+        before - Money::from(ConsumableKind::BlankBlueprint.buy_price())
     );
 }
 
@@ -1905,7 +1909,7 @@ fn a_blueprint_sells_at_the_shop_for_a_blanks_resale_price() {
         tui.app.blueprints.is_empty(),
         "the design left with the sale"
     );
-    assert_eq!(tui.app.purse.balance(), before + price);
+    assert_eq!(tui.app.purse.balance(), before + Money::from(price));
 }
 
 #[test]

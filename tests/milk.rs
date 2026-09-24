@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use fishtank::consumable::MilkStatus;
+use fishtank::consumable::{CASTS_PER_BUFF, MilkStatus};
 use fishtank::entities::cow::CowVariant;
 use fishtank::loot::MilkVariant;
 use fishtank::testing::Tui;
@@ -40,7 +40,7 @@ fn drinking_a_fishing_milk_grants_its_own_buff_and_nothing_else() {
 }
 
 #[test]
-fn a_second_glass_stacks_the_same_buff() {
+fn a_second_glass_is_a_second_stack_with_its_own_casts() {
     let mut tui = Tui::new();
     tui.run("/give blueberry milk");
 
@@ -48,9 +48,13 @@ fn a_second_glass_stacks_the_same_buff() {
     tui.run("/consume blueberry milk");
 
     let statuses = &tui.app.active_statuses;
-    assert_eq!(statuses.len(), 1);
-    assert_eq!(statuses[0].kind, MilkStatus::VisualCalculus);
-    assert_eq!(statuses[0].stacks, 2);
+    assert_eq!(statuses.len(), 2);
+    for status in statuses {
+        assert_eq!(status.kind, MilkStatus::VisualCalculus);
+        assert_eq!(status.stacks, 1);
+        assert_eq!(status.casts_left, CASTS_PER_BUFF);
+    }
+    tui.screen().expect_find("visual-calculus II: 5 casts");
 }
 
 #[test]

@@ -6,7 +6,7 @@ include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
 include scenes/buy-at-the-bench.play "Blank Circuit Blueprint" Materials
-include scenes/buy-a-fish.play Botfish tick
+include scenes/take-a-fish.play botfish tick
 run /consume inverter coil
 key enter
 run /program "Tick"
@@ -21,7 +21,7 @@ type clock
 key enter
 absent Name your
 
-include scenes/buy-a-fish.play Botfish neo
+include scenes/take-a-fish.play botfish neo
 run /foundry
 expect ─ Foundry
 expect E etch

@@ -23,7 +23,7 @@ const GLISTEN_SPEED_SLOW_MULT: f32 = 0.25;
 const SWAY_SPEED_CLAMP_MAX: f32 = 2.5;
 const SWAY_SPEED_GLISTEN_FLOOR: f32 = 0.08;
 const SWAY_SPEED_CLAMP_MIN: f32 = 0.01;
-pub const STRAWBERRY_SELL_BONUS_PCT: u8 = 25;
+pub const STRAWBERRY_SELL_BONUS_PCT: u32 = 25;
 const WORM_MAX_SEGMENTS: usize = 12;
 const WORM_MIN_SEGMENTS: usize = 1;
 const WORM_MAX_EXTRA_EYES: usize = 4;
@@ -318,7 +318,8 @@ pub trait MutantBacked {
     fn recompute_display_width(&mut self);
     fn self_component(&self) -> FusedComponent;
     fn arm_engulf(&mut self) {}
-    fn add_sell_bonus(&mut self, _pct: u8) {}
+    fn add_sell_bonus(&mut self, _pct: u32) {}
+    fn gain_segment_mass(&mut self, _grown_from: usize) {}
     fn color_patch_range(&self) -> usize {
         self.mutant().display_width(self.body_size())
     }
@@ -356,10 +357,14 @@ pub fn apply_mutant_mutation<T: MutantBacked>(
                 mutant.left_eyes.len().max(mutant.right_eyes.len())
             };
             let min_size = max_eyes + MIN_BODY_CHARS;
-            let new_size = (target.body_size() as i32 + delta)
+            let old_size = target.body_size();
+            let new_size = (old_size as i32 + delta)
                 .clamp(min_size as i32, MUTATION_MAX_BODY_SIZE as i32)
                 as usize;
             target.set_body_size(new_size);
+            if new_size > old_size {
+                target.gain_segment_mass(old_size);
+            }
             let hydra_cap = target.hydra_capacity();
             target.mutant_mut().hydra_eyes.truncate(hydra_cap);
         }
@@ -989,8 +994,20 @@ impl MutantBacked for Fish {
             }
         }
     }
-    fn add_sell_bonus(&mut self, pct: u8) {
+    fn add_sell_bonus(&mut self, pct: u32) {
         self.sell_price_bonus_pct = self.sell_price_bonus_pct.saturating_add(pct);
+    }
+    fn gain_segment_mass(&mut self, grown_from: usize) {
+        if matches!(self.species.config().body, BodyTemplate::Fixed { .. }) {
+            return;
+        }
+        let Ok(segments) = u32::try_from(grown_from) else {
+            return;
+        };
+        if segments == 0 {
+            return;
+        }
+        self.weight_g = self.weight_g.saturating_add(self.weight_g / segments);
     }
     fn self_component(&self) -> FusedComponent {
         FusedComponent::fish(self.species, self.name.clone(), self.weight_g)

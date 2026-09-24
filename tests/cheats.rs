@@ -4,6 +4,7 @@ use fishtank::{
     app::{App, Launch},
     cheats::{CHEAT_RESOURCE_AMOUNT, Cheat, Switch},
     colors::{RED, WHITE},
+    economy::Money,
     fishes::{
         fish::Fish,
         fused::FusedComponent,
@@ -95,7 +96,10 @@ fn show_me_the_money_pays_and_leaves_an_unsellable_cheatfish_behind() {
     let mut tui = player();
     let cash = tui.app.purse.balance();
     enter(&mut tui, "SHOW me   the money");
-    assert_eq!(tui.app.purse.balance(), cash + CHEAT_RESOURCE_AMOUNT);
+    assert_eq!(
+        tui.app.purse.balance(),
+        cash + Money::from(CHEAT_RESOURCE_AMOUNT)
+    );
     let minted = cheatfish(&tui.app);
     assert_eq!(minted.len(), 1);
     assert_eq!(minted[0].name, Cheat::ShowMeTheMoney.fish_name());

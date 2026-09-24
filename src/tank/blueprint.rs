@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use rand::RngExt;
 
 use super::Tank;
-use crate::economy::Sellable;
+use crate::economy::{Money, Sellable};
 use crate::entities::components::Position;
 use crate::fishes::botfish::BotfishState;
 use crate::fishes::chip::Chip;
@@ -300,7 +300,7 @@ impl Blueprint {
             return Err(FabricationRefusal::NotConnected);
         }
         let cost = materials.iter().map(Material::cost).sum();
-        if cost > workshop.cash {
+        if Money::from(cost) > workshop.cash {
             return Err(FabricationRefusal::Unaffordable { cost });
         }
         Ok(FabricationQuote { materials, cost })
@@ -309,7 +309,7 @@ impl Blueprint {
 
 pub struct Workshop<'a> {
     pub stock: &'a HashMap<StockItem, u32>,
-    pub cash: u32,
+    pub cash: Money,
     pub room: usize,
     pub hosts: usize,
     pub connected: bool,
@@ -833,7 +833,7 @@ mod tests {
             .collect()
     }
 
-    const PLENTY: u32 = 10_000;
+    const PLENTY: Money = 10_000;
     const ROOMY: usize = 50;
 
     #[test]
@@ -904,10 +904,10 @@ mod tests {
         let full_price = 2 * ConsumableKind::BlankWafer.buy_price()
             + 2 * ConsumableKind::Part(Part::InverterCoil).buy_price();
         assert_eq!(
-            quote(&fabricator, full_price - 1, ROOMY),
+            quote(&fabricator, Money::from(full_price) - 1, ROOMY),
             Some(FabricationRefusal::Unaffordable { cost: full_price })
         );
-        assert_eq!(quote(&fabricator, full_price, ROOMY), None);
+        assert_eq!(quote(&fabricator, Money::from(full_price), ROOMY), None);
         assert_eq!(
             FabricationRefusal::TankFull { needed: 2 }.reason(),
             "tank full: needs room for 2 fish"

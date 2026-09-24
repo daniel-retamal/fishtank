@@ -7,7 +7,7 @@ use ratatui::style::Color;
 
 use crate::colors::{CYAN, GREEN, LIGHT_GREEN, LIGHT_YELLOW, PINK, RED, WHITE};
 
-use crate::economy::{Purchasable, Rarity, Sellable};
+use crate::economy::{Money, Purchasable, Rarity, Sellable};
 use crate::entities::bubble::{Bubble, BubbleSpawner};
 use crate::entities::components::Position;
 use crate::entities::cow::{Cow, CowVariant};
@@ -17,12 +17,11 @@ use crate::fishes::fish::{Fish, FishState};
 use crate::fishes::parts::Part;
 use crate::fishes::species::FishSpecies;
 use crate::fishes::unfish::VOID_SPAWN_MEAN_SECS;
-use crate::loot::ConsumableKind;
 use crate::names;
 use crate::settings::Settings;
 use crate::tanks::candy::man_sway_offset;
 use crate::tanks::soul_wall::SoulWall;
-use crate::util::sample_exponential;
+use crate::util::{Metronome, sample_exponential};
 
 mod background;
 mod blueprint;
@@ -107,7 +106,6 @@ pub enum UfoRole {
 pub struct TankConfig {
     pub display_name: &'static str,
     pub buy_price: u32,
-    pub sell_price: u32,
     pub capacity: usize,
     pub bubble_color: Color,
     pub rarity: Rarity,
@@ -135,7 +133,6 @@ impl TankKind {
             TankKind::Base => TankConfig {
                 display_name: "Fishtank",
                 buy_price: 3000,
-                sell_price: 2500,
                 capacity: 50,
                 bubble_color: CYAN,
                 rarity: Rarity::Common,
@@ -159,7 +156,6 @@ impl TankKind {
             TankKind::CoralReef => TankConfig {
                 display_name: "Coralreeftank",
                 buy_price: 5000,
-                sell_price: 2500,
                 capacity: 50,
                 bubble_color: CYAN,
                 rarity: Rarity::Rare,
@@ -183,7 +179,6 @@ impl TankKind {
             TankKind::Hell => TankConfig {
                 display_name: "Helltank",
                 buy_price: 8000,
-                sell_price: 7000,
                 capacity: 100,
                 bubble_color: RED,
                 rarity: Rarity::Legendary,
@@ -207,7 +202,6 @@ impl TankKind {
             TankKind::Void => TankConfig {
                 display_name: "Voidtank",
                 buy_price: 8000,
-                sell_price: 7000,
                 capacity: 100,
                 bubble_color: CYAN,
                 rarity: Rarity::Legendary,
@@ -231,7 +225,6 @@ impl TankKind {
             TankKind::Alien => TankConfig {
                 display_name: "Alientank",
                 buy_price: 5000,
-                sell_price: 2500,
                 capacity: 100,
                 bubble_color: CYAN,
                 rarity: Rarity::Rare,
@@ -255,7 +248,6 @@ impl TankKind {
             TankKind::Haunted => TankConfig {
                 display_name: "Hauntedtank",
                 buy_price: 5000,
-                sell_price: 2500,
                 capacity: 50,
                 bubble_color: WHITE,
                 rarity: Rarity::Rare,
@@ -279,7 +271,6 @@ impl TankKind {
             TankKind::Candy => TankConfig {
                 display_name: "Candytank",
                 buy_price: 5000,
-                sell_price: 2500,
                 capacity: 50,
                 bubble_color: PINK,
                 rarity: Rarity::Rare,
@@ -303,7 +294,6 @@ impl TankKind {
             TankKind::Desert => TankConfig {
                 display_name: "Desertank",
                 buy_price: 5000,
-                sell_price: 2500,
                 capacity: 50,
                 bubble_color: CYAN,
                 rarity: Rarity::Rare,
@@ -327,7 +317,6 @@ impl TankKind {
             TankKind::Rad => TankConfig {
                 display_name: "Radioactivetank",
                 buy_price: 8000,
-                sell_price: 7000,
                 capacity: 100,
                 bubble_color: LIGHT_GREEN,
                 rarity: Rarity::Legendary,
@@ -351,7 +340,6 @@ impl TankKind {
             TankKind::Matrix => TankConfig {
                 display_name: "Matrixtank",
                 buy_price: 8000,
-                sell_price: 7000,
                 capacity: 100,
                 bubble_color: GREEN,
                 rarity: Rarity::Legendary,
@@ -375,7 +363,6 @@ impl TankKind {
             TankKind::Heaven => TankConfig {
                 display_name: "Heaventank",
                 buy_price: 0,
-                sell_price: 0,
                 capacity: 100,
                 bubble_color: LIGHT_YELLOW,
                 rarity: Rarity::Legendary,
@@ -419,7 +406,14 @@ impl TankKind {
         self.config().buy_price
     }
     pub fn sell_price(self) -> u32 {
-        self.config().sell_price
+        let config = self.config();
+        if !config.sellable {
+            return 0;
+        }
+        if config.buyable {
+            return config.buy_price * TANK_RESALE_PERCENT / PERCENT_WHOLE;
+        }
+        config.rarity.catch_worth()
     }
 }
 
@@ -473,23 +467,20 @@ pub enum Exile {
     Cow(Box<Cow>),
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct ActiveConsumable {
-    pub kind: ConsumableKind,
-    pub stacks: u32,
-    pub time_remaining: f32,
-}
-
+const TANK_RESALE_PERCENT: u32 = 50;
+const PERCENT_WHOLE: u32 = 100;
 const SEEK_BOOST_GROWTH: f32 = 0.8;
 const FOOD_SPAWN_SPREAD: f32 = 15.0;
+pub const FEED_PORTION: usize = 2 * FOOD_SPAWN_SPREAD as usize;
 const INITIAL_WIDTH: u16 = 80;
 const INITIAL_HEIGHT: u16 = 24;
 const SEEK_DX_DEADZONE: f32 = 0.5;
 const SEEK_NORM_MIN: f32 = 0.01;
 const SEEK_DY_MULTIPLIER: f32 = 1.2;
 const SEEK_BOOST_INITIAL_MAX: f32 = 0.2;
-const BUBBLE_ZOOMIE_CHANCE: f32 = 0.45;
+const ZOOMIE_BUBBLES_PER_SEC: f32 = 13.5;
 const MUTATION_INTERVAL_BASE: f32 = 30.0 * 60.0;
+const MUTATION_TIMER_UNARMED: f32 = f32::INFINITY;
 const MUTATION_ALPHA: f32 = 1.0 / 3.0;
 const MUTATION_MEAN_FLOOR_SECS: f32 = 3.0;
 const RAD_BUBBLE_RATE_MULT: f32 = 2.5;
@@ -498,7 +489,7 @@ const RAD_MUTATION_MEAN_SECS: f32 = 30.0;
 const RAD_AUTO_MUTANT_MEAN_SECS: f32 = 5.0;
 const RAD_WEIGHT_INTERVAL_SECS: f32 = 5.0;
 const RAD_WEIGHT_GAIN_G: u32 = 1;
-const RAD_MILK_MUTATION_TICK_INTERVAL: u32 = 10;
+const RAD_MILK_MUTATIONS_PER_SEC: f32 = 3.0;
 const MIN_SPLIT_BODY_SIZE: usize = 2;
 pub const UFO_MEAN_SECS: f32 = 60.0 * 60.0;
 const UFO_DESERT_FREQUENCY_MULT: f32 = 2.0;
@@ -512,7 +503,6 @@ const FISH_SPAWN_X_SAFE_MIN: f32 = 6.0;
 const FISH_SPAWN_Y_MIN: f32 = 2.0;
 const FISH_SPAWN_Y_MAX_OFFSET: f32 = 5.0;
 const FISH_SPAWN_Y_SAFE_MIN: f32 = 3.0;
-const FOOD_WEIGHT_GAIN_G: u32 = 50;
 
 pub struct Tank {
     pub name: String,
@@ -529,7 +519,7 @@ pub struct Tank {
     pub height: u16,
     pub used_names: HashSet<String>,
     pub used_cow_names: HashSet<String>,
-    pub pending_star_cash: u32,
+    pub pending_star_cash: Money,
     pub pending_graveyard: Vec<Fish>,
     pub pending_loose_parts: Vec<Part>,
     pub pending_exiles: Vec<Exile>,
@@ -544,6 +534,8 @@ pub struct Tank {
     pub ufo_timer: f32,
     pub ufos: Vec<Ufo>,
     pub(super) candy_tick: u32,
+    candy_scan: Metronome,
+    milk_clock: Metronome,
 }
 
 impl Tank {
@@ -579,12 +571,14 @@ impl Tank {
             boundless: false,
             cow_abduction_count: 0,
             bubble_spawner: BubbleSpawner::new(&mut rng),
-            mutation_timer: MUTATION_INTERVAL_BASE,
+            mutation_timer: MUTATION_TIMER_UNARMED,
             rad_weight_timer: RAD_WEIGHT_INTERVAL_SECS,
             void_spawn_timer: sample_exponential(&mut rng, VOID_SPAWN_MEAN_SECS),
             ufo_timer: sample_exponential(&mut rng, ufo_mean_secs(kind)),
             ufos: Vec::new(),
             candy_tick: 0,
+            candy_scan: Metronome::default(),
+            milk_clock: Metronome::default(),
         }
     }
 
@@ -800,14 +794,14 @@ impl Tank {
             .iter_mut()
             .map(|b| b.tick(settings, self.width))
             .sum();
-        self.pending_star_cash += star;
+        self.pending_star_cash += Money::from(star);
         self.bubbles.retain(|b| !b.dead);
 
         self.candy_tick = self.candy_tick.wrapping_add(1);
         self.steer_seeking_fish();
         self.tick_fish(settings, coffee);
         self.spawn_bubbles(dt);
-        self.tick_candyfish_effects();
+        self.tick_candyfish_effects(dt);
         self.check_eating_collisions();
 
         let prev_len = self.food.len();
@@ -822,7 +816,7 @@ impl Tank {
 
         self.assign_food_to_idle_fish();
         self.tick_mutations(dt);
-        self.tick_irradiated_milk_mutations();
+        self.tick_irradiated_milk_mutations(dt);
         self.tick_dopplegangers();
         self.tick_cows(dt);
         self.tick_engulfment();

@@ -43,7 +43,7 @@ pub struct FishRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     botfish_state: Option<Box<BotfishState>>,
     #[serde(default, skip_serializing_if = "is_default")]
-    sell_price_bonus_pct: u8,
+    sell_price_bonus_pct: u32,
     #[serde(default, skip_serializing_if = "is_default")]
     frozen: bool,
     #[serde(default, skip_serializing_if = "is_default")]
@@ -98,6 +98,7 @@ impl From<Fish> for FishRecord {
             field_cache: _,
             direction_timer: _,
             zoomie_timer: _,
+            zoomed_secs: _,
         } = fish;
         Self {
             name,
@@ -176,6 +177,7 @@ impl From<FishRecord> for Fish {
             field_cache: Vec::new(),
             direction_timer: rng.random_range(DIRECTION_TIMER_MIN..DIRECTION_TIMER_MAX),
             zoomie_timer: rng.random_range(ZOOMIE_INITIAL_TIMER_MIN..ZOOMIE_INITIAL_TIMER_MAX),
+            zoomed_secs: 0.0,
         }
     }
 }

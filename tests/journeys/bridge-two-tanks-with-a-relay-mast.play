@@ -10,9 +10,9 @@ include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
 include scenes/buy-at-the-bench.play "Relay Mast" Peripherals
-include scenes/buy-a-fish.play Botfish tx
+include scenes/take-a-fish.play botfish tx
 run /switch "Zion"
-include scenes/buy-a-fish.play Botfish rx
+include scenes/take-a-fish.play botfish rx
 run /switch "Fishtank"
 
 run /consume inverter coil

@@ -8,9 +8,9 @@ use ratatui::{
 use crate::colors::{BLACK, DARK_GRAY, WHITE};
 use unicode_width::UnicodeWidthStr;
 
-use crate::consumable::ActiveMilkStatus;
+use crate::consumable::{ActiveConsumable, ActiveMilkStatus, Buff, Measure};
+use crate::economy::Money;
 use crate::names::to_roman;
-use crate::tank::ActiveConsumable;
 use crate::ui::hint_bar::HintBar;
 use crate::ui::table::{ellipsize, visual_width};
 
@@ -18,15 +18,24 @@ const RULE_ROWS: u16 = 2;
 const EDITOR_ROWS: u16 = 1;
 const ITEM_GAP: &str = "  ";
 const TINY_GAP: &str = " ";
-const THOUSAND: u32 = 1_000;
-const MILLION: u32 = 1_000_000;
-const BILLION: u32 = 1_000_000_000;
+const METRIC_UNITS: [(u64, &str); 6] = [
+    (1_000_000_000_000_000_000, "Qi"),
+    (1_000_000_000_000_000, "Qa"),
+    (1_000_000_000_000, "T"),
+    (1_000_000_000, "B"),
+    (1_000_000, "M"),
+    (1_000, "k"),
+];
+const TENTHS: u64 = 10;
 const SECS_PER_MINUTE: u32 = 60;
 const NAME_KEPT_W: usize = 16;
 const TINY_FOOD: &str = "•";
 const TINY_FISH: &str = "><>";
 const WORD_JOINER: char = '-';
 const INFINITY: &str = "∞";
+const ONE_CAST: &str = "cast";
+const MANY_CASTS: &str = "casts";
+const TINY_CASTS: &str = "c";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Density {
@@ -49,7 +58,7 @@ impl Density {
 pub struct StatsBar<'a> {
     pub active_consumables: &'a [ActiveConsumable],
     pub active_statuses: &'a [ActiveMilkStatus],
-    pub cash: Option<u32>,
+    pub cash: Option<Money>,
     pub food_supply: u32,
     pub fish_count: usize,
     pub fish_capacity: Option<usize>,
@@ -71,17 +80,17 @@ impl StatsBar<'_> {
         let (cash, food, fish) = match density {
             Density::Full => (
                 format!("cash: {}", boundless(self.cash.map(metric))),
-                format!("food: {}", metric(self.food_supply)),
+                format!("food: {}", metric(self.food_supply.into())),
                 format!("fishes: {}/{capacity}", self.fish_count),
             ),
             Density::Short => (
                 format!("${}", boundless(self.cash.map(metric))),
-                format!("food {}", metric(self.food_supply)),
+                format!("food {}", metric(self.food_supply.into())),
                 format!("fish {}/{capacity}", self.fish_count),
             ),
             Density::Tiny => (
                 format!("${}", boundless(self.cash.map(rounded_metric))),
-                format!("{TINY_FOOD}{}", rounded_metric(self.food_supply)),
+                format!("{TINY_FOOD}{}", rounded_metric(self.food_supply.into())),
                 format!("{TINY_FISH}{}/{capacity}", self.fish_count),
             ),
         };
@@ -94,19 +103,11 @@ impl StatsBar<'_> {
             .iter()
             .map(|&mode| untimed(mode, density))
             .collect();
-        for active in self.active_consumables {
-            let Some(label) = active.kind.active_label() else {
-                continue;
-            };
-            items.push(timed(label, active.stacks, active.time_remaining, density));
-        }
-        for status in self.active_statuses {
-            items.push(timed(
-                status.kind.display_name(),
-                status.stacks,
-                status.time_remaining,
-                density,
-            ));
+        for (label, stacks, left) in self.buffs() {
+            items.push(match left {
+                Measure::Seconds(secs) => timed(label, stacks, secs, density),
+                Measure::Casts(casts) => counted(label, stacks, casts, density),
+            });
         }
         if self.devils_luck > 0 {
             items.push(stacked("devil's luck", self.devils_luck, density));
@@ -115,6 +116,29 @@ impl StatsBar<'_> {
             items.push(stacked("cajetan's grace", self.cajetans_grace, density));
         }
         items
+    }
+
+    fn buffs(&self) -> Vec<(&'static str, u32, Measure)> {
+        let every = self
+            .active_consumables
+            .iter()
+            .map(|buff| buff as &dyn Buff)
+            .chain(self.active_statuses.iter().map(|buff| buff as &dyn Buff));
+        let mut grouped: Vec<(&'static str, u32, Measure)> = Vec::new();
+        for buff in every {
+            let label = buff.label();
+            if label.is_empty() {
+                continue;
+            }
+            match grouped.iter_mut().find(|(seen, ..)| *seen == label) {
+                Some((_, stacks, soonest)) => {
+                    *stacks += buff.stacks();
+                    *soonest = soonest.sooner(buff.left());
+                }
+                None => grouped.push((label, buff.stacks(), buff.left())),
+            }
+        }
+        grouped
     }
 
     pub fn rows(&self, width: u16) -> Vec<StatusRow> {
@@ -228,6 +252,15 @@ fn timed(label: &str, stacks: u32, secs: f32, density: Density) -> String {
     }
 }
 
+fn counted(label: &str, stacks: u32, casts: u32, density: Density) -> String {
+    let unit = if casts == 1 { ONE_CAST } else { MANY_CASTS };
+    match density {
+        Density::Full => format!("{label} {}: {casts} {unit}", to_roman(stacks)),
+        Density::Short => format!("{label} {} {casts} {unit}", to_roman(stacks)),
+        Density::Tiny => format!("{}{stacks} {casts}{TINY_CASTS}", initials(label)),
+    }
+}
+
 fn stacked(label: &str, stacks: u32, density: Density) -> String {
     match density {
         Density::Full => format!("{label} {}", to_roman(stacks)),
@@ -236,28 +269,27 @@ fn stacked(label: &str, stacks: u32, density: Density) -> String {
     }
 }
 
-fn metric(n: u32) -> String {
-    if n >= BILLION {
-        format!("{}.{}B", n / BILLION, (n % BILLION) / (BILLION / 10))
-    } else if n >= MILLION {
-        format!("{}.{}M", n / MILLION, (n % MILLION) / (MILLION / 10))
-    } else if n >= THOUSAND {
-        format!("{}.{}k", n / THOUSAND, (n % THOUSAND) / (THOUSAND / 10))
-    } else {
-        n.to_string()
+pub fn metric(n: u64) -> String {
+    for (unit, suffix) in METRIC_UNITS {
+        if n >= unit {
+            return format!("{}.{}{suffix}", n / unit, (n % unit) / (unit / TENTHS));
+        }
     }
+    n.to_string()
 }
 
-fn rounded_metric(n: u32) -> String {
-    for (unit, suffix) in [(BILLION, "B"), (MILLION, "M"), (THOUSAND, "k")] {
+fn rounded_metric(n: u64) -> String {
+    let tenth = u128::from(TENTHS);
+    for (unit, suffix) in METRIC_UNITS {
         if n < unit {
             continue;
         }
-        let tenths = (n as u64 * 10 + unit as u64 / 2) / unit as u64;
-        if tenths < 100 && !tenths.is_multiple_of(10) {
-            return format!("{}.{}{suffix}", tenths / 10, tenths % 10);
+        let unit = u128::from(unit);
+        let tenths = (u128::from(n) * tenth + unit / 2) / unit;
+        if tenths < tenth * tenth && !tenths.is_multiple_of(tenth) {
+            return format!("{}.{}{suffix}", tenths / tenth, tenths % tenth);
         }
-        return format!("{}{suffix}", (tenths + 5) / 10);
+        return format!("{}{suffix}", (tenths + tenth / 2) / tenth);
     }
     n.to_string()
 }
@@ -481,6 +513,42 @@ mod tests {
         assert_eq!(rounded_metric(1_250), "1.3k");
         assert_eq!(rounded_metric(40_000), "40k");
         assert_eq!(rounded_metric(2_000_000), "2M");
+    }
+
+    #[test]
+    fn a_fortune_past_a_billion_keeps_its_compact_form() {
+        assert_eq!(metric(1_230_000_000_000), "1.2T");
+        assert_eq!(metric(u64::from(u32::MAX) * 1_000), "4.2T");
+        assert_eq!(rounded_metric(7_500_000_000_000_000), "7.5Qa");
+        assert_eq!(metric(u64::MAX), "18.4Qi");
+        assert_eq!(rounded_metric(u64::MAX), "18Qi");
+    }
+
+    fn bait(casts_left: u32) -> ActiveConsumable {
+        ActiveConsumable {
+            casts_left,
+            ..ActiveConsumable::fresh(crate::loot::ConsumableKind::Bait).expect("bait is a buff")
+        }
+    }
+
+    #[test]
+    fn stacks_of_one_buff_show_as_one_status_with_the_soonest_to_run_out() {
+        let buffs = [bait(5), bait(2), bait(4)];
+        let stats = StatsBar {
+            active_consumables: &buffs,
+            ..bar("Fishtank")
+        };
+        let statuses = stats.statuses(Density::Full);
+        assert!(
+            statuses.contains(&"baiting III: 2 casts".to_string()),
+            "{statuses:?}"
+        );
+        assert!(stats.statuses(Density::Tiny).contains(&"B3 2c".to_string()));
+    }
+
+    #[test]
+    fn a_last_cast_is_said_in_the_singular() {
+        assert_eq!(counted("baiting", 1, 1, Density::Short), "baiting I 1 cast");
     }
 
     #[test]

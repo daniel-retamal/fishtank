@@ -114,6 +114,45 @@ impl FusedComponent {
         }
     }
 
+    pub fn ability_species(&self) -> Vec<FishSpecies> {
+        match self.fish_snapshot() {
+            Some(snapshot) => snapshot.ability_components(),
+            None => self.fish_species().into_iter().collect(),
+        }
+    }
+
+    pub fn milk_variants(&self) -> Vec<CowVariant> {
+        match self.cow_snapshot() {
+            Some(snapshot) => snapshot.milk_components(),
+            None => self.cow_variant().into_iter().collect(),
+        }
+    }
+
+    pub fn flattened(mut self) -> Vec<FusedComponent> {
+        let nested = self
+            .fish_snapshot()
+            .map(|snapshot| snapshot.fused_components().to_vec())
+            .unwrap_or_default();
+        self.snapshot = None;
+        if nested.is_empty() {
+            return vec![self];
+        }
+        let mut flat: Vec<FusedComponent> = nested
+            .into_iter()
+            .flat_map(FusedComponent::flattened)
+            .map(|mut stack| {
+                stack.persona = None;
+                stack.program = None;
+                stack
+            })
+            .collect();
+        if let Some(first) = flat.first_mut() {
+            first.persona = self.persona;
+            first.program = self.program;
+        }
+        flat
+    }
+
     pub fn fish_species(&self) -> Option<FishSpecies> {
         match self.lineage {
             Lineage::Fish(species) => Some(species),

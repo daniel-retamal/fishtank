@@ -6,8 +6,8 @@ include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
 include scenes/buy-at-the-bench.play "Delay Spool" Fabric
-include scenes/buy-a-fish.play Botfish rail
-include scenes/buy-a-fish.play Botfish late
+include scenes/take-a-fish.play botfish rail
+include scenes/take-a-fish.play botfish late
 
 run /fps 1
 run /clock 1

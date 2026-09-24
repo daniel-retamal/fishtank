@@ -14,20 +14,21 @@ use crate::fishes::unfish::{
 };
 use crate::names;
 use crate::settings::Settings;
-use crate::util::sample_exponential;
+use crate::util::{events_in, sample_exponential};
 
-use super::FOOD_WEIGHT_GAIN_G;
 use super::{
-    BUBBLE_ZOOMIE_CHANCE, SEEK_BOOST_GROWTH, SEEK_BOOST_INITIAL_MAX, SEEK_DX_DEADZONE,
-    SEEK_DY_MULTIPLIER, SEEK_NORM_MIN,
+    SEEK_BOOST_GROWTH, SEEK_BOOST_INITIAL_MAX, SEEK_DX_DEADZONE, SEEK_DY_MULTIPLIER, SEEK_NORM_MIN,
+    ZOOMIE_BUBBLES_PER_SEC,
 };
 use super::{Tank, TankEvent};
+use crate::entities::food::{CANDY_GAIN_MULT, FOOD_WEIGHT_GAIN_G};
 
 fn sq(x: f32) -> f32 {
     x * x
 }
 
-const CANDYFISH_SCAN_INTERVAL_TICKS: u32 = 100;
+const CANDYFISH_SCANS_PER_MINUTE: f32 = 18.0;
+const SECS_PER_MINUTE: f32 = 60.0;
 const CASHFISH_ZOOMIE_CASH: u32 = 100;
 const CANDYFISH_TOUCH_WEIGHT_G: u32 = 1;
 const ENGULF_REACH: f32 = 3.0;
@@ -87,10 +88,7 @@ impl Tank {
         self.bubbles.extend(new_bubbles);
 
         for fish in &self.fish {
-            if !matches!(fish.state, FishState::Zoomie { .. }) {
-                continue;
-            }
-            if rng.random::<f32>() < BUBBLE_ZOOMIE_CHANCE {
+            for _ in 0..events_in(&mut rng, ZOOMIE_BUBBLES_PER_SEC, fish.zoomed_secs()) {
                 let tail_x = match fish.facing {
                     Direction::Left => fish.position.x + fish.display_width as f32 - 1.0,
                     Direction::Right => fish.position.x,
@@ -226,7 +224,7 @@ impl Tank {
                     self.fish[i].species.config().weight_cap[cat as usize]
                 };
                 let gain = if self.food[idx].is_candy {
-                    FOOD_WEIGHT_GAIN_G * 10
+                    FOOD_WEIGHT_GAIN_G * CANDY_GAIN_MULT
                 } else {
                     FOOD_WEIGHT_GAIN_G
                 };
@@ -247,7 +245,7 @@ impl Tank {
             ) {
                 continue;
             }
-            if self.fish[i].is_wired() || self.fish[i].is_pinned() {
+            if self.fish[i].is_wired() || self.fish[i].is_pinned() || !self.fish[i].seeks_food() {
                 continue;
             }
             let fish_len = self.fish[i].display_width as f32;
@@ -277,7 +275,7 @@ impl Tank {
         }
     }
 
-    pub(super) fn tick_candyfish_effects(&mut self) {
+    pub(super) fn tick_candyfish_effects(&mut self, dt: f32) {
         let candyfish_bounds: Vec<(f32, f32, f32, u32)> = self
             .fish
             .iter()
@@ -307,10 +305,10 @@ impl Tank {
                 }
             }
         }
-        if !self
-            .candy_tick
-            .is_multiple_of(CANDYFISH_SCAN_INTERVAL_TICKS)
-        {
+        let scans = self
+            .candy_scan
+            .beats(dt, SECS_PER_MINUTE / CANDYFISH_SCANS_PER_MINUTE);
+        if scans == 0 {
             return;
         }
         for i in 0..self.fish.len() {
@@ -322,7 +320,7 @@ impl Tank {
             let fy = self.fish[i].position.y;
             for &(cx1, cx2, cy, stacks) in &candyfish_bounds {
                 if fx1 < cx2 && fx2 > cx1 && (fy - cy).abs() <= 1.0 {
-                    self.fish[i].weight_g += CANDYFISH_TOUCH_WEIGHT_G * stacks;
+                    self.fish[i].weight_g += CANDYFISH_TOUCH_WEIGHT_G * stacks * scans;
                     break;
                 }
             }
@@ -395,7 +393,7 @@ impl Tank {
             let fish = &mut self.fish[receiver];
             fish.set_fused(vec![receiver_component, engulfed_component]);
             fish.name = format!("{} / {}", fish.name, engulfed_name);
-            fish.weight_g = (receiver_weight + engulfed_weight) / 2;
+            fish.weight_g = receiver_weight.saturating_add(engulfed_weight);
             fish.engulf_timer = 0.0;
             fish.recompute_display_width();
         }
@@ -527,14 +525,15 @@ impl Tank {
     pub(super) fn tick_blessings(&mut self, dt: f32) -> Vec<TankEvent> {
         let mut events = Vec::new();
         for fish in &mut self.fish {
-            if fish.ability_stacks(FishSpecies::Holyfish) == 0 {
+            let stacks = fish.ability_stacks(FishSpecies::Holyfish);
+            if stacks == 0 {
                 continue;
             }
             fish.blessing_timer -= dt;
             if fish.blessing_timer <= 0.0 {
                 fish.blessing_timer = BLESSING_INTERVAL_SECS;
                 fish.blessing_glow = BLESSING_GLOW_SECS;
-                events.push(TankEvent::Blessing);
+                events.extend((0..stacks).map(|_| TankEvent::Blessing));
             }
         }
         events
@@ -605,7 +604,10 @@ mod engulfment_tests {
         assert!(survivor.is_double(), "the receiver becomes a telophase");
         assert_eq!(survivor.fused_components().len(), 2);
         assert_eq!(survivor.name, "Ann / Bob", "combined name");
-        assert_eq!(survivor.weight_g, 200, "stats are averaged");
+        assert_eq!(
+            survivor.weight_g, 400,
+            "masses are summed, so no food is thrown away"
+        );
         assert!(
             survivor.engulf_timer <= 0.0,
             "the window closes after fusing"
@@ -1021,7 +1023,7 @@ mod engulfment_tests {
             "the receiver becomes a double worm"
         );
         assert_eq!(tank.fish[0].name, "Wa / Wb");
-        assert_eq!(tank.fish[0].weight_g, 200, "weights are averaged");
+        assert_eq!(tank.fish[0].weight_g, 400, "weights are summed");
         assert!(tank.apply_named_mutation("Wa / Wb", "cytokinesis"));
         assert_eq!(tank.fish.len(), 2);
         let names: Vec<&str> = tank.fish.iter().map(|f| f.name.as_str()).collect();

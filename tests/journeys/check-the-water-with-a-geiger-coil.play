@@ -7,8 +7,8 @@ include scenes/start-with-a-stake.play
 include scenes/grow-a-matrixtank.play
 include scenes/buy-at-the-bench.play "Geiger Coil" Senses
 include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
-include scenes/buy-a-fish.play Botfish geiger
-include scenes/buy-a-fish.play Botfish clean
+include scenes/take-a-fish.play botfish geiger
+include scenes/take-a-fish.play botfish clean
 
 run /consume geiger coil
 key enter
