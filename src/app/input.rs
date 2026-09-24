@@ -87,6 +87,10 @@ impl App {
             self.tanks[self.current_tank].resize(w, h.saturating_sub(bh), &dead_names);
             return;
         }
+        if self.in_zen() {
+            self.wake_from_zen(&event);
+            return;
+        }
         let is_key_press = matches!(&event, Event::Key(k) if k.kind == KeyEventKind::Press);
         if self.void_ritual.is_blocking() {
             self.handle_void_ritual_input(event);
@@ -2550,6 +2554,7 @@ impl App {
                 self.settings.show_nets = !self.settings.show_nets;
                 true
             }
+            commands::Action::Zen => self.enter_zen(),
             commands::Action::ToggleStats => {
                 self.settings.show_stats = !self.settings.show_stats;
                 let bh = self.bar_height();

@@ -152,10 +152,11 @@ pub struct Grave {
 }
 
 impl Grave {
-    pub fn rows(&self) -> Vec<Vec<(char, Color)>> {
+    pub fn rows(&self, carved: bool) -> Vec<Vec<(char, Color)>> {
         let tw = self.width as usize;
         let center = tw / 2;
         let cap_w = tw - 4;
+        let epitaph = self.name.as_deref().filter(|_| carved);
         let mut rows = vec![
             point_row(tw, center, '.'),
             cross_arms_row(tw, center),
@@ -163,7 +164,7 @@ impl Grave {
             cap_row(tw, cap_w),
             shoulder_row(tw),
             body_row(tw, Some("RIP")),
-            body_row(tw, self.name.as_deref()),
+            body_row(tw, epitaph),
         ];
         for _ in 0..GRAVE_BODY_BLANK_ROWS {
             rows.push(body_row(tw, None));

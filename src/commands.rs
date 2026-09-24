@@ -221,6 +221,7 @@ static COMMAND_NAMES: &[(&str, Clearance)] = &[
     ("switch", Clearance::Player),
     ("unfreeze", Clearance::Player),
     ("voidspawn", Clearance::Debug),
+    ("zen", Clearance::Player),
 ];
 
 const BASE_RESOURCE_NAMES: &[&str] = &["food", "junk", "cash"];
@@ -1386,6 +1387,7 @@ pub enum Action {
     ToggleNames,
     ToggleNets,
     ToggleStats,
+    Zen,
     ModResource {
         name: String,
         delta: i32,
@@ -1760,6 +1762,7 @@ pub fn parse(input: &str, fish_names: &[&str], tank_names: &[&str]) -> Action {
         "names" => Action::ToggleNames,
         "nets" => Action::ToggleNets,
         "stats" => Action::ToggleStats,
+        "zen" => Action::Zen,
         "cheat" => Action::Cheat,
         _ => Action::Unknown,
     }
@@ -1795,6 +1798,7 @@ impl Action {
             | ToggleNames
             | ToggleNets
             | ToggleStats
+            | Zen
             | Switch(_)
             | Move { .. }
             | Fishtanks
@@ -1994,6 +1998,7 @@ mod tests {
     fn parse_stats() {
         let (fish, tanks) = no_names();
         assert!(matches!(parse("/stats", fish, tanks), Action::ToggleStats));
+        assert!(matches!(parse("/zen", fish, tanks), Action::Zen));
     }
 
     #[test]

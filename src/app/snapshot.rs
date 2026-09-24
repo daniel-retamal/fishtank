@@ -168,6 +168,7 @@ impl App {
             pending_ufo_dest: _,
             day_clock,
             persistence: _,
+            zen: _,
         } = self;
         let food_in_the_water: u32 = tanks.iter().map(TankRecord::food_in_the_water).sum();
         let catch = match active_overlay {
@@ -245,6 +246,7 @@ impl App {
             pending_ufo_dest: HashMap::new(),
             day_clock: save.day_clock,
             persistence: None,
+            zen: false,
         };
         app.hang_the_souls();
         if let Some(catch) = save.catch {

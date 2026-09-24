@@ -53,6 +53,7 @@ mod money;
 mod persistence;
 mod room;
 mod snapshot;
+mod zen;
 
 pub use cheats::Launch;
 pub use snapshot::{
@@ -129,6 +130,7 @@ pub struct App {
     pending_ufo_dest: HashMap<String, usize>,
     day_clock: DayClock,
     persistence: Option<Persistence>,
+    zen: bool,
 }
 
 impl Default for App {
@@ -774,6 +776,9 @@ impl App {
     }
 
     fn bar_height(&self) -> u16 {
+        if self.zen {
+            return 0;
+        }
         command_bar::height(
             self.settings.show_stats,
             self.terminal_width,
@@ -908,8 +913,9 @@ impl App {
             let ritual_blocking = self.void_ritual.is_blocking()
                 && self.tanks[self.current_tank].kind.config().hosts_ritual;
             let mut tv = TankView::new(self.tank())
-                .with_names(self.settings.show_names)
-                .with_nets(self.settings.show_nets);
+                .with_names(self.settings.show_names && !self.zen)
+                .with_nets(self.settings.show_nets && !self.zen)
+                .with_epitaphs(!self.zen);
             if ritual_blocking {
                 let text = void_ritual::wish_display_text(&self.void_ritual, self.next_prayer);
                 tv = tv.with_ritual(text);
@@ -917,6 +923,9 @@ impl App {
             frame.render_widget(tv, tank_area);
         }
 
+        if self.zen {
+            return;
+        }
         let ghost = self.ghost();
         let modes = self.modes();
         frame.render_widget(

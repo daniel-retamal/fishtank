@@ -61,6 +61,7 @@ pub struct TankView<'a> {
     tank: &'a Tank,
     show_names: bool,
     show_nets: bool,
+    show_epitaphs: bool,
     ritual_text: Option<[Option<String>; 2]>,
 }
 
@@ -70,8 +71,14 @@ impl<'a> TankView<'a> {
             tank,
             show_names: false,
             show_nets: false,
+            show_epitaphs: true,
             ritual_text: None,
         }
+    }
+
+    pub fn with_epitaphs(mut self, show_epitaphs: bool) -> Self {
+        self.show_epitaphs = show_epitaphs;
+        self
     }
 
     pub fn with_names(mut self, show_names: bool) -> Self {
@@ -164,7 +171,8 @@ impl Widget for TankView<'_> {
                     if grave.base_x >= area.width as i32 {
                         break;
                     }
-                    render_opaque_grid(&grave.rows(), grave.base_x, bottom_y, area, buf);
+                    let rows = grave.rows(self.show_epitaphs);
+                    render_opaque_grid(&rows, grave.base_x, bottom_y, area, buf);
                 }
                 for pumpkin in &bg.pumpkins {
                     if pumpkin.base_x >= area.width as i32 {
