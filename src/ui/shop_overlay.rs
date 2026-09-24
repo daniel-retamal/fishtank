@@ -37,9 +37,8 @@ const PENGUIN_WIDTH: u16 = 7;
 const PENGUIN_HEIGHT: u16 = 4;
 const RIGHT_INNER_WIDTH: u16 = 34;
 const MIN_BODY_WIDTH: u16 = 16;
-const MAIN_ITEMS: &[&str] = &["Buy", "Sell"];
 const MAIN_LEAD_ROWS: u16 = 1;
-const MAIN_ROWS: u16 = MAIN_LEAD_ROWS + MAIN_ITEMS.len() as u16;
+const MAIN_ROWS: u16 = MAIN_LEAD_ROWS + Counter::ALL.len() as u16;
 const COLUMN_HEADER_ROWS: u16 = 2;
 const SELECTED_PREFIX: &str = "> ";
 const UNSELECTED_PREFIX: &str = "  ";
@@ -55,6 +54,114 @@ pub struct ShopAccess {
     pub cash: Money,
     pub connected: bool,
     pub room: bool,
+    pub sellable: bool,
+}
+
+pub struct Shelf {
+    order: Vec<usize>,
+    available: Vec<bool>,
+}
+
+impl Shelf {
+    fn of<K: Ord>(available: Vec<bool>, key: impl Fn(usize) -> K) -> Self {
+        let mut order: Vec<usize> = (0..available.len()).collect();
+        order.sort_by_key(|&item| (!available[item], key(item)));
+        Self { order, available }
+    }
+
+    pub fn first(&self) -> usize {
+        self.order.first().copied().unwrap_or(0)
+    }
+
+    pub fn position(&self, item: usize) -> usize {
+        self.order
+            .iter()
+            .position(|&shelved| shelved == item)
+            .unwrap_or(0)
+    }
+
+    pub fn is_available(&self, item: usize) -> bool {
+        self.available.get(item).copied().unwrap_or(false)
+    }
+
+    pub fn available_count(&self) -> usize {
+        self.available.iter().filter(|&&open| open).count()
+    }
+
+    pub fn step(&self, item: usize, down: bool) -> usize {
+        let at = self.position(item);
+        let open = |shelved: &&usize| self.is_available(**shelved);
+        let found = if down {
+            self.order.iter().skip(at + 1).find(open)
+        } else {
+            self.order[..at].iter().rev().find(open)
+        };
+        found.copied().unwrap_or(item)
+    }
+
+    pub fn settle(&self, item: usize) -> usize {
+        if self.is_available(item) || self.available_count() == 0 {
+            item
+        } else {
+            self.first()
+        }
+    }
+
+    fn rank(&self, item: usize) -> usize {
+        let at = self.position(item);
+        self.order[..=at]
+            .iter()
+            .filter(|&&shelved| self.is_available(shelved))
+            .count()
+    }
+
+    fn rows(&self, row: impl Fn(usize, bool) -> PricedRow) -> Vec<PricedRow> {
+        self.order
+            .iter()
+            .map(|&item| row(item, self.is_available(item)))
+            .collect()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Counter {
+    Buy,
+    Sell,
+}
+
+impl Counter {
+    pub const ALL: [Counter; 2] = [Counter::Buy, Counter::Sell];
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Counter::Buy => "Buy",
+            Counter::Sell => "Sell",
+        }
+    }
+
+    pub fn index(self) -> usize {
+        Counter::ALL
+            .iter()
+            .position(|&counter| counter == self)
+            .unwrap_or(0)
+    }
+
+    pub fn is_available(self, access: ShopAccess) -> bool {
+        match self {
+            Counter::Buy => BuyCategory::ALL.iter().any(|cat| cat.is_available(access)),
+            Counter::Sell => access.sellable,
+        }
+    }
+
+    pub fn shelf(access: ShopAccess) -> Shelf {
+        Shelf::of(
+            Counter::ALL
+                .iter()
+                .map(|counter| counter.is_available(access))
+                .collect(),
+            |item| item,
+        )
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -65,16 +172,26 @@ pub enum BuyList {
 }
 
 impl BuyList {
-    pub fn has_anything_affordable(self, access: ShopAccess) -> bool {
-        let open = match self {
+    fn is_open(self, access: ShopAccess) -> bool {
+        match self {
             BuyList::Bench(_) => access.connected,
             BuyList::Fishes => access.room,
             BuyList::Tanks => true,
-        };
-        open && self
-            .prices()
+        }
+    }
+
+    pub fn shelf(self, access: ShopAccess) -> Shelf {
+        let catalogue = self.catalogue();
+        let open = self.is_open(access);
+        let available = catalogue
             .iter()
-            .any(|&price| affords(price, access.cash))
+            .map(|&(_, price)| open && affords(price, access.cash))
+            .collect();
+        Shelf::of(available, |item| (catalogue[item].1, catalogue[item].0))
+    }
+
+    pub fn has_anything_available(self, access: ShopAccess) -> bool {
+        self.shelf(access).available_count() > 0
     }
 
     fn catalogue(self) -> Vec<(&'static str, u32)> {
@@ -105,19 +222,16 @@ impl BuyList {
             .collect()
     }
 
-    fn prices(self) -> Vec<u32> {
-        self.catalogue()
-            .into_iter()
-            .map(|(_, price)| price)
-            .collect()
-    }
-
-    fn rows(self, cash: Money) -> Vec<PricedRow> {
-        priced(self.catalogue(), cash)
+    fn rows(self, access: ShopAccess) -> Vec<PricedRow> {
+        let catalogue = self.catalogue();
+        self.shelf(access).rows(|item, available| {
+            let (name, price) = catalogue[item];
+            PricedRow::plain(name.to_string(), format!("${price}"), available)
+        })
     }
 
     fn height(self) -> usize {
-        self.rows(0).len()
+        self.catalogue().len()
     }
 
     fn header(self) -> &'static str {
@@ -219,12 +333,20 @@ impl BuyCategory {
 
     pub fn is_available(self, access: ShopAccess) -> bool {
         match self.purchase() {
-            Purchase::Tiers => bench_tiers()
-                .into_iter()
-                .any(|tier| BuyList::Bench(tier).has_anything_affordable(access)),
-            Purchase::Browse(list) => list.has_anything_affordable(access),
+            Purchase::Tiers => tier_shelf(access).available_count() > 0,
+            Purchase::Browse(list) => list.has_anything_available(access),
             Purchase::Counted { unit_price, .. } => affords(unit_price, access.cash),
         }
+    }
+
+    pub fn shelf(access: ShopAccess) -> Shelf {
+        Shelf::of(
+            BuyCategory::ALL
+                .iter()
+                .map(|cat| cat.is_available(access))
+                .collect(),
+            |item| item,
+        )
     }
 }
 
@@ -263,22 +385,11 @@ pub struct BuyTankPopup {
 }
 
 pub fn buy_cat_first_available(access: ShopAccess) -> usize {
-    BuyCategory::ALL
-        .iter()
-        .position(|cat| cat.is_available(access))
-        .unwrap_or(0)
+    BuyCategory::shelf(access).first()
 }
 
 pub fn buy_cat_next(current: usize, down: bool, access: ShopAccess) -> usize {
-    let step: i32 = if down { 1 } else { -1 };
-    let mut idx = current as i32 + step;
-    while (0..BuyCategory::ALL.len() as i32).contains(&idx) {
-        if BuyCategory::ALL[idx as usize].is_available(access) {
-            return idx as usize;
-        }
-        idx += step;
-    }
-    current
+    BuyCategory::shelf(access).step(current, down)
 }
 
 pub struct FishNamePopup {
@@ -468,39 +579,15 @@ impl SellMenuState {
                 sell_price: *sell_price,
             });
         }
-        let mut fish_entries: Vec<SellEntry> = tank_fish
-            .iter()
-            .map(|(n, s, sv)| SellEntry::Fish {
-                name: n.clone(),
-                species: *s,
-                sell_value: *sv,
-            })
-            .collect();
-        fish_entries.sort_by(|a, b| {
-            let pa = match a {
-                SellEntry::Fish { sell_value, .. } => *sell_value,
-                _ => 0,
-            };
-            let pb = match b {
-                SellEntry::Fish { sell_value, .. } => *sell_value,
-                _ => 0,
-            };
-            pa.cmp(&pb).then_with(|| {
-                let na = match a {
-                    SellEntry::Fish { name, .. } => name.as_str(),
-                    _ => "",
-                };
-                let nb = match b {
-                    SellEntry::Fish { name, .. } => name.as_str(),
-                    _ => "",
-                };
-                na.cmp(nb)
-            })
-        });
-        items.extend(fish_entries);
+        items.extend(tank_fish.iter().map(|(n, s, sv)| SellEntry::Fish {
+            name: n.clone(),
+            species: *s,
+            sell_value: *sv,
+        }));
         if items.is_empty() {
             return None;
         }
+        items.sort_by_cached_key(|entry| (entry.unit_price(), entry.label()));
         Some(Self {
             items,
             selected: 0,
@@ -524,24 +611,6 @@ fn affords(price: u32, cash: Money) -> bool {
     Money::from(price) <= cash
 }
 
-fn first_affordable(prices: &[u32], cash: Money) -> usize {
-    prices
-        .iter()
-        .position(|&price| affords(price, cash))
-        .unwrap_or(0)
-}
-
-fn step_affordable(prices: &[u32], selected: usize, down: bool, cash: Money) -> usize {
-    let found = if down {
-        (selected + 1..prices.len()).find(|&index| affords(prices[index], cash))
-    } else {
-        (0..selected)
-            .rev()
-            .find(|&index| affords(prices[index], cash))
-    };
-    found.unwrap_or(selected)
-}
-
 pub struct BuyListState<P> {
     list: BuyList,
     pub selected: usize,
@@ -554,39 +623,59 @@ impl<P> BuyListState<P> {
         self.list
     }
 
-    pub fn new(list: BuyList, cash: Money) -> Self {
+    pub fn new(list: BuyList, access: ShopAccess) -> Self {
         Self {
             list,
-            selected: first_affordable(&list.prices(), cash),
+            selected: list.shelf(access).first(),
             scroll: Scroll::default(),
             popup: None,
         }
     }
 
-    pub fn scroll_up(&mut self, cash: Money) {
-        self.selected = step_affordable(&self.list.prices(), self.selected, false, cash);
+    pub fn scroll_up(&mut self, access: ShopAccess) {
+        self.selected = self.list.shelf(access).step(self.selected, false);
     }
 
-    pub fn scroll_down(&mut self, cash: Money) {
-        self.selected = step_affordable(&self.list.prices(), self.selected, true, cash);
+    pub fn scroll_down(&mut self, access: ShopAccess) {
+        self.selected = self.list.shelf(access).step(self.selected, true);
+    }
+
+    pub fn settle(&mut self, access: ShopAccess) {
+        self.selected = self.list.shelf(access).settle(self.selected);
+    }
+
+    fn is_on_sale(&self, access: ShopAccess) -> bool {
+        self.list.shelf(access).is_available(self.selected)
     }
 
     fn body_rows(&self) -> u16 {
         COLUMN_HEADER_ROWS + self.list.height() as u16
     }
 
-    fn hints(&self, cash: Money, overflowing: bool) -> HintBar {
-        affordable_hints(&self.list.prices(), self.selected, cash, overflowing)
+    fn hints(&self, access: ShopAccess, overflowing: bool) -> HintBar {
+        let shelf = self.list.shelf(access);
+        scroll_hints(
+            shelf.rank(self.selected),
+            shelf.available_count(),
+            overflowing,
+        )
     }
 
-    fn draw(&self, buf: &mut Buffer, panels: &Panels, cash: Money, cursor_vis: bool, dim: bool) {
+    fn draw(
+        &self,
+        buf: &mut Buffer,
+        panels: &Panels,
+        access: ShopAccess,
+        cursor_vis: bool,
+        dim: bool,
+    ) {
         draw_priced_list(
             buf,
             panels,
             self.list.header(),
             &ListView {
-                rows: &self.list.rows(cash),
-                selected: self.selected,
+                rows: &self.list.rows(access),
+                selected: self.list.shelf(access).position(self.selected),
                 scroll: &self.scroll,
                 cursor_vis,
                 dim,
@@ -596,9 +685,9 @@ impl<P> BuyListState<P> {
 }
 
 impl BuyListState<FishNamePopup> {
-    pub fn purchase(&self, cash: Money) -> Option<FishNamePopup> {
+    pub fn purchase(&self, access: ShopAccess) -> Option<FishNamePopup> {
         let species = *FishSpecies::all_buyable().get(self.selected)?;
-        affords(species.buy_price(), cash).then(|| FishNamePopup {
+        self.is_on_sale(access).then(|| FishNamePopup {
             catalog_idx: self.selected,
             fish: Fish::new_for_display(species, &mut rand::rng()),
             name_input: TextInput::new(),
@@ -607,9 +696,9 @@ impl BuyListState<FishNamePopup> {
 }
 
 impl BuyListState<BuyTankPopup> {
-    pub fn purchase(&self, cash: Money) -> Option<BuyTankPopup> {
+    pub fn purchase(&self, access: ShopAccess) -> Option<BuyTankPopup> {
         let kind = *TankKind::all_buyable().get(self.selected)?;
-        affords(kind.buy_price(), cash).then(|| BuyTankPopup {
+        self.is_on_sale(access).then(|| BuyTankPopup {
             kind,
             name_input: TextInput::new(),
         })
@@ -617,12 +706,15 @@ impl BuyListState<BuyTankPopup> {
 }
 
 impl BuyListState<QtyPopup> {
-    pub fn purchase(&self, cash: Money) -> Option<QtyPopup> {
+    pub fn purchase(&self, access: ShopAccess) -> Option<QtyPopup> {
         let kind = *self.list.stock().get(self.selected)?;
+        if !self.is_on_sale(access) {
+            return None;
+        }
         QtyPopup::new(
             QtyTarget::Stock(StockItem::Consumable(kind)),
             kind.buy_price(),
-            cash,
+            access.cash,
         )
     }
 }
@@ -658,6 +750,15 @@ impl Default for ShopState {
 }
 
 impl ShopState {
+    pub fn open(access: ShopAccess) -> Self {
+        Self {
+            page: ShopPage::Main {
+                selected: Counter::shelf(access).first(),
+            },
+            ..Self::new()
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             page: ShopPage::Main { selected: 0 },
@@ -741,18 +842,22 @@ impl<'a> ShopOverlay<'a> {
     }
 
     fn hints(&self, overflowing: bool) -> HintBar {
-        let cash = self.access.cash;
+        let access = self.access;
         match &self.state.page {
             ShopPage::Main { .. } => HintBar::new(HINT_CLOSE).action(HINT_NAV),
-            ShopPage::BuyCategory { selected, .. } => {
-                scroll_hints(selected + 1, BuyCategory::ALL.len(), overflowing)
-            }
-            ShopPage::BuyBenchTiers { selected } => {
-                scroll_hints(selected + 1, bench_tiers().len(), overflowing)
-            }
-            ShopPage::BuyFishList(fl) => fl.hints(cash, overflowing),
-            ShopPage::BuyTankList(tl) => tl.hints(cash, overflowing),
-            ShopPage::BuyBenchList(pl) => pl.hints(cash, overflowing),
+            ShopPage::BuyCategory { selected, .. } => scroll_hints(
+                BuyCategory::shelf(access).position(*selected) + 1,
+                BuyCategory::ALL.len(),
+                overflowing,
+            ),
+            ShopPage::BuyBenchTiers { selected } => scroll_hints(
+                tier_shelf(access).position(*selected) + 1,
+                bench_tiers().len(),
+                overflowing,
+            ),
+            ShopPage::BuyFishList(fl) => fl.hints(access, overflowing),
+            ShopPage::BuyTankList(tl) => tl.hints(access, overflowing),
+            ShopPage::BuyBenchList(pl) => pl.hints(access, overflowing),
             ShopPage::Sell(sm) => scroll_hints(sm.selected + 1, sm.items.len(), overflowing),
         }
     }
@@ -797,47 +902,35 @@ fn scroll_hints(position: usize, total: usize, overflowing: bool) -> HintBar {
     HintBar::new(HINT_BACK).counted(nav, overflowing.then_some((position, total)))
 }
 
-fn affordable_hints(prices: &[u32], selected: usize, cash: Money, overflowing: bool) -> HintBar {
-    let affordable = prices.iter().filter(|&&price| affords(price, cash)).count();
-    let position = prices[..=selected.min(prices.len().saturating_sub(1))]
-        .iter()
-        .filter(|&&price| affords(price, cash))
-        .count();
-    scroll_hints(position, affordable, overflowing)
-}
-
 impl Widget for ShopOverlay<'_> {
     fn render(self, _area: Rect, buf: &mut Buffer) {
         let state = self.state;
         let dim = state.page.has_popup();
         let cursor_vis = dim || state.cursor_visible;
-        let cash = self.access.cash;
+        let access = self.access;
         let panels = self.open(buf);
         draw_penguin(buf, panels.side, dim);
 
         match &state.page {
-            ShopPage::Main { selected } => draw_main(buf, panels.body, *selected, cursor_vis, dim),
+            ShopPage::Main { selected } => {
+                draw_main(buf, panels.body, *selected, access, cursor_vis, dim)
+            }
             ShopPage::BuyCategory {
                 selected,
                 buy_popup,
             } => {
-                let rows: Vec<PricedRow> = BuyCategory::ALL
-                    .iter()
-                    .map(|cat| {
-                        PricedRow::plain(
-                            cat.display_name().to_string(),
-                            String::new(),
-                            cat.is_available(self.access),
-                        )
-                    })
-                    .collect();
+                let shelf = BuyCategory::shelf(access);
+                let rows = shelf.rows(|item, available| {
+                    let name = BuyCategory::ALL[item].display_name().to_string();
+                    PricedRow::plain(name, String::new(), available)
+                });
                 draw_rows(
                     buf,
                     &panels,
                     panels.body,
                     &ListView {
                         rows: &rows,
-                        selected: *selected,
+                        selected: shelf.position(*selected),
                         scroll: &state.category_scroll,
                         cursor_vis,
                         dim,
@@ -848,14 +941,22 @@ impl Widget for ShopOverlay<'_> {
                 }
             }
             ShopPage::BuyBenchTiers { selected } => {
-                let rows = tier_rows(self.access);
+                let shelf = tier_shelf(access);
+                let tiers = bench_tiers();
+                let rows = shelf.rows(|item, available| {
+                    PricedRow::plain(
+                        tiers[item].display_name().to_string(),
+                        String::new(),
+                        available,
+                    )
+                });
                 draw_rows(
                     buf,
                     &panels,
                     panels.body,
                     &ListView {
                         rows: &rows,
-                        selected: *selected,
+                        selected: shelf.position(*selected),
                         scroll: &state.category_scroll,
                         cursor_vis,
                         dim,
@@ -863,19 +964,19 @@ impl Widget for ShopOverlay<'_> {
                 );
             }
             ShopPage::BuyFishList(fl) => {
-                fl.draw(buf, &panels, cash, cursor_vis, dim);
+                fl.draw(buf, &panels, access, cursor_vis, dim);
                 if let Some(ref popup) = fl.popup {
                     draw_fish_name_popup(buf, popup, state.cursor_visible, self.screen);
                 }
             }
             ShopPage::BuyTankList(tl) => {
-                tl.draw(buf, &panels, cash, cursor_vis, dim);
+                tl.draw(buf, &panels, access, cursor_vis, dim);
                 if let Some(ref popup) = tl.popup {
                     draw_buy_tank_name_popup(buf, popup, state.cursor_visible, self.screen);
                 }
             }
             ShopPage::BuyBenchList(pl) => {
-                pl.draw(buf, &panels, cash, cursor_vis, dim);
+                pl.draw(buf, &panels, access, cursor_vis, dim);
                 if let Some(ref popup) = pl.popup {
                     draw_qty_buy_popup(buf, popup, self.screen);
                 }
@@ -933,15 +1034,6 @@ struct ListView<'a> {
     dim: bool,
 }
 
-fn priced(catalogue: Vec<(&'static str, u32)>, cash: Money) -> Vec<PricedRow> {
-    catalogue
-        .into_iter()
-        .map(|(name, price)| {
-            PricedRow::plain(name.to_string(), format!("${price}"), affords(price, cash))
-        })
-        .collect()
-}
-
 pub fn bench_tiers() -> Vec<PartTier> {
     let mut tiers: Vec<PartTier> = Vec::new();
     for kind in ConsumableKind::bench_stock() {
@@ -952,17 +1044,14 @@ pub fn bench_tiers() -> Vec<PartTier> {
     tiers
 }
 
-fn tier_rows(access: ShopAccess) -> Vec<PricedRow> {
-    bench_tiers()
-        .into_iter()
-        .map(|tier| {
-            PricedRow::plain(
-                tier.display_name().to_string(),
-                String::new(),
-                BuyList::Bench(tier).has_anything_affordable(access),
-            )
-        })
-        .collect()
+pub fn tier_shelf(access: ShopAccess) -> Shelf {
+    Shelf::of(
+        bench_tiers()
+            .into_iter()
+            .map(|tier| BuyList::Bench(tier).has_anything_available(access))
+            .collect(),
+        |item| item,
+    )
 }
 
 fn draw_penguin(buf: &mut Buffer, side: Rect, dim: bool) {
@@ -980,25 +1069,36 @@ fn draw_penguin(buf: &mut Buffer, side: Rect, dim: bool) {
     }
 }
 
-fn draw_main(buf: &mut Buffer, body: Rect, selected: usize, cursor_vis: bool, dim: bool) {
-    let lead = MAIN_LEAD_ROWS.min(body.height.saturating_sub(MAIN_ITEMS.len() as u16));
+fn draw_main(
+    buf: &mut Buffer,
+    body: Rect,
+    selected: usize,
+    access: ShopAccess,
+    cursor_vis: bool,
+    dim: bool,
+) {
+    let lead = MAIN_LEAD_ROWS.min(body.height.saturating_sub(Counter::ALL.len() as u16));
     let start_y = body.y + lead;
-    for (i, &label) in MAIN_ITEMS.iter().enumerate() {
-        let row_y = start_y + i as u16;
+    let shelf = Counter::shelf(access);
+    for (row, &item) in shelf.order.iter().enumerate() {
+        let row_y = start_y + row as u16;
         if row_y >= body.bottom() {
             return;
         }
-        let is_sel = i == selected;
-        let prefix = if is_sel && cursor_vis {
+        let prefix = if item == selected && cursor_vis {
             SELECTED_PREFIX
         } else {
             UNSELECTED_PREFIX
         };
-        let fg = if dim || !is_sel { DARK_GRAY } else { WHITE };
+        let fg = if dim || !shelf.is_available(item) {
+            DARK_GRAY
+        } else {
+            WHITE
+        };
         buf.set_stringn(
             body.x,
             row_y,
-            format!("{prefix}{label}"),
+            format!("{prefix}{}", Counter::ALL[item].display_name()),
             body.width as usize,
             Style::default().fg(fg).bg(BACKGROUND),
         );
@@ -1080,7 +1180,7 @@ fn draw_rows(buf: &mut Buffer, panels: &Panels, area: Rect, view: &ListView) {
     for (y, index) in (area.y..area.bottom()).zip(shown.clone()) {
         let entry = &view.rows[index];
         let is_sel = index == view.selected;
-        let fg = if view.dim || !entry.bright || (entry.price.is_empty() && !is_sel) {
+        let fg = if view.dim || !entry.bright {
             DARK_GRAY
         } else {
             WHITE
@@ -1514,8 +1614,15 @@ mod tests {
         );
     }
 
-    fn bench(cash: Money) -> BuyListState<QtyPopup> {
-        BuyListState::new(BuyList::Bench(PartTier::Fabric), cash)
+    fn bench(access: ShopAccess) -> BuyListState<QtyPopup> {
+        BuyListState::new(BuyList::Bench(PartTier::Fabric), access)
+    }
+
+    fn holding(cash: Money) -> ShopAccess {
+        ShopAccess {
+            cash,
+            ..connected_rich()
+        }
     }
 
     fn connected_rich() -> ShopAccess {
@@ -1523,6 +1630,7 @@ mod tests {
             cash: Money::MAX,
             connected: true,
             room: true,
+            sellable: true,
         }
     }
 
@@ -1531,6 +1639,7 @@ mod tests {
             cash: Money::MAX,
             connected: false,
             room: true,
+            sellable: true,
         }
     }
 
@@ -1551,19 +1660,22 @@ mod tests {
     fn a_connected_pauper_still_cannot_reach_the_robotics_bench() {
         let cheapest = bench_tiers()
             .into_iter()
-            .flat_map(|tier| BuyList::Bench(tier).prices())
+            .flat_map(|tier| BuyList::Bench(tier).catalogue())
+            .map(|(_, price)| price)
             .min()
             .expect("the bench stocks something");
         let broke = ShopAccess {
             cash: Money::from(cheapest) - 1,
             connected: true,
             room: true,
+            sellable: true,
         };
         assert!(!BuyCategory::Robotics.is_available(broke));
         assert!(BuyCategory::Robotics.is_available(ShopAccess {
             cash: Money::from(cheapest),
             connected: true,
             room: true,
+            sellable: true,
         }));
     }
 
@@ -1599,16 +1711,21 @@ mod tests {
     #[test]
     fn the_robotics_bench_walks_down_to_its_last_row_and_back() {
         let stock = BuyList::Bench(PartTier::Fabric).catalogue().len();
-        let mut list = bench(Money::MAX);
-        assert_eq!(list.selected, 0, "the bench opens on the first part");
+        let shelf = BuyList::Bench(PartTier::Fabric).shelf(connected_rich());
+        let mut list = bench(connected_rich());
+        assert_eq!(
+            shelf.position(list.selected),
+            0,
+            "the bench opens on its top row"
+        );
         for _ in 0..stock {
-            list.scroll_down(Money::MAX);
+            list.scroll_down(connected_rich());
         }
-        assert_eq!(list.selected, stock - 1);
+        assert_eq!(shelf.position(list.selected), stock - 1);
         for _ in 0..stock {
-            list.scroll_up(Money::MAX);
+            list.scroll_up(connected_rich());
         }
-        assert_eq!(list.selected, 0);
+        assert_eq!(shelf.position(list.selected), 0);
     }
 
     #[test]
@@ -1667,9 +1784,9 @@ mod tests {
     fn a_tier_page_is_as_tall_as_its_own_rows() {
         for tier in bench_tiers() {
             let list = BuyList::Bench(tier);
-            assert_eq!(list.height(), list.rows(Money::MAX).len());
+            assert_eq!(list.height(), list.rows(connected_rich()).len());
             assert!(
-                list.rows(Money::MAX).len() < ConsumableKind::bench_stock().len(),
+                list.rows(connected_rich()).len() < ConsumableKind::bench_stock().len(),
                 "a tier page is a page, not the whole bench"
             );
         }
@@ -1681,10 +1798,10 @@ mod tests {
             let stock = BuyList::Bench(tier).stock();
             for (index, kind) in stock.iter().enumerate() {
                 let mut list: BuyListState<QtyPopup> =
-                    BuyListState::new(BuyList::Bench(tier), Money::MAX);
+                    BuyListState::new(BuyList::Bench(tier), connected_rich());
                 list.selected = index;
                 let popup = list
-                    .purchase(Money::MAX)
+                    .purchase(connected_rich())
                     .expect("a part row opens a counter");
                 assert_eq!(
                     popup.target.display_name(),
@@ -1698,21 +1815,26 @@ mod tests {
     #[test]
     fn walking_down_a_tier_page_stops_at_its_last_part() {
         let stock = BuyList::Bench(PartTier::Fabric).catalogue().len();
-        let mut list = bench(Money::MAX);
+        let shelf = BuyList::Bench(PartTier::Fabric).shelf(connected_rich());
+        let mut list = bench(connected_rich());
         for _ in 0..stock * 2 {
-            list.scroll_down(Money::MAX);
+            list.scroll_down(connected_rich());
         }
-        assert_eq!(list.selected, stock - 1);
-        assert!(list.purchase(Money::MAX).is_some());
+        assert_eq!(shelf.position(list.selected), stock - 1);
+        assert!(list.purchase(connected_rich()).is_some());
     }
 
     #[test]
-    fn enter_on_the_last_materials_row_counts_out_blank_blueprints() {
+    fn enter_on_the_blank_blueprint_row_counts_out_blank_blueprints() {
         let mut list: BuyListState<QtyPopup> =
-            BuyListState::new(BuyList::Bench(PartTier::Materials), Money::MAX);
-        list.selected = BuyList::Bench(PartTier::Materials).stock().len() - 1;
+            BuyListState::new(BuyList::Bench(PartTier::Materials), connected_rich());
+        list.selected = BuyList::Bench(PartTier::Materials)
+            .stock()
+            .iter()
+            .position(|&kind| kind == ConsumableKind::BlankBlueprint)
+            .expect("the Materials page sells blank blueprints");
         let popup = list
-            .purchase(Money::MAX)
+            .purchase(connected_rich())
             .expect("a rich player can buy one");
         assert_eq!(
             popup.target.display_name(),
@@ -1724,19 +1846,90 @@ mod tests {
     #[test]
     fn stepping_skips_what_the_player_cannot_afford() {
         let prices = [10, 500, 20, 900];
-        assert_eq!(step_affordable(&prices, 0, true, 100), 2);
-        assert_eq!(
-            step_affordable(&prices, 2, true, 100),
-            2,
-            "nothing further is affordable"
+        let shelf = Shelf::of(
+            prices.iter().map(|&price| affords(price, 100)).collect(),
+            |item| prices[item],
         );
-        assert_eq!(step_affordable(&prices, 2, false, 100), 0);
+        assert_eq!(
+            shelf.order,
+            vec![0, 2, 1, 3],
+            "affordable first, then by price"
+        );
+        assert_eq!(shelf.step(0, true), 2);
+        assert_eq!(shelf.step(2, true), 2, "nothing further is affordable");
+        assert_eq!(shelf.step(2, false), 0);
+    }
+
+    #[test]
+    fn every_priced_page_lists_what_is_for_sale_first_then_by_price_then_name() {
+        let mut lists = vec![BuyList::Fishes, BuyList::Tanks];
+        lists.extend(bench_tiers().into_iter().map(BuyList::Bench));
+        let cheap_fish = FishSpecies::all_buyable()
+            .iter()
+            .map(|species| species.buy_price())
+            .min()
+            .expect("the shop sells fish");
+        for access in [
+            connected_rich(),
+            holding(Money::from(cheap_fish)),
+            holding(0),
+        ] {
+            for &list in &lists {
+                let rows = list.rows(access);
+                let for_sale = rows.iter().take_while(|row| row.bright).count();
+                assert!(
+                    rows[for_sale..].iter().all(|row| !row.bright),
+                    "a row for sale sank below one that is not"
+                );
+                for group in [&rows[..for_sale], &rows[for_sale..]] {
+                    let keys: Vec<(u32, &str)> = group
+                        .iter()
+                        .map(|row| (row.price[1..].parse().expect("a price"), row.label.as_str()))
+                        .collect();
+                    assert!(keys.is_sorted(), "not by price, then name: {keys:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_category_or_tier_for_sale_is_listed_above_one_that_is_not() {
+        let order = BuyCategory::shelf(unconnected_rich()).order;
+        assert_eq!(
+            order.last(),
+            Some(&BuyCategory::Robotics.index()),
+            "with no Matrixtank the locked bench sinks to the bottom"
+        );
+        let broke = holding(0);
+        assert_eq!(
+            Counter::shelf(broke).order,
+            vec![Counter::Sell.index(), Counter::Buy.index()],
+            "a pauper with something to sell sees Sell first"
+        );
+        let nothing_to_sell = ShopAccess {
+            sellable: false,
+            ..connected_rich()
+        };
+        assert!(!Counter::Sell.is_available(nothing_to_sell));
+        assert!(Counter::Buy.is_available(nothing_to_sell));
+    }
+
+    #[test]
+    fn the_fish_shelf_closes_when_no_tank_has_room() {
+        let full = ShopAccess {
+            room: false,
+            ..connected_rich()
+        };
+        assert!(!BuyList::Fishes.has_anything_available(full));
+        assert!(!BuyCategory::Fishes.is_available(full));
+        let list: BuyListState<FishNamePopup> = BuyListState::new(BuyList::Fishes, full);
+        assert!(list.purchase(full).is_none());
     }
 
     #[test]
     fn the_robotics_bench_opens_on_a_part_the_player_can_afford() {
         let coil = Part::InverterCoil.price();
-        let list = bench(Money::from(coil));
+        let list = bench(holding(Money::from(coil)));
         assert!(
             ConsumableKind::bench_stock()[list.selected].buy_price() <= coil,
             "the cursor never starts on something unaffordable"
@@ -1766,7 +1959,7 @@ mod tests {
     }
 
     #[test]
-    fn the_sell_menu_lists_robotics_stock_then_blueprints() {
+    fn the_sell_menu_is_ordered_by_price_then_name() {
         let inventory = HashMap::from([
             (StockItem::Consumable(ConsumableKind::BlankWafer), 3),
             (
@@ -1776,25 +1969,36 @@ mod tests {
         ]);
         let menu = SellMenuState::new(&[], &inventory, &[], &["Latch".to_string()])
             .expect("there is something to sell");
-        let labels: Vec<String> = menu.items.iter().map(SellEntry::label).collect();
+        let keys: Vec<(Money, String)> = menu
+            .items
+            .iter()
+            .map(|item| (item.unit_price(), item.label()))
+            .collect();
+        assert!(keys.is_sorted(), "not by price, then name: {keys:?}");
+        let latch = menu
+            .items
+            .iter()
+            .find(|item| item.label() == "Latch (Circuit Blueprint)")
+            .expect("the blueprint is for sale");
+        assert_eq!(latch.max_qty(), 1, "a design is one of a kind");
         assert_eq!(
-            labels,
-            vec![
-                "Delay Spool (2)",
-                "Blank Wafer (3)",
-                "Latch (Circuit Blueprint)"
-            ]
-        );
-        assert_eq!(menu.items[0].max_qty(), 2);
-        assert_eq!(menu.items[2].max_qty(), 1, "a design is one of a kind");
-        assert_eq!(
-            menu.items[2].unit_price(),
+            latch.unit_price(),
             Money::from(CIRCUIT_BLUEPRINT_SELL_PRICE)
+        );
+        assert!(
+            menu.items
+                .iter()
+                .any(|item| item.label() == "Delay Spool (2)")
+        );
+        assert!(
+            menu.items
+                .iter()
+                .any(|item| item.label() == "Blank Wafer (3)")
         );
     }
 
     fn tank_list_on(kind: TankKind) -> BuyListState<BuyTankPopup> {
-        let mut list = BuyListState::new(BuyList::Tanks, Money::MAX);
+        let mut list = BuyListState::new(BuyList::Tanks, connected_rich());
         list.selected = TankKind::all_buyable()
             .iter()
             .position(|&sold| sold == kind)
@@ -1806,7 +2010,7 @@ mod tests {
     fn every_tank_the_catalogue_sells_is_named_on_the_spot() {
         for kind in TankKind::all_buyable() {
             let popup = tank_list_on(kind)
-                .purchase(Money::MAX)
+                .purchase(connected_rich())
                 .expect("a tank row opens the naming popup");
             assert_eq!(popup.kind, kind);
         }
@@ -1816,7 +2020,7 @@ mod tests {
     fn a_tank_row_a_player_cannot_pay_for_opens_nothing() {
         let list = tank_list_on(TankKind::Base);
         assert!(
-            list.purchase(Money::from(TankKind::Base.buy_price()) - 1)
+            list.purchase(holding(Money::from(TankKind::Base.buy_price()) - 1))
                 .is_none()
         );
     }
@@ -1853,7 +2057,13 @@ mod tests {
             let row = format!("{} (1)", seed.display_name());
             assert!(labels.contains(&row), "the sell menu lost {row}");
         }
-        for (item, seed) in menu.items.iter().zip(ConsumableKind::seeds()) {
+        for seed in ConsumableKind::seeds() {
+            let row = format!("{} (1)", seed.display_name());
+            let item = menu
+                .items
+                .iter()
+                .find(|item| item.label() == row)
+                .expect("listed above");
             assert_eq!(item.unit_price(), Money::from(seed.sell_price()));
         }
     }

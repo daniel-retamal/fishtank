@@ -451,19 +451,23 @@ fn walk_the_whole_bench(tui: &mut Tui) {
     tui.snap("0 · Robotics · the five tiers, by name");
     tui.select(FABRIC_TIER);
     tui.key(KeyCode::Enter);
-    let fabric = ConsumableKind::bench_stock()
+    let mut fabric: Vec<ConsumableKind> = ConsumableKind::bench_stock()
         .into_iter()
         .filter(|kind| kind.bench_tier() == PartTier::Fabric)
-        .count();
-    for _ in 0..fabric {
+        .collect();
+    fabric.sort_by_key(|kind| (kind.buy_price(), kind.display_name()));
+    let (first, last) = (fabric[0], fabric[fabric.len() - 1]);
+    for _ in 0..fabric.len() {
         tui.key(KeyCode::Down);
     }
     tui.snap("0 · Fabric — the cursor on its last row");
-    tui.screen().expect_find("> Delay Spool");
-    for _ in 0..fabric {
+    tui.screen()
+        .expect_find(&format!("> {}", last.display_name()));
+    for _ in 0..fabric.len() {
         tui.key(KeyCode::Up);
     }
-    tui.screen().expect_find("> Inverter Coil");
+    tui.screen()
+        .expect_find(&format!("> {}", first.display_name()));
 }
 
 fn buy_coils_at_the_robotics_bench(tui: &mut Tui) {
@@ -474,6 +478,7 @@ fn buy_coils_at_the_robotics_bench(tui: &mut Tui) {
     tui.snap("0 · Buy — the Matrixtank unlocked Robotics");
     tui.key(KeyCode::Enter);
     walk_the_whole_bench(tui);
+    tui.select(Part::InverterCoil.display_name());
     tui.key(KeyCode::Enter);
     tui.key(KeyCode::Right);
     tui.snap("0 · The counter on Inverter Coil, → pressed once");

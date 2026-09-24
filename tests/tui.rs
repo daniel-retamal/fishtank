@@ -1337,6 +1337,7 @@ fn the_robotics_bench_is_locked_until_a_matrixtank_is_grown() {
 #[test]
 fn a_matrixtank_opens_the_robotics_bench_onto_its_tiers() {
     let mut tui = Tui::new();
+    tui.stake();
     grow_a_matrixtank(&mut tui);
     assert!(
         tui.app.is_connected(),
@@ -1461,11 +1462,12 @@ fn buying_a_part_at_the_bench_stocks_it_and_charges_for_it() {
     let before = tui.app.purse.balance();
     open_the_bench_tier(&mut tui, PartTier::Fabric);
 
+    let coil = Part::InverterCoil;
+    tui.select(coil.display_name());
     tui.key(KeyCode::Enter);
     tui.key(KeyCode::Right);
     tui.key(KeyCode::Enter);
 
-    let coil = Part::InverterCoil;
     assert_eq!(
         stock(&tui, coil),
         2,
@@ -1668,6 +1670,14 @@ fn a_summoning_item_still_names_a_tank_through_the_same_popup() {
 
 const SELECTED_PREFIX: &str = "> ";
 
+fn top_of_the_page(tier: PartTier) -> ConsumableKind {
+    ConsumableKind::bench_stock()
+        .into_iter()
+        .filter(|kind| kind.bench_tier() == tier)
+        .min_by_key(|kind| (kind.buy_price(), kind.display_name()))
+        .expect("every tier sells something")
+}
+
 fn selected_label(kind: ConsumableKind) -> String {
     let first_word = kind.display_name().split(' ').next().unwrap_or_default();
     format!("{SELECTED_PREFIX}{first_word}")
@@ -1695,15 +1705,9 @@ fn tier_row(tier: PartTier) -> String {
 
 #[test]
 fn the_bench_walks_through_every_tier_at_every_size() {
-    let openers = [
-        (PartTier::Fabric, ConsumableKind::Part(Part::InverterCoil)),
-        (PartTier::Senses, ConsumableKind::Part(Part::ShoalCounter)),
-        (PartTier::Hands, ConsumableKind::Part(Part::CommandModule)),
-        (PartTier::Peripherals, ConsumableKind::Part(Part::Cochlea)),
-        (PartTier::Materials, ConsumableKind::BlankWafer),
-    ];
     for (cols, rows) in SHOP_SIZES {
         let mut tui = Tui::with_size(cols, rows);
+        tui.stake();
         tui.film(
             Path::new(env!("CARGO_TARGET_TMPDIR")),
             &format!("shop-bench-{cols}x{rows}"),
@@ -1711,7 +1715,8 @@ fn the_bench_walks_through_every_tier_at_every_size() {
         grow_a_matrixtank(&mut tui);
         open_the_bench(&mut tui);
         tui.snap("Robotics · the five tiers, by name");
-        for (tier, kind) in openers {
+        for &tier in PartTier::ALL {
+            let kind = top_of_the_page(tier);
             tui.select(tier.display_name());
             tui.key(KeyCode::Enter);
             tui.snap(&format!("{} · a page of its own", tier.display_name()));

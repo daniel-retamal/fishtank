@@ -31,9 +31,9 @@ use crate::{
         input_action::{InputAction, classify, hold},
         ledger_overlay::LedgerState,
         shop_overlay::{
-            BuyCategory, BuyList, BuyListState, BuyTankPopup, FishNamePopup, Purchase, QtyPopup,
-            QtyTarget, SellConfirm, SellEntry, SellMenuState, ShopPage, ShopState,
-            buy_cat_first_available, buy_cat_next,
+            BuyCategory, BuyList, BuyListState, BuyTankPopup, Counter, FishNamePopup, Purchase,
+            QtyPopup, QtyTarget, SellConfirm, SellEntry, SellMenuState, ShopPage, ShopState,
+            buy_cat_first_available, buy_cat_next, tier_shelf,
         },
         show_overlay::{ShowSource, ShowState},
         wiring_panel::WiringPanelState,
@@ -1124,36 +1124,37 @@ impl App {
         let access = self.shop_access();
 
         match shop.page {
-            ShopPage::Main { ref mut selected } => match action {
-                InputAction::Cancel | InputAction::Char('q') => {
-                    return;
-                }
-                InputAction::Up if *selected > 0 => {
-                    let new_sel = selected.saturating_sub(1);
-                    if new_sel == 0 && cash == 0 {
-                    } else {
-                        *selected = new_sel;
+            ShopPage::Main { ref mut selected } => {
+                let counters = Counter::shelf(access);
+                *selected = counters.settle(*selected);
+                match action {
+                    InputAction::Cancel | InputAction::Char('q') => {
+                        return;
                     }
-                }
-                InputAction::Down if *selected < 1 => {
-                    *selected += 1;
-                }
-                InputAction::Confirm => match *selected {
-                    0 => {
-                        let init_sel = buy_cat_first_available(access);
-                        shop.page = ShopPage::BuyCategory {
-                            selected: init_sel,
-                            buy_popup: None,
-                        };
+                    InputAction::Up => {
+                        *selected = counters.step(*selected, false);
                     }
-                    _ => {
-                        if let Some(sm) = self.build_sell_menu_state() {
-                            shop.page = ShopPage::Sell(sm);
+                    InputAction::Down => {
+                        *selected = counters.step(*selected, true);
+                    }
+                    InputAction::Confirm if counters.is_available(*selected) => {
+                        match Counter::ALL[*selected] {
+                            Counter::Buy => {
+                                shop.page = ShopPage::BuyCategory {
+                                    selected: buy_cat_first_available(access),
+                                    buy_popup: None,
+                                };
+                            }
+                            Counter::Sell => {
+                                if let Some(sm) = self.build_sell_menu_state() {
+                                    shop.page = ShopPage::Sell(sm);
+                                }
+                            }
                         }
                     }
-                },
-                _ => {}
-            },
+                    _ => {}
+                }
+            }
 
             ShopPage::BuyCategory {
                 ref mut selected,
@@ -1179,7 +1180,9 @@ impl App {
                 } else {
                     match action {
                         InputAction::Cancel | InputAction::Char('q') => {
-                            shop.page = ShopPage::Main { selected: 0 };
+                            shop.page = ShopPage::Main {
+                                selected: Counter::Buy.index(),
+                            };
                         }
                         InputAction::Up => {
                             *selected = buy_cat_next(*selected, false, access);
@@ -1187,24 +1190,33 @@ impl App {
                         InputAction::Down => {
                             *selected = buy_cat_next(*selected, true, access);
                         }
-                        InputAction::Confirm => match BuyCategory::ALL[*selected].purchase() {
-                            Purchase::Browse(list @ BuyList::Fishes) => {
-                                shop.page =
-                                    ShopPage::BuyFishList(Box::new(BuyListState::new(list, cash)));
+                        InputAction::Confirm
+                            if BuyCategory::ALL[*selected].is_available(access) =>
+                        {
+                            match BuyCategory::ALL[*selected].purchase() {
+                                Purchase::Browse(list @ BuyList::Fishes) => {
+                                    shop.page = ShopPage::BuyFishList(Box::new(BuyListState::new(
+                                        list, access,
+                                    )));
+                                }
+                                Purchase::Browse(list @ BuyList::Tanks) => {
+                                    shop.page =
+                                        ShopPage::BuyTankList(BuyListState::new(list, access));
+                                }
+                                Purchase::Browse(list @ BuyList::Bench(_)) => {
+                                    shop.page =
+                                        ShopPage::BuyBenchList(BuyListState::new(list, access));
+                                }
+                                Purchase::Tiers => {
+                                    shop.page = ShopPage::BuyBenchTiers {
+                                        selected: tier_shelf(access).first(),
+                                    };
+                                }
+                                Purchase::Counted { target, unit_price } => {
+                                    *buy_popup = QtyPopup::new(target, unit_price, cash);
+                                }
                             }
-                            Purchase::Browse(list @ BuyList::Tanks) => {
-                                shop.page = ShopPage::BuyTankList(BuyListState::new(list, cash));
-                            }
-                            Purchase::Browse(list @ BuyList::Bench(_)) => {
-                                shop.page = ShopPage::BuyBenchList(BuyListState::new(list, cash));
-                            }
-                            Purchase::Tiers => {
-                                shop.page = ShopPage::BuyBenchTiers { selected: 0 };
-                            }
-                            Purchase::Counted { target, unit_price } => {
-                                *buy_popup = QtyPopup::new(target, unit_price, cash);
-                            }
-                        },
+                        }
                         _ => {}
                     }
                 }
@@ -1212,6 +1224,8 @@ impl App {
 
             ShopPage::BuyBenchTiers { ref mut selected } => {
                 let tiers = crate::ui::shop_overlay::bench_tiers();
+                let shelf = tier_shelf(access);
+                *selected = shelf.settle(*selected);
                 match action {
                     InputAction::Cancel | InputAction::Char('q') => {
                         shop.page = ShopPage::BuyCategory {
@@ -1220,16 +1234,16 @@ impl App {
                         };
                     }
                     InputAction::Up => {
-                        *selected = selected.saturating_sub(1);
+                        *selected = shelf.step(*selected, false);
                     }
-                    InputAction::Down if *selected + 1 < tiers.len() => {
-                        *selected += 1;
+                    InputAction::Down => {
+                        *selected = shelf.step(*selected, true);
                     }
-                    InputAction::Confirm => {
+                    InputAction::Confirm if shelf.is_available(*selected) => {
                         if let Some(&tier) = tiers.get(*selected) {
                             shop.page = ShopPage::BuyBenchList(BuyListState::new(
                                 BuyList::Bench(tier),
-                                cash,
+                                access,
                             ));
                         }
                     }
@@ -1273,21 +1287,22 @@ impl App {
                     return;
                 }
 
+                fl.settle(access);
                 match action {
                     InputAction::Cancel | InputAction::Char('q') => {
                         shop.page = ShopPage::BuyCategory {
-                            selected: buy_cat_first_available(access),
+                            selected: BuyCategory::Fishes.index(),
                             buy_popup: None,
                         };
                     }
                     InputAction::Up => {
-                        fl.scroll_up(cash);
+                        fl.scroll_up(access);
                     }
                     InputAction::Down => {
-                        fl.scroll_down(cash);
+                        fl.scroll_down(access);
                     }
-                    InputAction::Confirm if access.room => {
-                        fl.popup = fl.purchase(cash);
+                    InputAction::Confirm => {
+                        fl.popup = fl.purchase(access);
                     }
                     _ => {}
                 }
@@ -1319,6 +1334,7 @@ impl App {
                     return;
                 }
 
+                tl.settle(access);
                 match action {
                     InputAction::Cancel | InputAction::Char('q') => {
                         shop.page = ShopPage::BuyCategory {
@@ -1327,13 +1343,13 @@ impl App {
                         };
                     }
                     InputAction::Up => {
-                        tl.scroll_up(cash);
+                        tl.scroll_up(access);
                     }
                     InputAction::Down => {
-                        tl.scroll_down(cash);
+                        tl.scroll_down(access);
                     }
                     InputAction::Confirm => {
-                        tl.popup = tl.purchase(cash);
+                        tl.popup = tl.purchase(access);
                     }
                     _ => {}
                 }
@@ -1361,6 +1377,7 @@ impl App {
                     return;
                 }
 
+                pl.settle(access);
                 match action {
                     InputAction::Cancel | InputAction::Char('q') => {
                         shop.page = ShopPage::BuyBenchTiers {
@@ -1371,13 +1388,13 @@ impl App {
                         };
                     }
                     InputAction::Up => {
-                        pl.scroll_up(cash);
+                        pl.scroll_up(access);
                     }
                     InputAction::Down => {
-                        pl.scroll_down(cash);
+                        pl.scroll_down(access);
                     }
                     InputAction::Confirm => {
-                        pl.popup = pl.purchase(cash);
+                        pl.popup = pl.purchase(access);
                     }
                     _ => {}
                 }
@@ -1465,7 +1482,11 @@ impl App {
 
                             match self.build_sell_menu_state() {
                                 Some(new_sm) => shop.page = ShopPage::Sell(new_sm),
-                                None => shop.page = ShopPage::Main { selected: 1 },
+                                None => {
+                                    shop.page = ShopPage::Main {
+                                        selected: Counter::Sell.index(),
+                                    }
+                                }
                             }
                         }
                         _ => {}
@@ -1473,7 +1494,9 @@ impl App {
                 } else {
                     match action {
                         InputAction::Cancel | InputAction::Char('q') => {
-                            shop.page = ShopPage::Main { selected: 1 };
+                            shop.page = ShopPage::Main {
+                                selected: Counter::Sell.index(),
+                            };
                         }
                         InputAction::Up => {
                             sm.scroll_up();
@@ -1496,7 +1519,7 @@ impl App {
         self.set_overlay(Overlay::Shop(shop));
     }
 
-    fn build_sell_menu_state(&self) -> Option<SellMenuState> {
+    pub(super) fn build_sell_menu_state(&self) -> Option<SellMenuState> {
         let fish: Vec<(String, FishSpecies, Money)> = self
             .tanks
             .iter()
@@ -2656,14 +2679,7 @@ impl App {
                 true
             }
             commands::Action::Shop => {
-                let cash = self.purse.spendable();
-                let mut state = ShopState::new();
-                if cash == 0
-                    && let ShopPage::Main { ref mut selected } = state.page
-                {
-                    *selected = 1;
-                }
-                self.set_overlay(Overlay::Shop(state));
+                self.set_overlay(Overlay::Shop(ShopState::open(self.shop_access())));
                 true
             }
             commands::Action::Consume { name } => {
@@ -2829,7 +2845,7 @@ impl App {
     }
 
     fn execute_buy(&mut self, target: commands::BuyTarget) -> bool {
-        let cash = self.purse.spendable();
+        let access = self.shop_access();
         match target {
             commands::BuyTarget::Fish(species) => {
                 let Some(catalog_idx) = FishSpecies::all_buyable()
@@ -2838,12 +2854,10 @@ impl App {
                 else {
                     return false;
                 };
-                if !self.has_room_for_a_new(species) {
-                    return false;
-                }
-                let mut fl: BuyListState<FishNamePopup> = BuyListState::new(BuyList::Fishes, cash);
+                let mut fl: BuyListState<FishNamePopup> =
+                    BuyListState::new(BuyList::Fishes, access);
                 fl.selected = catalog_idx;
-                let Some(popup) = fl.purchase(cash) else {
+                let Some(popup) = fl.purchase(access) else {
                     return false;
                 };
                 fl.popup = Some(popup);
@@ -2857,9 +2871,9 @@ impl App {
                 else {
                     return false;
                 };
-                let mut tl: BuyListState<BuyTankPopup> = BuyListState::new(BuyList::Tanks, cash);
+                let mut tl: BuyListState<BuyTankPopup> = BuyListState::new(BuyList::Tanks, access);
                 tl.selected = catalog_idx;
-                let Some(popup) = tl.purchase(cash) else {
+                let Some(popup) = tl.purchase(access) else {
                     return false;
                 };
                 tl.popup = Some(popup);

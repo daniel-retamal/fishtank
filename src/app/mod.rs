@@ -445,6 +445,7 @@ impl App {
             room: FishSpecies::all_buyable()
                 .iter()
                 .any(|&species| self.has_room_for_a_new(species)),
+            sellable: self.build_sell_menu_state().is_some(),
         }
     }
 
