@@ -380,10 +380,6 @@ impl FabricationRefusal {
 }
 
 impl Tank {
-    pub fn room(&self) -> usize {
-        self.capacity().saturating_sub(self.fish.len())
-    }
-
     fn wires(&self) -> BTreeSet<String> {
         self.channels
             .names()

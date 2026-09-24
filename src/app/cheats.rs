@@ -119,7 +119,7 @@ impl App {
             0.0,
             &mut rand::rng(),
         );
-        self.land_fish(self.current_tank, fish, name);
+        self.land_or_wait(self.current_tank, fish, name);
     }
 
     fn grant(&mut self, cheat: Cheat) -> bool {

@@ -54,6 +54,7 @@ const RULE_JOINS_RIGHT: char = '┤';
 pub struct ShopAccess {
     pub cash: Money,
     pub connected: bool,
+    pub room: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -67,7 +68,8 @@ impl BuyList {
     pub fn has_anything_affordable(self, access: ShopAccess) -> bool {
         let open = match self {
             BuyList::Bench(_) => access.connected,
-            BuyList::Fishes | BuyList::Tanks => true,
+            BuyList::Fishes => access.room,
+            BuyList::Tanks => true,
         };
         open && self
             .prices()
@@ -1520,6 +1522,7 @@ mod tests {
         ShopAccess {
             cash: Money::MAX,
             connected: true,
+            room: true,
         }
     }
 
@@ -1527,6 +1530,7 @@ mod tests {
         ShopAccess {
             cash: Money::MAX,
             connected: false,
+            room: true,
         }
     }
 
@@ -1553,11 +1557,13 @@ mod tests {
         let broke = ShopAccess {
             cash: Money::from(cheapest) - 1,
             connected: true,
+            room: true,
         };
         assert!(!BuyCategory::Robotics.is_available(broke));
         assert!(BuyCategory::Robotics.is_available(ShopAccess {
             cash: Money::from(cheapest),
             connected: true,
+            room: true,
         }));
     }
 

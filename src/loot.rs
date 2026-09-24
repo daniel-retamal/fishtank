@@ -1156,10 +1156,14 @@ impl LootPool {
         self
     }
 
-    pub fn without_fish(mut self) -> Self {
+    pub fn keeping_species(mut self, keep: impl Fn(FishSpecies) -> bool) -> Self {
         self.slots
-            .retain(|(_, s)| !matches!(s, PoolSlot::Species(_)));
+            .retain(|&(_, slot)| !matches!(slot, PoolSlot::Species(species) if !keep(species)));
         self
+    }
+
+    pub fn offers_fish(&self) -> bool {
+        self.species_weights().next().is_some()
     }
 
     pub fn without(mut self, withheld: &[ConsumableKind]) -> Self {

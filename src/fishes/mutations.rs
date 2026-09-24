@@ -163,6 +163,10 @@ impl Mutation {
     pub fn auto_selectable(self) -> bool {
         !matches!(self, Mutation::Strawberry | Mutation::Alienation)
     }
+
+    pub fn divides(self) -> bool {
+        matches!(self, Mutation::Cytokinesis)
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -292,10 +296,18 @@ pub trait Mutatable {
     }
 
     fn random_mutation(&self, rng: &mut impl RngExt) -> Option<Mutation> {
+        self.random_mutation_with_room(rng, true)
+    }
+
+    fn random_mutation_with_room(
+        &self,
+        rng: &mut impl RngExt,
+        room_to_divide: bool,
+    ) -> Option<Mutation> {
         let pool: Vec<Mutation> = self
             .available_mutations()
             .into_iter()
-            .filter(|m| m.auto_selectable())
+            .filter(|m| m.auto_selectable() && (room_to_divide || !m.divides()))
             .collect();
         if pool.is_empty() {
             return None;

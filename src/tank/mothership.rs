@@ -57,7 +57,7 @@ impl Tank {
     }
 
     pub fn answers_call_home(&self) -> bool {
-        self.fish.len() + self.incoming_fish() < self.capacity()
+        !self.is_full()
     }
 
     fn callers(&self) -> Vec<Caller> {

@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use super::{ChannelRegistry, Exile, Tank, TankKind, WorldSignal};
+use super::{Arrival, ChannelRegistry, Tank, TankKind, WorldSignal};
 use crate::economy::Money;
 use crate::entities::cow::Cow;
 use crate::fishes::fish::Fish;
@@ -33,7 +33,8 @@ pub struct TankRecord {
     pending_star_cash: Money,
     pending_graveyard: Vec<Fish>,
     pending_loose_parts: Vec<Part>,
-    pending_exiles: Vec<Exile>,
+    #[serde(alias = "pending_exiles")]
+    pending_arrivals: Vec<Arrival>,
     pending_signals: BTreeSet<WorldSignal>,
 }
 
@@ -57,7 +58,7 @@ impl TankRecord {
             pending_star_cash,
             pending_graveyard,
             pending_loose_parts,
-            pending_exiles,
+            pending_arrivals,
             pending_signals,
             extra_capacity,
             boundless,
@@ -98,7 +99,7 @@ impl TankRecord {
             pending_star_cash: *pending_star_cash,
             pending_graveyard: pending_graveyard.clone(),
             pending_loose_parts: pending_loose_parts.clone(),
-            pending_exiles: pending_exiles.clone(),
+            pending_arrivals: pending_arrivals.clone(),
             pending_signals: pending_signals.clone(),
         }
     }
@@ -147,7 +148,7 @@ impl TankRecord {
         tank.pending_star_cash = self.pending_star_cash;
         tank.pending_graveyard = self.pending_graveyard;
         tank.pending_loose_parts = self.pending_loose_parts;
-        tank.pending_exiles.extend(self.pending_exiles);
+        tank.pending_arrivals.extend(self.pending_arrivals);
         tank.pending_signals.extend(self.pending_signals);
         tank
     }

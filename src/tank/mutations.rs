@@ -208,23 +208,24 @@ impl Tank {
     fn resolve_mutation<M: Mutatable>(
         target: &M,
         token: &str,
+        room_to_divide: bool,
         rng: &mut impl RngExt,
     ) -> Option<Mutation> {
         let mutation = if token.is_empty() {
-            target.random_mutation(rng)?
+            target.random_mutation_with_room(rng, room_to_divide)?
         } else {
             Mutation::parse(token)?
         };
-        if target.supports_now(mutation) {
-            Some(mutation)
-        } else {
-            None
-        }
+        let has_room = room_to_divide || !mutation.divides();
+        (has_room && target.supports_now(mutation)).then_some(mutation)
     }
 
     fn mutate_fish(&mut self, idx: usize, token: &str) -> bool {
         let mut rng = rand::rng();
-        let Some(mutation) = Self::resolve_mutation(&self.fish[idx], token, &mut rng) else {
+        let room_to_divide = !self.is_full();
+        let Some(mutation) =
+            Self::resolve_mutation(&self.fish[idx], token, room_to_divide, &mut rng)
+        else {
             return false;
         };
         let was_fused = self.fish[idx].fused_render_halves().is_some();
@@ -324,7 +325,7 @@ impl Tank {
 
     fn mutate_cow(&mut self, idx: usize, token: &str) -> bool {
         let mut rng = rand::rng();
-        let Some(mutation) = Self::resolve_mutation(&self.cows[idx], token, &mut rng) else {
+        let Some(mutation) = Self::resolve_mutation(&self.cows[idx], token, true, &mut rng) else {
             return false;
         };
         let outcome = apply_mutation(&mut self.cows[idx], mutation, &mut rng);

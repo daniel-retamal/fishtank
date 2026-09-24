@@ -1,6 +1,6 @@
 use crate::fishes::fish::Fish;
 use crate::names;
-use crate::tank::{Afterlife, Exile, Tank, TankKind, WorldSignal};
+use crate::tank::{Afterlife, Tank, TankKind, WorldSignal};
 
 use super::App;
 
@@ -61,6 +61,10 @@ impl App {
         if self.current_tank >= index && self.current_tank > 0 {
             self.current_tank -= 1;
         }
+        let waiting = std::mem::take(&mut tank.pending_arrivals);
+        self.tanks[self.current_tank]
+            .pending_arrivals
+            .extend(waiting);
         let Some(afterlife) = tank.kind.config().afterlife else {
             return;
         };
@@ -100,38 +104,6 @@ impl App {
         let mut heaven = Tank::new(name, TankKind::Heaven, &[]);
         heaven.resize(self.terminal_width, self.tank_height(), &[]);
         self.found_tank(heaven)
-    }
-
-    pub(super) fn landing_tank(&self, from: usize, welcomes: impl Fn(&Tank) -> bool) -> usize {
-        let count = self.tanks.len();
-        let onwards = || (0..count).map(|step| (from + step) % count);
-        onwards()
-            .find(|&i| welcomes(&self.tanks[i]) && !self.tanks[i].is_full())
-            .or_else(|| onwards().find(|&i| welcomes(&self.tanks[i])))
-            .unwrap_or(from)
-    }
-
-    pub(super) fn land_fish(&mut self, from: usize, fish: Fish, name: String) -> usize {
-        let to = self.landing_tank(from, |tank| tank.welcomes(&fish));
-        self.tanks[to].place_fish(fish, name, &mut rand::rng());
-        to
-    }
-
-    pub(super) fn settle_exiles(&mut self) {
-        for from in 0..self.tanks.len() {
-            for exile in std::mem::take(&mut self.tanks[from].pending_exiles) {
-                match exile {
-                    Exile::Fish(fish) => {
-                        let name = fish.name.clone();
-                        self.land_fish(from, *fish, name);
-                    }
-                    Exile::Cow(cow) => {
-                        let to = self.landing_tank(from, Tank::welcomes_cows);
-                        self.tanks[to].place_cow(*cow, &mut rand::rng());
-                    }
-                }
-            }
-        }
     }
 
     pub(super) fn can_sell_tank(&self, index: usize) -> bool {

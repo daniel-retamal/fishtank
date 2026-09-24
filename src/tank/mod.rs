@@ -459,7 +459,7 @@ impl TankKind {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub enum Exile {
+pub enum Arrival {
     Fish(Box<Fish>),
     Cow(Box<Cow>),
 }
@@ -519,7 +519,7 @@ pub struct Tank {
     pub pending_star_cash: Money,
     pub pending_graveyard: Vec<Fish>,
     pub pending_loose_parts: Vec<Part>,
-    pub pending_exiles: Vec<Exile>,
+    pub pending_arrivals: Vec<Arrival>,
     pending_signals: BTreeSet<WorldSignal>,
     pub extra_capacity: u32,
     pub boundless: bool,
@@ -562,7 +562,7 @@ impl Tank {
             pending_star_cash: 0,
             pending_graveyard: Vec::new(),
             pending_loose_parts: Vec::new(),
-            pending_exiles: Vec::new(),
+            pending_arrivals: Vec::new(),
             pending_signals: BTreeSet::new(),
             extra_capacity: 0,
             boundless: false,
@@ -591,8 +591,17 @@ impl Tank {
         self.extra_capacity += amount;
     }
 
+    pub fn room(&self) -> usize {
+        self.capacity()
+            .saturating_sub(self.fish.len() + self.incoming_fish())
+    }
+
     pub fn is_full(&self) -> bool {
-        self.fish.len() >= self.capacity()
+        self.room() == 0
+    }
+
+    pub fn has_room_for(&self, fish: &Fish) -> bool {
+        self.welcomes(fish) && !self.is_full()
     }
 
     pub fn resize(&mut self, width: u16, height: u16, dead_names: &[String]) {
@@ -657,7 +666,7 @@ impl Tank {
     pub(super) fn admit(&mut self, mut fish: Fish, name: String) {
         if !self.welcomes(&fish) {
             fish.name = name;
-            self.pending_exiles.push(Exile::Fish(Box::new(fish)));
+            self.pending_arrivals.push(Arrival::Fish(Box::new(fish)));
             return;
         }
         self.mark_for_devil(&mut fish);
@@ -702,7 +711,7 @@ impl Tank {
 
     fn admit_cow(&mut self, cow: Cow) {
         if !self.welcomes_cows() {
-            self.pending_exiles.push(Exile::Cow(Box::new(cow)));
+            self.pending_arrivals.push(Arrival::Cow(Box::new(cow)));
             return;
         }
         self.used_cow_names.insert(cow.name.clone());

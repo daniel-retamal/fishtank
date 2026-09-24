@@ -125,7 +125,7 @@ impl App {
         } else {
             self.handle_command_input(event);
         }
-        self.settle_exiles();
+        self.settle_arrivals();
         if is_key_press {
             self.reset_blink();
         }
@@ -536,8 +536,8 @@ impl App {
     }
 
     fn keep_catch(&mut self, tank_idx: usize, fish: Fish, name: String) {
-        let target_idx = self.land_fish(tank_idx, fish, name);
-        self.tanks[target_idx].signal(WorldSignal::Catch);
+        let landed = self.land_or_wait(tank_idx, fish, name).unwrap_or(tank_idx);
+        self.tanks[landed].signal(WorldSignal::Catch);
     }
 
     fn land_catch(&mut self, tank_idx: usize, rng: &mut impl RngExt) {
@@ -1253,10 +1253,8 @@ impl App {
                     }) = fl.popup.take()
                     {
                         let price = FishSpecies::all_buyable()[catalog_idx].buy_price();
-                        if self.pay(price, Flow::Fish) {
-                            let name = names::title_case(name_input.as_str());
-                            self.place_purchased_fish(fish, name);
-                        }
+                        let name = names::title_case(name_input.as_str());
+                        self.buy_fish(self.current_tank, fish, name, price);
                     }
                     self.set_overlay(Overlay::Shop(shop));
                     return;
@@ -1288,7 +1286,7 @@ impl App {
                     InputAction::Down => {
                         fl.scroll_down(cash);
                     }
-                    InputAction::Confirm => {
+                    InputAction::Confirm if access.room => {
                         fl.popup = fl.purchase(cash);
                     }
                     _ => {}
@@ -1514,8 +1512,11 @@ impl App {
         SellMenuState::new(&fish, &self.inventory, &sellable_tanks, &blueprint_names)
     }
 
-    fn place_purchased_fish(&mut self, fish: Fish, name: String) {
-        self.land_fish(self.current_tank, fish, name);
+    fn buy_fish(&mut self, from: usize, fish: Fish, name: String, price: u32) -> bool {
+        if self.landing_tank(from, &fish).is_none() || !self.pay(price, Flow::Fish) {
+            return false;
+        }
+        self.land_fish(from, fish, name).is_ok()
     }
 
     pub(super) fn sellable_tanks_with_price(&self) -> Vec<(String, u32)> {
@@ -1769,10 +1770,16 @@ impl App {
         else {
             return false;
         };
-        let fish = self.exhume(pos);
+        self.raise_from_grave(pos, self.current_tank)
+    }
+
+    fn raise_from_grave(&mut self, grave: usize, from: usize) -> bool {
+        if self.landing_tank(from, &self.graveyard[grave]).is_none() {
+            return false;
+        }
+        let fish = self.exhume(grave);
         let name = fish.name.clone();
-        self.land_fish(self.current_tank, fish, name);
-        true
+        self.land_fish(from, fish, name).is_ok()
     }
 
     fn clone_entity(&mut self, name: &str) -> bool {
@@ -1784,13 +1791,7 @@ impl App {
             .cloned();
         if let Some(orig) = original_fish {
             let clone_name = format!("{}'s Clone", orig.name);
-            let ct = self.current_tank;
-            if self.tanks[ct].is_full() {
-                return false;
-            }
-            let mut rng = rand::rng();
-            self.tanks[ct].place_fish(orig, clone_name, &mut rng);
-            return true;
+            return self.land_fish(self.current_tank, orig, clone_name).is_ok();
         }
         let original_cow = self
             .tanks
@@ -1846,9 +1847,6 @@ impl App {
     }
 
     fn bless_clone(&mut self, tank_idx: usize, rng: &mut impl RngExt) {
-        if self.tanks[tank_idx].is_full() {
-            return;
-        }
         let fish_count = self.tanks[tank_idx].fish.len();
         let total = fish_count + self.tanks[tank_idx].cows.len();
         if total == 0 {
@@ -1858,7 +1856,7 @@ impl App {
         if pick < fish_count {
             let orig = self.tanks[tank_idx].fish[pick].clone();
             let clone_name = format!("{}'s Clone", orig.name);
-            self.tanks[tank_idx].place_fish(orig, clone_name, rng);
+            let _ = self.land_fish(tank_idx, orig, clone_name);
         } else {
             let mut orig = self.tanks[tank_idx].cows[pick - fish_count].clone();
             orig.name = format!("{}'s Clone", orig.name);
@@ -1908,23 +1906,18 @@ impl App {
     }
 
     fn bless_revive(&mut self, tank_idx: usize, rng: &mut impl RngExt) {
-        if self.tanks[tank_idx].is_full() {
-            return;
-        }
         let candidates: Vec<usize> = self
             .graveyard
             .iter()
             .enumerate()
-            .filter(|(_, f)| !f.devil_marked)
+            .filter(|(_, f)| !f.devil_marked && self.landing_tank(tank_idx, f).is_some())
             .map(|(i, _)| i)
             .collect();
         if candidates.is_empty() {
             return;
         }
         let pos = candidates[rng.random_range(0..candidates.len())];
-        let fish = self.exhume(pos);
-        let name = fish.name.clone();
-        self.land_fish(tank_idx, fish, name);
+        self.raise_from_grave(pos, tank_idx);
     }
 
     fn expand_tank(&mut self, tank_name: &str) -> bool {
@@ -1964,12 +1957,7 @@ impl App {
 
     pub(super) fn gift_fish(&mut self, tank_idx: usize, species: FishSpecies, name: &str) -> bool {
         let fish = Fish::new(species, String::new(), 0.0, 0.0, &mut rand::rng());
-        let target_idx = self.landing_tank(tank_idx, |tank| tank.welcomes(&fish));
-        if self.tanks[target_idx].is_full() {
-            return false;
-        }
-        self.tanks[target_idx].place_fish(fish, name.to_string(), &mut rand::rng());
-        true
+        self.land_fish(tank_idx, fish, name.to_string()).is_ok()
     }
 
     pub(super) fn execute_give(&mut self, target: GiveTarget, tank_idx: usize, flow: Flow) -> bool {
@@ -2397,7 +2385,7 @@ impl App {
         }
         let mut rng = rand::rng();
         for (tank_idx, fish_name, cast) in due {
-            if !self.has_room_for_a_catch() {
+            if !self.has_room_for_a_catch(tank_idx) {
                 continue;
             }
             match cast.tackle {
@@ -2497,19 +2485,9 @@ impl App {
                 if !species.config().buyable {
                     return false;
                 }
-                let price = species.buy_price();
-                if !self.purse.can_afford(price) || self.tanks[tank_idx].is_full() {
-                    return false;
-                }
-                let mut rng = rand::rng();
-                if !self.tanks[tank_idx].spawn_fish(
-                    species,
-                    species.display_name().to_string(),
-                    &mut rng,
-                ) {
-                    return false;
-                }
-                self.pay(price, Flow::Fish)
+                let fish = Fish::new(species, String::new(), 0.0, 0.0, &mut rand::rng());
+                let name = species.display_name().to_string();
+                self.buy_fish(tank_idx, fish, name, species.buy_price())
             }
             commands::BuyTarget::Tank(kind) => {
                 kind.config().buyable && self.buy_tank_named(kind, kind.display_name())
@@ -2860,6 +2838,9 @@ impl App {
                 else {
                     return false;
                 };
+                if !self.has_room_for_a_new(species) {
+                    return false;
+                }
                 let mut fl: BuyListState<FishNamePopup> = BuyListState::new(BuyList::Fishes, cash);
                 fl.selected = catalog_idx;
                 let Some(popup) = fl.purchase(cash) else {

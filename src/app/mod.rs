@@ -51,6 +51,7 @@ mod heaven;
 mod input;
 mod money;
 mod persistence;
+mod room;
 mod snapshot;
 
 pub use cheats::Launch;
@@ -441,6 +442,9 @@ impl App {
         crate::ui::shop_overlay::ShopAccess {
             cash: self.purse.spendable(),
             connected: self.is_connected(),
+            room: FishSpecies::all_buyable()
+                .iter()
+                .any(|&species| self.has_room_for_a_new(species)),
         }
     }
 
@@ -618,16 +622,12 @@ impl App {
             .without(&self.withheld_loot())
             .with_devils_luck(Self::devils_luck_in(tank))
             .with_grace(self.grace_stacks())
+            .keeping_species(|species| self.has_room_for_a_new(species))
     }
 
     pub(super) fn roll_catch(&self, tank_idx: usize, rng: &mut impl RngExt) -> LootKind {
-        let pool = self.catch_pool(tank_idx);
-        let pool = if self.has_room_for_a_catch() {
-            pool
-        } else {
-            pool.without_fish()
-        };
-        pool.with_cows(&Self::cow_counts_in(&self.tanks[tank_idx]))
+        self.catch_pool(tank_idx)
+            .with_cows(&Self::cow_counts_in(&self.tanks[tank_idx]))
             .roll(rng)
     }
 
@@ -639,8 +639,8 @@ impl App {
         self.catch_pool(tank_idx).roll_species(rng)
     }
 
-    pub(super) fn has_room_for_a_catch(&self) -> bool {
-        !self.tanks.iter().all(Tank::is_full)
+    pub(super) fn has_room_for_a_catch(&self, tank_idx: usize) -> bool {
+        self.catch_pool(tank_idx).offers_fish()
     }
 
     pub fn tick(&mut self) {
@@ -757,7 +757,7 @@ impl App {
         self.settle_console();
         self.tick_botfish();
         self.tick_casts();
-        self.settle_exiles();
+        self.settle_arrivals();
         self.refresh_circuit();
         self.tick_blink();
     }
@@ -1133,7 +1133,7 @@ impl App {
         rng: &mut impl RngExt,
     ) {
         use crate::entities::cow::Cow;
-        use crate::entities::ufo::{UFO_CENTER_COL, Ufo};
+        use crate::entities::ufo::Ufo;
         const UFO_BAY_LEFT_EYE_COL: i32 = 7;
         const COW_HEAD_EYE_OFFSET: i32 = 1;
         let tank = &mut self.tanks[tank_idx];
@@ -1155,7 +1155,6 @@ impl App {
             let target_y =
                 (tank.height as f32 - crate::entities::ufo::UFO_SPRITE_HEIGHT as f32).max(0.0);
             let ufo_x = x + COW_HEAD_EYE_OFFSET - UFO_BAY_LEFT_EYE_COL;
-            let _ = UFO_CENTER_COL;
             tank.ufos
                 .push(Ufo::new_drop_cow(ufo_x as f32, target_y, cow));
         } else {
@@ -1188,11 +1187,7 @@ impl App {
         let pick = abductable[rng.random_range(0..abductable.len())];
         let fish_name = self.tanks[source_idx].fish[pick].name.clone();
 
-        let dest_idx = self.choose_abduction_dest(source_idx);
-        let dest_idx = match dest_idx {
-            Some(i) => i,
-            None => self.create_alien_base_tank(rng),
-        };
+        let dest_idx = self.abduction_base(source_idx, rng);
 
         let source_active = source_idx == self.current_tank;
 
@@ -1229,14 +1224,30 @@ impl App {
             Some(p) => p,
             None => return,
         };
-        let dest_idx = self.pending_ufo_dest.remove(fish_name);
+        let planned = self.pending_ufo_dest.remove(fish_name);
         let mut fish = self.take_for_abduction(tank_idx, pos);
         fish.abduction_lock = false;
         let name = fish.name.clone();
         let mut rng = rand::rng();
-        let dest = dest_idx.unwrap_or(tank_idx);
+        let dest = match planned.filter(|&base| self.is_open_base(base)) {
+            Some(base) => base,
+            None => self.abduction_base(tank_idx, &mut rng),
+        };
         self.alienate_on_arrival(dest, &mut fish, &mut rng);
         self.tanks[dest].place_fish(fish, name, &mut rng);
+    }
+
+    fn is_open_base(&self, index: usize) -> bool {
+        self.tanks
+            .get(index)
+            .is_some_and(|tank| tank.kind.is_ufo_base() && !tank.is_full())
+    }
+
+    fn abduction_base(&mut self, source_idx: usize, rng: &mut impl RngExt) -> usize {
+        match self.choose_abduction_dest(source_idx) {
+            Some(base) => base,
+            None => self.create_alien_base_tank(rng),
+        }
     }
 
     fn choose_abduction_dest(&self, source_idx: usize) -> Option<usize> {
@@ -1245,10 +1256,7 @@ impl App {
             if i == source_idx {
                 continue;
             }
-            if t.kind.is_ufo_base()
-                && !t.is_full()
-                && t.cow_abduction_count < COW_DELIVERIES_PER_NEW_BASE
-            {
+            if self.is_open_base(i) && t.cow_abduction_count < COW_DELIVERIES_PER_NEW_BASE {
                 return Some(i);
             }
         }
@@ -1350,7 +1358,7 @@ mod catch_tests {
         for n in app.tanks[0].fish.len()..capacity {
             app.tanks[0].spawn_fish(FishSpecies::Merluza, format!("Full{n}"), &mut rng);
         }
-        assert!(!app.has_room_for_a_catch());
+        assert!(!app.has_room_for_a_catch(0));
         let mut robotics = false;
         for _ in 0..ROLLS {
             match app.roll_catch(0, &mut rng) {
@@ -1360,5 +1368,29 @@ mod catch_tests {
             }
         }
         assert!(robotics, "a full Matrixtank still gives up its parts");
+    }
+
+    #[test]
+    fn a_catch_is_only_a_fish_some_tank_would_take() {
+        let mut app = App::launch(Launch::Debug);
+        let mut rng = rand::rng();
+        let capacity = app.tanks[0].capacity();
+        for n in app.tanks[0].fish.len()..capacity {
+            app.tanks[0].spawn_fish(FishSpecies::Merluza, format!("Full{n}"), &mut rng);
+        }
+        let heaven = app.found_tank(Tank::new("Heaven".to_string(), TankKind::Heaven, &[]));
+        for _ in 0..ROLLS {
+            if let LootKind::Fish(species) = app.roll_catch(heaven, &mut rng) {
+                assert!(
+                    app.has_room_for_a_new(species),
+                    "only heaven has room, and it caught a {species:?}"
+                );
+            }
+        }
+        assert!(
+            app.has_room_for_a_catch(heaven),
+            "a Holyfish may still bite"
+        );
+        assert!(!app.has_room_for_a_catch(0), "but nothing heaven refuses");
     }
 }
