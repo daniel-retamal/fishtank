@@ -546,7 +546,7 @@ impl App {
         };
         self.spend_a_cast(Caster::Rig);
         let fish = Fish::new(species, String::new(), 0.0, 0.0, rng);
-        self.keep_catch(tank_idx, fish, species.un_name());
+        self.keep_catch(tank_idx, fish, species.display_name().to_string());
     }
 
     fn apply_non_fish_loot(&mut self, loot: LootKind) {
@@ -1983,7 +1983,7 @@ impl App {
                 true
             }
             GiveTarget::Item(stock) => self.stock_up(stock, stock.gift_quantity()),
-            GiveTarget::Fish(species) => self.gift_fish(tank_idx, species, &species.un_name()),
+            GiveTarget::Fish(species) => self.gift_fish(tank_idx, species, species.display_name()),
             GiveTarget::NamedFish { species, name } => {
                 self.gift_fish(tank_idx, species, &names::title_case(&name))
             }
@@ -1991,8 +1991,7 @@ impl App {
                 if !kind.config().sellable || self.claims(kind) {
                     return false;
                 }
-                let un_name = kind.un_name();
-                let actual_name = names::unique_name_in(&self.used_tank_names, &un_name);
+                let actual_name = names::unique_name_in(&self.used_tank_names, kind.display_name());
                 self.used_tank_names.insert(actual_name.clone());
                 let dead_names = self.graveyard_names();
                 self.found_tank(Tank::new(actual_name, kind, &dead_names));
@@ -2503,13 +2502,17 @@ impl App {
                     return false;
                 }
                 let mut rng = rand::rng();
-                if !self.tanks[tank_idx].spawn_fish(species, species.un_name(), &mut rng) {
+                if !self.tanks[tank_idx].spawn_fish(
+                    species,
+                    species.display_name().to_string(),
+                    &mut rng,
+                ) {
                     return false;
                 }
                 self.pay(price, Flow::Fish)
             }
             commands::BuyTarget::Tank(kind) => {
-                kind.config().buyable && self.buy_tank_named(kind, &kind.un_name())
+                kind.config().buyable && self.buy_tank_named(kind, kind.display_name())
             }
             other => self.execute_buy(other),
         }

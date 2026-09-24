@@ -121,75 +121,81 @@ fn tentacle_glyph(offset: i32) -> char {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn extension_row(
-    body: &[Cell],
-    span: (usize, usize),
-    ext: BodyExtension,
-    depth: usize,
-    top: bool,
-    facing_left: bool,
-    phase: f32,
-    max_tentacles: Option<usize>,
-) -> Vec<Cell> {
-    let mut row = vec![(TRANSPARENT, Color::Reset); body.len()];
-    let (lo, hi) = span;
-    if hi >= body.len() || lo > hi {
-        return row;
+#[derive(Clone, Copy)]
+pub struct PosedExtension {
+    pub ext: BodyExtension,
+    pub facing_left: bool,
+    pub phase: f32,
+    pub max_tentacles: Option<usize>,
+}
+
+impl PosedExtension {
+    pub fn row(self, body: &[Cell], span: (usize, usize), depth: usize, top: bool) -> Vec<Cell> {
+        let PosedExtension {
+            ext,
+            facing_left,
+            phase,
+            max_tentacles,
+        } = self;
+        let mut row = vec![(TRANSPARENT, Color::Reset); body.len()];
+        let (lo, hi) = span;
+        if hi >= body.len() || lo > hi {
+            return row;
+        }
+        let color_at = |col: usize| body[col].1;
+        match ext.variant {
+            ExtensionVariant::Tentacle => {
+                let region = hi - lo + 1;
+                let mut count = region.div_ceil(TENTACLE_STRIDE);
+                if let Some(max) = max_tentacles {
+                    count = count.min(max);
+                }
+                for (strand, slot) in even_indices(region, count).into_iter().enumerate() {
+                    let anchor = lo + slot;
+                    if !strand_reaches(ext, anchor, top, depth) {
+                        continue;
+                    }
+                    let strand_phase = phase + strand as f32 * TENTACLE_PHASE_STEP;
+                    let offset = if ext.length <= 1 {
+                        0
+                    } else {
+                        sway_x_offset(
+                            strand_phase,
+                            depth,
+                            ext.length.max(TENTACLE_RELAX_HEIGHT),
+                            TENTACLE_WAVE_SPREAD,
+                            TENTACLE_SWAY_AMOUNT,
+                        )
+                    };
+                    let col = anchor as i32 + offset;
+                    if col >= 0 && (col as usize) < row.len() {
+                        row[col as usize] = (tentacle_glyph(offset), color_at(anchor));
+                    }
+                }
+            }
+            ExtensionVariant::Spike => {
+                for (col, cell) in row.iter_mut().enumerate().take(hi + 1).skip(lo) {
+                    if strand_reaches(ext, col, top, depth) {
+                        *cell = (SPIKE_GLYPH, body[col].1);
+                    }
+                }
+            }
+            ExtensionVariant::Wing => {
+                let glyph = wing_glyph(facing_left, top);
+                let dir: i32 = if facing_left { 1 } else { -1 };
+                for col in lo..=hi {
+                    if !strand_reaches(ext, col, top, depth) {
+                        continue;
+                    }
+                    let drawn = col as i32 + dir * depth as i32;
+                    if drawn >= 0 && (drawn as usize) < row.len() {
+                        row[drawn as usize] = (glyph, color_at(col));
+                    }
+                }
+            }
+        }
+        row
     }
-    let color_at = |col: usize| body[col].1;
-    match ext.variant {
-        ExtensionVariant::Tentacle => {
-            let region = hi - lo + 1;
-            let mut count = region.div_ceil(TENTACLE_STRIDE);
-            if let Some(max) = max_tentacles {
-                count = count.min(max);
-            }
-            for (strand, slot) in even_indices(region, count).into_iter().enumerate() {
-                let anchor = lo + slot;
-                if !strand_reaches(ext, anchor, top, depth) {
-                    continue;
-                }
-                let strand_phase = phase + strand as f32 * TENTACLE_PHASE_STEP;
-                let offset = if ext.length <= 1 {
-                    0
-                } else {
-                    sway_x_offset(
-                        strand_phase,
-                        depth,
-                        ext.length.max(TENTACLE_RELAX_HEIGHT),
-                        TENTACLE_WAVE_SPREAD,
-                        TENTACLE_SWAY_AMOUNT,
-                    )
-                };
-                let col = anchor as i32 + offset;
-                if col >= 0 && (col as usize) < row.len() {
-                    row[col as usize] = (tentacle_glyph(offset), color_at(anchor));
-                }
-            }
-        }
-        ExtensionVariant::Spike => {
-            for (col, cell) in row.iter_mut().enumerate().take(hi + 1).skip(lo) {
-                if strand_reaches(ext, col, top, depth) {
-                    *cell = (SPIKE_GLYPH, body[col].1);
-                }
-            }
-        }
-        ExtensionVariant::Wing => {
-            let glyph = wing_glyph(facing_left, top);
-            let dir: i32 = if facing_left { 1 } else { -1 };
-            for col in lo..=hi {
-                if !strand_reaches(ext, col, top, depth) {
-                    continue;
-                }
-                let drawn = col as i32 + dir * depth as i32;
-                if drawn >= 0 && (drawn as usize) < row.len() {
-                    row[drawn as usize] = (glyph, color_at(col));
-                }
-            }
-        }
-    }
-    row
 }
 
 pub fn feet_row(body: &[Cell], span: (usize, usize), feet: Feet) -> Vec<Cell> {

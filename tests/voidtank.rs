@@ -7,7 +7,7 @@ use fishtank::{
     ui::consume_picker::ConsumePickerSource,
 };
 
-const GIFTED_VOIDTANK: &str = "UnVoidtank";
+const GIFTED_VOIDTANK: &str = "Voidtank";
 
 fn lab() -> Tui {
     let mut tui = Tui::new();

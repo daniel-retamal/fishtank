@@ -253,6 +253,7 @@ const BOT_FLAVOUR: Flavour = Flavour {
 pub struct SpeciesConfig {
     pub name: &'static str,
     pub body: BodyTemplate,
+    pub body_source: BodySource,
     pub palette: &'static [Color],
     pub pattern: PatternKind,
     pub sway_speed: f32,
@@ -367,6 +368,13 @@ static WILD_SPECIES: LazyLock<Vec<FishSpecies>> = LazyLock::new(|| {
         .filter(|species| species.config().habitat == Habitat::Everywhere)
         .collect()
 });
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BodySource {
+    Species,
+    MutantState,
+    UnfishState,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum BodyTemplate {
@@ -536,6 +544,7 @@ fn standard_config(
     SpeciesConfig {
         name,
         body: BodyTemplate::Standard(body),
+        body_source: BodySource::Species,
         palette,
         pattern,
         sway_speed,
@@ -577,6 +586,7 @@ fn fixed_config(
     SpeciesConfig {
         name,
         body: BodyTemplate::Fixed { left, right },
+        body_source: BodySource::Species,
         palette,
         pattern,
         sway_speed: 0.0,
@@ -606,10 +616,6 @@ fn fixed_config(
 }
 
 impl FishSpecies {
-    pub fn un_name(self) -> String {
-        format!("Un{}", self.config().name)
-    }
-
     pub fn config(self) -> SpeciesConfig {
         use FishSpecies::*;
         use PatternKind::*;
@@ -710,6 +716,7 @@ impl FishSpecies {
                 SpeciesConfig {
                     name: "Deadfish",
                     body: BodyTemplate::Alternating(DEADFISH_BC_SEMI, DEADFISH_BC_PLUS),
+                    body_source: BodySource::Species,
                     palette: &DEADFISH_PALETTE,
                     pattern: Solid,
                     sway_speed: 0.04,
@@ -894,6 +901,7 @@ impl FishSpecies {
             Mutantfish => SpeciesConfig {
                 name: "Mutantfish",
                 body: BodyTemplate::Standard(standard(EYE_CIRCLE, TailKind::Wide)),
+                body_source: BodySource::MutantState,
                 palette: &MUTANT_GREEN_PALETTE,
                 pattern: Solid,
                 sway_speed: 0.11,
@@ -939,6 +947,7 @@ impl FishSpecies {
             Unfish => SpeciesConfig {
                 name: "Unfish",
                 body: BodyTemplate::Standard(standard(EYE_ROUND, TailKind::Wide)),
+                body_source: BodySource::UnfishState,
                 palette: &UNFISH_PALETTE,
                 pattern: Solid,
                 sway_speed: 0.10,

@@ -75,3 +75,26 @@ fn used_names_set_is_updated_on_spawn() {
         "used_names must track spawned fish name"
     );
 }
+
+#[test]
+fn a_fish_or_tank_nobody_named_is_called_by_its_kind() {
+    let mut tui = fishtank::testing::Tui::new();
+    tui.clear_tank();
+    tui.run("/give salmon");
+    tui.run("/give salmon");
+    tui.run("/give coralreeftank");
+
+    let names: Vec<&str> = tui.app.tanks[0]
+        .fish
+        .iter()
+        .map(|f| f.name.as_str())
+        .collect();
+    assert_eq!(names, ["Salmon", "Salmon II"]);
+    assert!(
+        tui.app
+            .tanks
+            .iter()
+            .any(|tank| tank.name == TankKind::CoralReef.display_name()),
+        "a given tank is named after its kind"
+    );
+}

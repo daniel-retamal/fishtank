@@ -399,9 +399,6 @@ impl TankKind {
     pub fn is_ufo_base(self) -> bool {
         self.config().ufo_role == Some(UfoRole::DeliversCows)
     }
-    pub fn un_name(self) -> String {
-        format!("Un{}", self.config().display_name)
-    }
     pub fn buy_price(self) -> u32 {
         self.config().buy_price
     }

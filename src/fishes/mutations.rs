@@ -985,7 +985,7 @@ impl MutantBacked for Fish {
         self.mutant.as_mut().unwrap()
     }
     fn doublefish_eye_count(&self, rng: &mut impl RngExt) -> usize {
-        if self.species == FishSpecies::Mutantfish {
+        if self.has_shifting_body() {
             rng.random_range(1..=DOUBLE_EYE_COUNT_MAX)
         } else {
             match self.species.config().body {

@@ -10,7 +10,8 @@ use super::fused::FusedComponent;
 use super::mutant::{Circadian, EXTRA_BODY_FOR_DOUBLE, MutantState, MutationRecord};
 use super::mutations::native_eyes;
 use super::species::{
-    BodyChars, BodyTemplate, EYE_ROUND, FishSpecies, PatternKind, Sin, SizeCategory, TailKind,
+    BodyChars, BodySource, BodyTemplate, EYE_ROUND, FishSpecies, PatternKind, Sin, SizeCategory,
+    TailKind,
 };
 use super::unfish::{
     BALL_WIDTH, BLINKER_BASE_COLOR, BLINKER_GLISTEN_MID, BLINKER_GLISTEN_PEAK, BLINKER_MID_COLOR,
@@ -26,8 +27,8 @@ use crate::entities::glistening::{GlisteningMode, color_for_glisten, derive_glis
 use crate::entities::speech::SpeechBubble;
 use crate::settings::Settings;
 use crate::sprite::{
-    BodyExtension, EAR_LEFT, EAR_RIGHT, ExtensionVariant, Feet, ear_glyph, extension_row, feet_row,
-    mirror_char, painted_span,
+    BodyExtension, EAR_LEFT, EAR_RIGHT, ExtensionVariant, Feet, PosedExtension, ear_glyph,
+    feet_row, mirror_char, painted_span,
 };
 use crate::util::even_indices;
 
@@ -382,6 +383,17 @@ impl Fish {
             speech: None,
             field_cache: Vec::new(),
         }
+    }
+
+    pub fn has_shifting_body(&self) -> bool {
+        self.species.config().body_source == BodySource::MutantState
+    }
+
+    pub fn unfish_body(&self) -> Option<UnfishKind> {
+        if self.species.config().body_source != BodySource::UnfishState {
+            return None;
+        }
+        self.unfish_state.as_deref().map(|us| us.kind)
     }
 
     pub fn is_invisible(&self) -> bool {
@@ -904,37 +916,23 @@ impl Fish {
         span: (usize, usize),
         ext: BodyExtension,
     ) -> LineSprite {
-        let facing_left = matches!(self.facing, Direction::Left);
-        let phase = self.sway.phase;
+        let posed = PosedExtension {
+            ext,
+            facing_left: matches!(self.facing, Direction::Left),
+            phase: self.sway.phase,
+            max_tentacles: None,
+        };
         let (above, below) = line_extension_bands(ext.variant);
         let mut top_rows: Vec<Vec<(char, Color)>> = Vec::new();
         if above {
             for depth in (0..ext.length).rev() {
-                top_rows.push(extension_row(
-                    &body,
-                    span,
-                    ext,
-                    depth,
-                    true,
-                    facing_left,
-                    phase,
-                    None,
-                ));
+                top_rows.push(posed.row(&body, span, depth, true));
             }
         }
         let mut bottom_rows: Vec<Vec<(char, Color)>> = Vec::new();
         if below {
             for depth in 0..ext.length {
-                bottom_rows.push(extension_row(
-                    &body,
-                    span,
-                    ext,
-                    depth,
-                    false,
-                    facing_left,
-                    phase,
-                    None,
-                ));
+                bottom_rows.push(posed.row(&body, span, depth, false));
             }
         }
         let body_row = top_rows.len();
@@ -2133,7 +2131,7 @@ impl Fish {
         }
 
         let (raw_mouth, body_ch, non_double_tail): (char, char, Vec<char>) =
-            if self.species == FishSpecies::Mutantfish {
+            if self.has_shifting_body() {
                 let (rm, bc, _) =
                     body_chars_for_variant(mutant.body_variant, true, mutant.mouth_inverted);
                 (rm, bc, mutant.tail_variant.chars(true, 0.0))

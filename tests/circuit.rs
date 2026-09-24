@@ -3784,7 +3784,8 @@ fn a_cast_with_no_bait_does_nothing_at_all() {
 }
 
 #[test]
-fn a_fish_the_rig_lands_joins_its_tank_unnamed_and_startles_it_like_a_human_catch() {
+fn a_fish_the_rig_lands_joins_its_tank_named_after_its_species_and_startles_it_like_a_human_catch()
+{
     let mut app = rig_board(&["go"], "go", 50);
     let nerve = "Nerve";
     app.tanks[0].spawn_fish(FishSpecies::Botfish, nerve.to_string(), &mut rand::rng());
@@ -3799,7 +3800,7 @@ fn a_fish_the_rig_lands_joins_its_tank_unnamed_and_startles_it_like_a_human_catc
         landed = app.tanks[0]
             .fish
             .iter()
-            .find(|f| f.name.starts_with("Un"))
+            .find(|f| f.name.starts_with(f.species.display_name()))
             .map(|f| (f.name.clone(), f.species));
         if landed.is_some() && startled {
             break;
@@ -3808,7 +3809,7 @@ fn a_fish_the_rig_lands_joins_its_tank_unnamed_and_startles_it_like_a_human_catc
     let (name, species) = landed.expect("a rig that keeps casting lands a fish");
     assert_eq!(
         name,
-        species.un_name(),
+        species.display_name(),
         "named the way every bot names a fish"
     );
     assert!(

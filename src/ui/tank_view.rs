@@ -8,7 +8,7 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::colors::{LIGHT_CYAN, LIGHT_GREEN, PINK, WHITE, YELLOW};
 use crate::sprite::{
-    Cell, EAR_LEFT, EAR_RIGHT, Feet, TRANSPARENT, extension_row, feet_row, painted_span,
+    Cell, EAR_LEFT, EAR_RIGHT, Feet, PosedExtension, TRANSPARENT, feet_row, painted_span,
 };
 
 use crate::{
@@ -22,7 +22,6 @@ use crate::{
     fishes::botfish::BotfishState,
     fishes::fish::{Fish, line_extension_bands},
     fishes::parts::Display,
-    fishes::species::FishSpecies,
     fishes::unfish::{
         BALL_BASE, BALL_CENTER_ROW, BALL_EYE_COL, BALL_EYE_ROW, BALL_WIDTH, SKULL_CENTER_ROW,
         SKULL_CLOSED, SKULL_OPEN, SKULL_WIDTH, UNFISH_BODY_COLOR, UNFISH_EYE_COLOR, UnfishKind,
@@ -686,11 +685,10 @@ fn render_fish_label(fish: &Fish, color: Color, area: Rect, buf: &mut Buffer) {
 }
 
 fn sprite_rows_above_body(fish: &Fish) -> i32 {
-    if fish.species == FishSpecies::Unfish
-        && let Some(ref us) = fish.unfish_state
-        && is_multi_row(us.kind)
+    if let Some(kind) = fish.unfish_body()
+        && is_multi_row(kind)
     {
-        return unfish_center_row(us.kind);
+        return unfish_center_row(kind);
     }
     fish.line_sprite().body_row as i32
 }
@@ -879,14 +877,12 @@ fn render_fish(fish: &Fish, area: Rect, buf: &mut Buffer) {
     if fish.is_invisible() {
         return;
     }
-    if fish.species == FishSpecies::Unfish
-        && let Some(ref us) = fish.unfish_state
-    {
-        if is_multi_row(us.kind) {
+    if let Some(kind) = fish.unfish_body() {
+        if is_multi_row(kind) {
             render_multi_row_unfish(fish, area, buf);
             return;
         }
-        if us.kind == UnfishKind::Worm {
+        if kind == UnfishKind::Worm {
             render_worm_portal(fish, area, buf);
             return;
         }
@@ -1152,61 +1148,50 @@ pub(crate) fn render_multi_row_unfish_at(
                     }
                 }
             }
+            let coat = Coat {
+                body_color,
+                glisten_colors: &glisten_colors,
+                color_patches: &unfish_state.slime_color_patches,
+            };
             if let Some(feet) = unfish_state.feet {
                 let lowest = lines.last().copied().unwrap_or("");
                 let feet_y = base_y + lines.len() as i32;
-                render_feet_row(
-                    lowest,
-                    body_color,
-                    &glisten_colors,
-                    &unfish_state.slime_color_patches,
-                    feet,
-                    base_x,
-                    feet_y,
-                    area,
-                    buf,
-                );
+                render_feet_row(lowest, &coat, feet, (base_x, feet_y), area, buf);
             }
-            render_extension_bands(
-                fish,
-                lines,
-                body_color,
-                &glisten_colors,
-                &unfish_state.slime_color_patches,
-                base_x,
-                base_y,
-                area,
-                buf,
-            );
+            render_extension_bands(fish, lines, &coat, (base_x, base_y), area, buf);
         }
         _ => {}
     }
 }
 
-fn resolve_line_cells(
-    body_line: &str,
+struct Coat<'a> {
     body_color: Color,
-    glisten_colors: &[Color],
-    color_patches: &[(usize, Color)],
-) -> Vec<Cell> {
-    body_line
-        .chars()
-        .enumerate()
-        .map(|(col, ch)| {
-            let color = glisten_colors
-                .get(col)
-                .copied()
-                .or_else(|| {
-                    color_patches
-                        .iter()
-                        .rev()
-                        .find(|&&(pos, _)| pos == col)
-                        .map(|&(_, c)| c)
-                })
-                .unwrap_or(body_color);
-            (ch, color)
-        })
-        .collect()
+    glisten_colors: &'a [Color],
+    color_patches: &'a [(usize, Color)],
+}
+
+impl Coat<'_> {
+    fn cells(&self, body_line: &str) -> Vec<Cell> {
+        body_line
+            .chars()
+            .enumerate()
+            .map(|(col, ch)| {
+                let color = self
+                    .glisten_colors
+                    .get(col)
+                    .copied()
+                    .or_else(|| {
+                        self.color_patches
+                            .iter()
+                            .rev()
+                            .find(|&&(pos, _)| pos == col)
+                            .map(|&(_, c)| c)
+                    })
+                    .unwrap_or(self.body_color);
+                (ch, color)
+            })
+            .collect()
+    }
 }
 
 fn draw_appendage_row(row: &[Cell], base_x: i32, screen_y: i32, area: Rect, buf: &mut Buffer) {
@@ -1224,19 +1209,15 @@ fn draw_appendage_row(row: &[Cell], base_x: i32, screen_y: i32, area: Rect, buf:
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn render_feet_row(
     body_line: &str,
-    body_color: Color,
-    glisten_colors: &[Color],
-    color_patches: &[(usize, Color)],
+    coat: &Coat,
     feet: Feet,
-    base_x: i32,
-    screen_y: i32,
+    (base_x, screen_y): (i32, i32),
     area: Rect,
     buf: &mut Buffer,
 ) {
-    let body_cells = resolve_line_cells(body_line, body_color, glisten_colors, color_patches);
+    let body_cells = coat.cells(body_line);
     let Some(span) = painted_span(&body_cells) else {
         return;
     };
@@ -1251,54 +1232,35 @@ fn render_feet_row(
 
 const MULTI_ROW_MAX_TENTACLES: usize = 2;
 
-#[allow(clippy::too_many_arguments)]
 fn render_extension_bands(
     fish: &Fish,
     lines: &[&str],
-    body_color: Color,
-    glisten_colors: &[Color],
-    color_patches: &[(usize, Color)],
-    base_x: i32,
-    base_y: i32,
+    coat: &Coat,
+    (base_x, base_y): (i32, i32),
     area: Rect,
     buf: &mut Buffer,
 ) {
     let Some(ext) = fish.body_extension() else {
         return;
     };
-    let facing_left = fish.facing_left();
-    let phase = fish.sway.phase;
-    let max_tentacles = Some(MULTI_ROW_MAX_TENTACLES);
-    let top_cells = resolve_line_cells(lines[0], body_color, glisten_colors, color_patches);
+    let posed = PosedExtension {
+        ext,
+        facing_left: fish.facing_left(),
+        phase: fish.sway.phase,
+        max_tentacles: Some(MULTI_ROW_MAX_TENTACLES),
+    };
+    let top_cells = coat.cells(lines[0]);
     let bottom_line = lines.last().copied().unwrap_or("");
-    let bottom_cells = resolve_line_cells(bottom_line, body_color, glisten_colors, color_patches);
+    let bottom_cells = coat.cells(bottom_line);
     let top_span = painted_span(&top_cells);
     let bottom_span = painted_span(&bottom_cells);
     for depth in 0..ext.length {
         if let Some(span) = top_span {
-            let top_row = extension_row(
-                &top_cells,
-                span,
-                ext,
-                depth,
-                true,
-                facing_left,
-                phase,
-                max_tentacles,
-            );
+            let top_row = posed.row(&top_cells, span, depth, true);
             draw_appendage_row(&top_row, base_x, base_y - 1 - depth as i32, area, buf);
         }
         if let Some(span) = bottom_span {
-            let bottom_row = extension_row(
-                &bottom_cells,
-                span,
-                ext,
-                depth,
-                false,
-                facing_left,
-                phase,
-                max_tentacles,
-            );
+            let bottom_row = posed.row(&bottom_cells, span, depth, false);
             draw_appendage_row(
                 &bottom_row,
                 base_x,
@@ -1343,18 +1305,22 @@ fn render_worm_portal(fish: &Fish, area: Rect, buf: &mut Buffer) {
         return;
     };
     if let Some(ext) = fish.body_extension() {
-        let facing_left = fish.facing_left();
-        let phase = fish.sway.phase;
+        let posed = PosedExtension {
+            ext,
+            facing_left: fish.facing_left(),
+            phase: fish.sway.phase,
+            max_tentacles: None,
+        };
         let (above, below) = line_extension_bands(ext.variant);
         if above {
             for depth in 0..ext.length {
-                let row = extension_row(&segs, span, ext, depth, true, facing_left, phase, None);
+                let row = posed.row(&segs, span, depth, true);
                 draw_portal_row(&row, origin_x, body_y - 1 - depth as i32, area, buf);
             }
         }
         if below {
             for depth in 0..ext.length {
-                let row = extension_row(&segs, span, ext, depth, false, facing_left, phase, None);
+                let row = posed.row(&segs, span, depth, false);
                 draw_portal_row(&row, origin_x, body_y + 1 + depth as i32, area, buf);
             }
         }
@@ -1997,9 +1963,14 @@ fn render_cow_extension(
     let Some(span) = painted_span(&mask) else {
         return;
     };
-    let phase = cow.sway.phase;
+    let posed = PosedExtension {
+        ext,
+        facing_left: COW_FACES_LEFT,
+        phase: cow.sway.phase,
+        max_tentacles: None,
+    };
     for depth in 0..ext.length {
-        let row = extension_row(&mask, span, ext, depth, true, COW_FACES_LEFT, phase, None);
+        let row = posed.row(&mask, span, depth, true);
         let screen_y = base_y + torso_row_idx as i32 - 1 - depth as i32;
         draw_appendage_row(&row, base_x, screen_y, area, buf);
     }
@@ -2131,6 +2102,7 @@ fn render_ritual_text(lines: &[Option<String>; 2], area: Rect, buf: &mut Buffer)
 mod tests {
     use super::*;
     use crate::colors::LIGHT_YELLOW;
+    use crate::fishes::species::FishSpecies;
     use crate::sprite::opaque_line;
     use crate::tank::TankKind;
     use crate::tanks::heaven::{ANGEL, ANGEL_COLOR, SOUL_COLOR};

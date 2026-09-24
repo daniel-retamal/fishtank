@@ -343,13 +343,6 @@ pub fn wish_display_text(state: &VoidRitualState, _next_prayer: usize) -> [Optio
     }
 }
 
-#[allow(dead_code)]
-pub fn all_wish_kinds() -> &'static [&'static str] {
-    &[
-        "give", "mutate", "revive", "kill", "clone", "bless", "expand", "anything", "nothing",
-    ]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

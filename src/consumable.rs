@@ -17,6 +17,8 @@ pub const COFFEE_SWAY_MULT: f32 = 0.7;
 pub const COFFEE_ZOOMIE_DT_MULT: f32 = 0.3;
 
 const CHOCOLATE_WEIGHT_BONUS_G: u32 = 5000;
+const IRRADIATED_MILK_MUTATIONS_MIN: u32 = 10;
+const IRRADIATED_MILK_MUTATIONS_MAX: u32 = 15;
 
 pub const VISUAL_CALCULUS_ALPHA: f32 = 0.175;
 pub const VOLITION_ALPHA: f32 = 0.9;
@@ -292,7 +294,8 @@ pub fn apply_milk_to_fish(variant: MilkVariant, fish: &mut Fish, rng: &mut impl 
             apply_mutation_to_fish(fish, Mutation::Alienation, rng);
         }
         MilkVariant::Irradiated => {
-            fish.pending_rad_mutations += rng.random_range(10..=15);
+            fish.pending_rad_mutations +=
+                rng.random_range(IRRADIATED_MILK_MUTATIONS_MIN..=IRRADIATED_MILK_MUTATIONS_MAX);
         }
     }
 }

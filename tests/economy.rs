@@ -625,7 +625,7 @@ fn a_rig_always_lands_a_fish_and_never_quickly() {
         );
         let caught = tui.app.tanks[0].fish.last().expect("the catch");
         assert!(
-            caught.name.starts_with(&caught.species.un_name()),
+            caught.name.starts_with(caught.species.display_name()),
             "a rig's catch is a fish, named the way a bot names one: {}",
             caught.name
         );

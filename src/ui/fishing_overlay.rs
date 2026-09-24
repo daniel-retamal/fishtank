@@ -22,6 +22,8 @@ const MAX_VELOCITY: f32 = 0.05;
 const TARGET_DURATION_MIN: f32 = 20.0;
 const TARGET_DURATION_MAX: f32 = 50.0;
 const REEL_RATE: f32 = 0.009;
+const COFFEE_REEL_RATE_PER_STACK: f32 = 0.002;
+const WALL_BOUNCE: f32 = -0.5;
 const EDGE_DRAIN_RATE: f32 = 0.004;
 const EDGE_DRAIN_SLOPE: f32 = 1.0;
 const BAD_REEL_PENALTY: f32 = 7.3;
@@ -333,7 +335,7 @@ impl FishingState {
         self.fish_pos = (self.fish_pos + self.fish_velocity).clamp(0.0, 1.0);
 
         if self.fish_pos <= 0.0 || self.fish_pos >= 1.0 {
-            self.fish_velocity *= -0.5;
+            self.fish_velocity *= WALL_BOUNCE;
         }
 
         let abs_offset = (self.fish_pos - 0.5).abs() * 2.0;
@@ -341,7 +343,7 @@ impl FishingState {
 
         let reel_punish = self.is_reeling && abs_offset > safe_zone;
 
-        let reel_rate = REEL_RATE + 0.002 * coffee_stacks as f32;
+        let reel_rate = REEL_RATE + COFFEE_REEL_RATE_PER_STACK * coffee_stacks as f32;
         if self.is_reeling {
             if reel_punish {
                 self.completion -= drain * BAD_REEL_PENALTY;
