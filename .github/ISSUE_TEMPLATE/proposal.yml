@@ -1,0 +1,17 @@
+name: Proposal
+description: A new fish, a new tank, or a change to how the game plays.
+labels: [proposal]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What it is, and what it does that nothing else in the water does.
+    validations:
+      required: true
+  - type: textarea
+    id: art
+    attributes:
+      label: Art
+      description: For a fish or a tank, draw it. If it is not yours, say who drew it and where it came from.
+      render: text

@@ -1,0 +1,54 @@
+name: installers
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to install, or empty for the latest release
+        required: false
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+jobs:
+  install:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      TAG: ${{ github.event.inputs.tag || github.event.workflow_run.head_branch }}
+      REPO: https://github.com/${{ github.repository }}
+    steps:
+      - name: Install with the shell installer
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [ -n "$TAG" ]; then URL="$REPO/releases/download/$TAG"; else URL="$REPO/releases/latest/download"; fi
+          curl --proto '=https' --tlsv1.2 -LsSf "$URL/fishtanks-installer.sh" | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Install with the PowerShell installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if ($env:TAG) { $url = "$env:REPO/releases/download/$env:TAG" } else { $url = "$env:REPO/releases/latest/download" }
+          irm "$url/fishtanks-installer.ps1" | iex
+          "$HOME\.local\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: It answers
+        shell: bash
+        run: |
+          fishtanks --version
+          fishtanks --help
+          fishtanks update
+      - name: It opens a tank and saves it when told to close
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set +e
+          TERM=xterm-256color timeout 5 script -qec fishtanks /dev/null > /dev/null
+          code=$?
+          set -e
+          echo "exit code $code"
+          test "$code" -ne 101
+          ls -l ~/.local/share/fishtank/
+          test -s ~/.local/share/fishtank/fishtank.ron

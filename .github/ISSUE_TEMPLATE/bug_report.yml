@@ -1,0 +1,39 @@
+name: Bug report
+description: Something in the water behaves differently than it should.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. /fish
+        2. Catch a Koi
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: What `fishtanks --version` prints.
+      placeholder: fishtanks 1.0.0
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: System, terminal and window size
+      placeholder: Windows 11, Windows Terminal, 100×30
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: A screenshot helps most. If a save is involved, `/export "bug.ron"` writes one you can attach.

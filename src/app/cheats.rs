@@ -56,6 +56,7 @@ impl App {
         debug
             .into_iter()
             .chain(self.unsaved_label())
+            .chain(self.update_label())
             .chain(
                 Switch::ALL
                     .iter()

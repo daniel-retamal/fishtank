@@ -50,6 +50,7 @@ mod console;
 mod heaven;
 mod input;
 mod money;
+mod news;
 mod persistence;
 mod room;
 mod snapshot;
@@ -131,6 +132,7 @@ pub struct App {
     day_clock: DayClock,
     persistence: Option<Persistence>,
     zen: bool,
+    newer_release: bool,
 }
 
 impl Default for App {

@@ -169,6 +169,7 @@ impl App {
             day_clock,
             persistence: _,
             zen: _,
+            newer_release: _,
         } = self;
         let food_in_the_water: u32 = tanks.iter().map(TankRecord::food_in_the_water).sum();
         let catch = match active_overlay {
@@ -247,6 +248,7 @@ impl App {
             day_clock: save.day_clock,
             persistence: None,
             zen: false,
+            newer_release: false,
         };
         app.hang_the_souls();
         if let Some(catch) = save.catch {
