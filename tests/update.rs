@@ -100,7 +100,13 @@ fn each_copy_is_told_how_it_updates() {
     assert_eq!(Route::of(installed), Route::Itself);
     assert_eq!(Route::of(unpacked), Route::Itself);
     assert_eq!(Route::Itself.advice(), None);
-    assert!(Route::Homebrew.advice().unwrap().contains("brew upgrade"));
+    assert!(
+        Route::Homebrew
+            .advice()
+            .unwrap()
+            .contains("brew update && brew upgrade"),
+        "brew refreshes a tap about once a day, so upgrade alone misses a release made today"
+    );
     assert!(Route::Cargo.advice().unwrap().contains("cargo install"));
 }
 

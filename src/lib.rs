@@ -17,6 +17,7 @@ pub mod settings;
 pub mod sprite;
 pub mod tank;
 pub mod tanks;
+pub mod terminal_events;
 pub mod testing;
 pub mod ui;
 pub mod update;
