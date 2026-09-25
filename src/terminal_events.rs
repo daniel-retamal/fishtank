@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use crossterm::event::{self, Event};
 
+use crate::ui::input_action::Releases;
+
 pub enum Heard {
     Event(Event),
     Quiet,
@@ -46,4 +48,31 @@ impl TerminalEvents {
             Err(_) => None,
         }
     }
+}
+
+#[cfg(unix)]
+pub fn report_key_releases() -> Releases {
+    use crossterm::event::{KeyboardEnhancementFlags, PushKeyboardEnhancementFlags};
+    use crossterm::{execute, terminal};
+
+    if !matches!(terminal::supports_keyboard_enhancement(), Ok(true)) {
+        return Releases::None;
+    }
+    let flags = PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::REPORT_EVENT_TYPES);
+    match execute!(io::stdout(), flags) {
+        Ok(()) => Releases::BeyondText,
+        Err(_) => Releases::None,
+    }
+}
+
+#[cfg(not(unix))]
+pub fn report_key_releases() -> Releases {
+    Releases::None
+}
+
+pub fn stop_reporting_key_releases(releases: Releases) {
+    if releases == Releases::None {
+        return;
+    }
+    let _ = crossterm::execute!(io::stdout(), event::PopKeyboardEnhancementFlags);
 }

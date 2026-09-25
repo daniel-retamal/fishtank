@@ -39,7 +39,7 @@ pub enum InputAction {
 
 pub fn classify(event: &Event) -> Option<InputAction> {
     let Event::Key(key) = event else { return None };
-    if key.kind != KeyEventKind::Press {
+    if key.kind == KeyEventKind::Release {
         return None;
     }
     Some(match key.code {
@@ -88,6 +88,39 @@ const MAX_REPEAT_SECS: f32 = 0.5;
 const REPEAT_SLACK: f32 = 1.25;
 const STAMP_TICKS: f32 = 2.0;
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub enum Releases {
+    #[default]
+    None,
+    BeyondText,
+    All,
+}
+
+impl Releases {
+    fn heard_from(code: KeyCode) -> Self {
+        if is_text_key(code) {
+            Releases::All
+        } else {
+            Releases::BeyondText
+        }
+    }
+
+    fn reported_for(self, code: KeyCode) -> bool {
+        match self {
+            Releases::None => false,
+            Releases::BeyondText => !is_text_key(code),
+            Releases::All => true,
+        }
+    }
+}
+
+fn is_text_key(code: KeyCode) -> bool {
+    matches!(
+        code,
+        KeyCode::Char(_) | KeyCode::Enter | KeyCode::Tab | KeyCode::Backspace
+    )
+}
+
 struct HeldKey {
     code: KeyCode,
     seen: f32,
@@ -95,7 +128,7 @@ struct HeldKey {
 }
 
 pub struct HeldKeys {
-    releases: bool,
+    releases: Releases,
     clock: f32,
     tick_secs: f32,
     first_repeat: f32,
@@ -106,7 +139,7 @@ pub struct HeldKeys {
 impl Default for HeldKeys {
     fn default() -> Self {
         Self {
-            releases: false,
+            releases: Releases::None,
             clock: 0.0,
             tick_secs: 0.0,
             first_repeat: UNLEARNED_FIRST_REPEAT_SECS,
@@ -118,21 +151,23 @@ impl Default for HeldKeys {
 
 impl HeldKeys {
     pub fn hear(&mut self, event: &Event) {
-        if matches!(event, Event::Key(key) if key.kind == KeyEventKind::Release) {
-            self.releases = true;
+        if let Event::Key(key) = event
+            && key.kind == KeyEventKind::Release
+        {
+            self.expect(Releases::heard_from(key.code));
         }
     }
 
-    pub fn reports_releases(&self) -> bool {
-        self.releases
+    pub fn expect(&mut self, releases: Releases) {
+        self.releases = self.releases.max(releases);
+    }
+
+    pub fn reports_release_of(&self, code: KeyCode) -> bool {
+        self.releases.reported_for(code)
     }
 
     pub fn press(&mut self, code: KeyCode) -> Vec<KeyCode> {
-        let lifted = if self.releases {
-            Vec::new()
-        } else {
-            self.lift_all_but(code)
-        };
+        let lifted = self.lift_the_silent_but(code);
         let now = self.clock;
         let Some(key) = self.keys.iter_mut().find(|key| key.code == code) else {
             self.keys.push(HeldKey {
@@ -153,10 +188,11 @@ impl HeldKeys {
         lifted
     }
 
-    fn lift_all_but(&mut self, code: KeyCode) -> Vec<KeyCode> {
+    fn lift_the_silent_but(&mut self, code: KeyCode) -> Vec<KeyCode> {
+        let releases = self.releases;
         let (kept, lifted): (Vec<HeldKey>, Vec<HeldKey>) = std::mem::take(&mut self.keys)
             .into_iter()
-            .partition(|key| key.code == code);
+            .partition(|key| key.code == code || releases.reported_for(key.code));
         self.keys = kept;
         lifted.into_iter().map(|key| key.code).collect()
     }
@@ -171,15 +207,21 @@ impl HeldKeys {
         self.keys.iter().any(|key| key.code == code)
     }
 
+    pub fn is_certainly_down(&self, code: KeyCode) -> bool {
+        self.keys.iter().any(|key| {
+            key.code == code
+                && (self.releases.reported_for(code)
+                    || self.clock - key.seen <= self.repeat_window())
+        })
+    }
+
     pub fn tick(&mut self, dt: f32) -> Vec<KeyCode> {
         self.clock += dt;
         self.tick_secs = dt;
-        if self.releases {
-            return Vec::new();
-        }
-        let (kept, lifted): (Vec<HeldKey>, Vec<HeldKey>) = std::mem::take(&mut self.keys)
-            .into_iter()
-            .partition(|key| self.clock - key.seen <= self.window(key));
+        let (kept, lifted): (Vec<HeldKey>, Vec<HeldKey>) =
+            std::mem::take(&mut self.keys).into_iter().partition(|key| {
+                self.releases.reported_for(key.code) || self.clock - key.seen <= self.window(key)
+            });
         self.keys = kept;
         lifted.into_iter().map(|key| key.code).collect()
     }
@@ -192,12 +234,14 @@ impl HeldKeys {
     }
 
     fn window(&self, key: &HeldKey) -> f32 {
-        let gap = if key.repeated {
-            self.repeat
-        } else {
-            self.first_repeat
-        };
-        gap * REPEAT_SLACK + STAMP_TICKS * self.tick_secs
+        if key.repeated {
+            return self.repeat_window();
+        }
+        self.first_repeat * REPEAT_SLACK + STAMP_TICKS * self.tick_secs
+    }
+
+    fn repeat_window(&self) -> f32 {
+        self.repeat * REPEAT_SLACK + STAMP_TICKS * self.tick_secs
     }
 }
 
@@ -291,14 +335,33 @@ mod tests {
     fn a_terminal_that_sends_releases_holds_a_key_until_its_release() {
         let mut keys = HeldKeys::default();
         keys.hear(&event(KeyCode::Enter, KeyEventKind::Release));
-        assert!(keys.reports_releases());
+        assert!(keys.reports_release_of(KeyCode::Char(' ')));
         keys.press(KeyCode::Down);
         assert!(keys.press(KeyCode::Left).is_empty(), "two keys are held");
         assert!(ticks(&mut keys, 300).is_empty(), "no repeat is needed");
-        assert!(keys.is_down(KeyCode::Down));
+        assert!(keys.is_certainly_down(KeyCode::Down));
         assert!(keys.is_down(KeyCode::Left));
         assert!(keys.release(KeyCode::Down));
         assert!(!keys.is_down(KeyCode::Down));
+    }
+
+    #[test]
+    fn an_arrow_release_proves_the_arrows_release_and_not_the_text_keys() {
+        let mut keys = HeldKeys::default();
+        keys.hear(&event(KeyCode::Up, KeyEventKind::Release));
+        assert!(keys.reports_release_of(KeyCode::Down));
+        assert!(!keys.reports_release_of(KeyCode::Char(' ')));
+        assert!(!keys.reports_release_of(KeyCode::Enter));
+        keys.press(KeyCode::Down);
+        keys.press(KeyCode::Char(' '));
+        assert_eq!(
+            keys.press(KeyCode::Left),
+            vec![KeyCode::Char(' ')],
+            "only a key that cannot say it is up is lifted by another press"
+        );
+        assert_eq!(ticks(&mut keys, 300), Vec::<KeyCode>::new());
+        assert!(keys.is_certainly_down(KeyCode::Down));
+        assert!(keys.is_certainly_down(KeyCode::Left));
     }
 
     #[test]
@@ -318,6 +381,23 @@ mod tests {
     }
 
     #[test]
+    fn a_press_with_no_repeat_is_certainly_down_only_for_one_repeat() {
+        let mut keys = HeldKeys::default();
+        keys.press(KeyCode::Down);
+        ticks(&mut keys, 1);
+        assert!(keys.is_certainly_down(KeyCode::Down), "just pressed");
+        let certain = UNLEARNED_REPEAT_SECS * REPEAT_SLACK + STAMP_TICKS * TICK;
+        ticks(&mut keys, (certain / TICK) as usize + 1);
+        assert!(keys.is_down(KeyCode::Down), "it may still be held");
+        assert!(
+            !keys.is_certainly_down(KeyCode::Down),
+            "but nothing has proved it"
+        );
+        keys.press(KeyCode::Down);
+        assert!(keys.is_certainly_down(KeyCode::Down), "a repeat proves it");
+    }
+
+    #[test]
     fn a_key_held_through_its_repeats_stays_down_and_lets_go_soon_after_the_last() {
         const FIRST_REPEAT: usize = 11;
         const REPEAT: usize = 3;
@@ -333,6 +413,9 @@ mod tests {
                 );
             }
             assert!(keys.is_down(KeyCode::Left), "tick {tick}: still held");
+            if since_first >= 0 {
+                assert!(keys.is_certainly_down(KeyCode::Left), "tick {tick}");
+            }
         }
         assert!((keys.first_repeat - secs(FIRST_REPEAT)).abs() < LEARNED_EPSILON);
         assert!((keys.repeat - secs(REPEAT)).abs() < LEARNED_EPSILON);
@@ -344,7 +427,7 @@ mod tests {
     #[test]
     fn a_terminal_that_never_sends_a_release_holds_only_the_last_key_pressed() {
         let mut keys = HeldKeys::default();
-        assert!(!keys.reports_releases());
+        assert!(!keys.reports_release_of(KeyCode::Down));
         keys.press(KeyCode::Down);
         assert_eq!(keys.press(KeyCode::Right), vec![KeyCode::Down]);
         assert!(!keys.is_down(KeyCode::Down), "its repeats stopped for good");
@@ -354,7 +437,7 @@ mod tests {
     #[test]
     fn letting_go_empties_the_hand() {
         let mut keys = HeldKeys::default();
-        keys.hear(&event(KeyCode::Enter, KeyEventKind::Release));
+        keys.expect(Releases::All);
         keys.press(KeyCode::Left);
         keys.press(KeyCode::Down);
         assert_eq!(keys.let_go(), vec![KeyCode::Left, KeyCode::Down]);
@@ -363,9 +446,9 @@ mod tests {
     }
 
     #[test]
-    fn classify_still_ignores_everything_but_a_press() {
+    fn classify_takes_a_press_and_a_repeat_and_never_a_release() {
         assert!(classify(&event(KeyCode::Char('x'), KeyEventKind::Release)).is_none());
-        assert!(classify(&event(KeyCode::Char('x'), KeyEventKind::Repeat)).is_none());
+        assert!(classify(&event(KeyCode::Char('x'), KeyEventKind::Repeat)).is_some());
         assert!(classify(&event(KeyCode::Char('x'), KeyEventKind::Press)).is_some());
     }
 }
