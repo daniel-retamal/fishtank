@@ -19,11 +19,16 @@ const PROBE_TIMEOUT_SECS: &str = "5";
 const LOCATION_HEADER: &str = "location:";
 const TAG_PREFIX: char = 'v';
 const RETIRED_EXTENSION: &str = "old";
-const RECEIPT_SUFFIX: &str = "-receipt.json";
-const UNIX_CONFIG_DIR: &str = ".config";
-const XDG_CONFIG_VAR: &str = "XDG_CONFIG_HOME";
 const HOMEBREW_MARKERS: [&str; 3] = ["/cellar/", "/homebrew/", "/linuxbrew/"];
 const CARGO_MARKER: &str = "/.cargo/bin/";
+const SHIPPED_ARCHES: [&str; 2] = ["x86_64", "aarch64"];
+const WINDOWS_ARCHIVE: &str = "zip";
+const UNIX_ARCHIVE: &str = "tar.xz";
+const DOWNLOAD_TIMEOUT_SECS: &str = "120";
+const SYSTEM_ROOT_VAR: &str = "SystemRoot";
+const WINDOWS_ROOT: &str = r"C:\Windows";
+const WINDOWS_TOOLS: &str = "System32";
+const WINDOWS_TAR: &str = "tar.exe";
 
 pub fn running() -> Version {
     Version::parse(VERSION).unwrap_or_else(|_| Version::new(0, 0, 0))
@@ -164,14 +169,13 @@ impl Watch {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Route {
-    Installer,
+    Itself,
     Homebrew,
     Cargo,
-    Unknown,
 }
 
 impl Route {
-    pub fn of(exe: &Path, has_receipt: bool) -> Self {
+    pub fn of(exe: &Path) -> Self {
         let path = exe
             .to_string_lossy()
             .replace('\\', "/")
@@ -182,45 +186,105 @@ impl Route {
         if path.contains(CARGO_MARKER) {
             return Route::Cargo;
         }
-        if has_receipt {
-            return Route::Installer;
-        }
-        Route::Unknown
-    }
-
-    fn detect() -> Self {
-        let Ok(exe) = env::current_exe() else {
-            return Route::Unknown;
-        };
-        let has_receipt = receipt_path().is_some_and(|path| path.exists());
-        Self::of(&exe, has_receipt)
+        Route::Itself
     }
 
     pub fn advice(self) -> Option<String> {
         match self {
-            Route::Installer => None,
+            Route::Itself => None,
             Route::Homebrew => Some(format!(
                 "This {NAME} came from Homebrew. Update it with: brew upgrade {NAME}"
             )),
             Route::Cargo => Some(format!(
                 "This {NAME} was built by cargo. Update it with: cargo install {NAME}"
             )),
-            Route::Unknown => Some(format!(
-                "This {NAME} was not put here by its installer, so it cannot update itself. The newest one is at {REPOSITORY}/releases/latest"
-            )),
         }
     }
 }
 
-fn receipt_path() -> Option<PathBuf> {
-    let base = if cfg!(windows) {
-        dirs::data_local_dir()?
-    } else {
-        env::var_os(XDG_CONFIG_VAR)
-            .map(PathBuf::from)
-            .or_else(|| dirs::home_dir().map(|home| home.join(UNIX_CONFIG_DIR)))?
-    };
-    Some(base.join(NAME).join(format!("{NAME}{RECEIPT_SUFFIX}")))
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Archive {
+    target: String,
+    windows: bool,
+}
+
+impl Archive {
+    pub fn for_system(os: &str, arch: &str) -> Option<Self> {
+        if !SHIPPED_ARCHES.contains(&arch) {
+            return None;
+        }
+        let platform = match os {
+            "windows" => "pc-windows-msvc",
+            "macos" => "apple-darwin",
+            "linux" => "unknown-linux-musl",
+            _ => return None,
+        };
+        Some(Self {
+            target: format!("{arch}-{platform}"),
+            windows: os == "windows",
+        })
+    }
+
+    fn this_system() -> Option<Self> {
+        Self::for_system(env::consts::OS, env::consts::ARCH)
+    }
+
+    pub fn file_name(&self) -> String {
+        let extension = if self.windows {
+            WINDOWS_ARCHIVE
+        } else {
+            UNIX_ARCHIVE
+        };
+        format!("{NAME}-{}.{extension}", self.target)
+    }
+
+    pub fn url(&self, version: &Version) -> String {
+        format!(
+            "{REPOSITORY}/releases/download/{TAG_PREFIX}{version}/{}",
+            self.file_name()
+        )
+    }
+
+    pub fn binary_inside(&self) -> PathBuf {
+        if self.windows {
+            return PathBuf::from(format!("{NAME}.exe"));
+        }
+        Path::new(&format!("{NAME}-{}", self.target)).join(NAME)
+    }
+
+    fn tar(&self) -> Command {
+        if !self.windows {
+            return Command::new("tar");
+        }
+        let root =
+            env::var_os(SYSTEM_ROOT_VAR).map_or_else(|| PathBuf::from(WINDOWS_ROOT), PathBuf::from);
+        Command::new(root.join(WINDOWS_TOOLS).join(WINDOWS_TAR))
+    }
+
+    fn fetch_into(&self, version: &Version, dir: &Path) -> Option<PathBuf> {
+        let archive = dir.join(self.file_name());
+        let downloaded = Command::new("curl")
+            .args(["-fsSL", "--max-time", DOWNLOAD_TIMEOUT_SECS, "-o"])
+            .arg(&archive)
+            .arg(self.url(version))
+            .stdin(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        if !downloaded {
+            return None;
+        }
+        let unpacked = self
+            .tar()
+            .arg("-xf")
+            .arg(&archive)
+            .arg("-C")
+            .arg(dir)
+            .stdin(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        let binary = dir.join(self.binary_inside());
+        (unpacked && binary.exists()).then_some(binary)
+    }
 }
 
 pub fn retired(exe: &Path) -> PathBuf {
@@ -233,25 +297,12 @@ pub fn sweep() {
     }
 }
 
-fn installer() -> Command {
-    let download = format!("{REPOSITORY}/releases/latest/download/{NAME}-installer");
-    if cfg!(windows) {
-        let mut command = Command::new("powershell");
-        command
-            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"])
-            .arg(format!("irm {download}.ps1 | iex"));
-        return command;
-    }
-    let mut command = Command::new("sh");
-    command.arg("-c").arg(format!(
-        "curl --proto '=https' --tlsv1.2 -LsSf {download}.sh | sh"
-    ));
-    command
-}
-
 pub fn run() -> ExitCode {
-    let route = Route::detect();
-    if let Some(advice) = route.advice() {
+    let Ok(exe) = env::current_exe() else {
+        eprintln!("{NAME} could not find itself on disk.");
+        return ExitCode::FAILURE;
+    };
+    if let Some(advice) = Route::of(&exe).advice() {
         println!("{advice}");
         return ExitCode::SUCCESS;
     }
@@ -268,26 +319,46 @@ pub fn run() -> ExitCode {
         println!("{NAME} {running} is the newest there is.");
         return ExitCode::SUCCESS;
     }
-    println!("Updating {NAME} {running} to {latest}.");
-    reinstall()
-}
-
-fn reinstall() -> ExitCode {
-    let Ok(exe) = env::current_exe() else {
-        eprintln!("{NAME} could not find itself on disk.");
+    let Some(archive) = Archive::this_system() else {
+        println!(
+            "There is no {NAME} build for this system. The newest one is at {REPOSITORY}/releases/latest"
+        );
         return ExitCode::FAILURE;
     };
-    let aside = retired(&exe);
-    if fs::rename(&exe, &aside).is_err() {
-        eprintln!("{NAME} could not move itself aside to make room for the new version.");
-        return ExitCode::FAILURE;
+    println!("Updating {NAME} {running} to {latest}.");
+    let workshop = env::temp_dir().join(format!("{NAME}-{latest}"));
+    let _ = fs::remove_dir_all(&workshop);
+    let outcome = fs::create_dir_all(&workshop)
+        .ok()
+        .and_then(|_| archive.fetch_into(&latest, &workshop))
+        .map(|fresh| swap(&exe, &fresh));
+    let _ = fs::remove_dir_all(&workshop);
+    match outcome {
+        Some(true) => {
+            println!("{NAME} is now {latest}.");
+            ExitCode::SUCCESS
+        }
+        Some(false) => {
+            eprintln!("{NAME} could not replace itself, so it was left as it was.");
+            ExitCode::FAILURE
+        }
+        None => {
+            eprintln!("{NAME} could not download {latest}, so it was left as it was.");
+            ExitCode::FAILURE
+        }
     }
-    let installed = installer().status().is_ok_and(|status| status.success());
-    if !installed || !exe.exists() {
-        let _ = fs::rename(&aside, &exe);
-        eprintln!("The installer did not finish, so {NAME} was left as it was.");
-        return ExitCode::FAILURE;
+}
+
+fn swap(exe: &Path, fresh: &Path) -> bool {
+    let aside = retired(exe);
+    let _ = fs::remove_file(&aside);
+    if fs::rename(exe, &aside).is_err() {
+        return false;
+    }
+    if fs::copy(fresh, exe).is_err() {
+        let _ = fs::rename(&aside, exe);
+        return false;
     }
     let _ = fs::remove_file(&aside);
-    ExitCode::SUCCESS
+    true
 }
