@@ -26,7 +26,7 @@
     <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-1f6feb" /></a>
   </p>
 
-  <img src=".github/assets/fishtank.png" alt="The Fishtank: three goldfishes and a nishiki among the kelp" width="900" />
+  <img src="https://raw.githubusercontent.com/daniel-retamal/fishtanks/main/.github/assets/fishtank.png" alt="The Fishtank: three goldfishes and a nishiki among the kelp" width="900" />
 
 </div>
 
@@ -117,12 +117,12 @@ You begin with a Fishtank, three fishes, $50 and a bag of food. Fishing is where
 
 <table>
   <tr>
-    <td><img src=".github/assets/haunted.png" alt="The Hauntedtank, with a grave for each fish that died" /><br /><sub>The Hauntedtank remembers your dead.</sub></td>
-    <td><img src=".github/assets/desert.png" alt="The Desertank at night, a UFO lifting a merluza" /><br /><sub>The Desertank, at night.</sub></td>
+    <td><img src="https://raw.githubusercontent.com/daniel-retamal/fishtanks/main/.github/assets/haunted.png" alt="The Hauntedtank, with a grave for each fish that died" /><br /><sub>The Hauntedtank remembers your dead.</sub></td>
+    <td><img src="https://raw.githubusercontent.com/daniel-retamal/fishtanks/main/.github/assets/desert.png" alt="The Desertank at night, a UFO lifting a merluza" /><br /><sub>The Desertank, at night.</sub></td>
   </tr>
   <tr>
-    <td><img src=".github/assets/matrix.png" alt="A Matrixtank where a cow says 6+4 and a botfish answers 10" /><br /><sub>A cow asks, and a calculator made of fish answers.</sub></td>
-    <td><img src=".github/assets/candy.png" alt="The Candytank" /><br /><sub>The Candytank.</sub></td>
+    <td><img src="https://raw.githubusercontent.com/daniel-retamal/fishtanks/main/.github/assets/matrix.png" alt="A Matrixtank where a cow says 6+4 and a botfish answers 10" /><br /><sub>A cow asks, and a calculator made of fish answers.</sub></td>
+    <td><img src="https://raw.githubusercontent.com/daniel-retamal/fishtanks/main/.github/assets/candy.png" alt="The Candytank" /><br /><sub>The Candytank.</sub></td>
   </tr>
 </table>
 
