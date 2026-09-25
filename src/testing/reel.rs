@@ -14,6 +14,9 @@ const DEFAULT_BG: &str = "#0c0c0c";
 const REELS_DIR: &str = "reels";
 const TEXT_EXTENSION: &str = "txt";
 const HTML_EXTENSION: &str = "html";
+const WIDE_CELLS: usize = 2;
+const CELL_CLASS: &str = "c";
+const WIDE_CELL_CLASS: &str = "w";
 const CUBE_BASE: u8 = 16;
 const CUBE_SIDE: u8 = 6;
 const GRAY_BASE: u8 = 232;
@@ -463,7 +466,7 @@ impl Still {
                     run.clear();
                 }
                 run_key = Some(key);
-                run.push_str(&escape(&glyph.symbol));
+                run.push_str(&cell_html(&glyph.symbol));
             }
             push_span(&mut screen, run_key, &run);
             screen.push('\n');
@@ -496,6 +499,17 @@ fn digit(value: usize) -> char {
 fn escape_ruler(width: usize) -> String {
     let units: String = (0..width).map(|x| digit(x % DECADE)).collect();
     format!("<span class=\"ruler\">{units}\n</span>")
+}
+
+fn cell_html(symbol: &str) -> String {
+    if symbol.is_ascii() {
+        return escape(symbol);
+    }
+    let class = match symbol.width() {
+        WIDE_CELLS.. => WIDE_CELL_CLASS,
+        _ => CELL_CLASS,
+    };
+    format!("<i class=\"{class}\">{}</i>", escape(symbol))
 }
 
 fn escape(text: &str) -> String {
@@ -604,6 +618,9 @@ h2{font-size:14px;font-weight:600;margin:0 0 8px;color:#e8e8ec}
 .n{color:#6e6e78;font-variant-numeric:tabular-nums;margin-right:4px}
 .dim{color:#6e6e78;font-weight:400}
 pre.screen{margin:0;background:#0c0c0c;color:#cccccc;padding:10px 12px;border-radius:6px;border:1px solid #2a2a30;overflow-x:auto;font:13px/1.05 'Cascadia Mono',Consolas,'DejaVu Sans Mono',monospace;width:max-content;max-width:100%}
+pre.screen i{display:inline-block;font-style:inherit;text-align:center;overflow:hidden;vertical-align:top;height:1.05em}
+pre.screen i.c{width:1ch}
+pre.screen i.w{width:2ch}
 .ruler{display:none;color:#4a4a52!important}
 body.rulers .ruler{display:inline}
 .flaw{outline:1px solid #ff4d4d;outline-offset:-1px}
@@ -899,6 +916,15 @@ mod tests {
             4,
             "a still keeps one glyph per terminal cell"
         );
+    }
+
+    #[test]
+    fn a_glyph_outside_ascii_keeps_to_its_own_cells_in_the_html() {
+        let html = still_of(&["aｱ界─"]).html(0);
+        assert!(html.contains("<i class=\"c\">ｱ</i>"), "{html}");
+        assert!(html.contains("<i class=\"w\">界</i>"), "{html}");
+        assert!(html.contains("<i class=\"c\">─</i>"), "{html}");
+        assert!(!html.contains("<i class=\"c\">a</i>"), "{html}");
     }
 
     #[test]
