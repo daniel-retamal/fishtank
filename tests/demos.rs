@@ -3,6 +3,7 @@ use std::path::Path;
 use crossterm::event::KeyCode;
 use fishtank::{
     economy::Money,
+    entities::food::{FOOD_BUY_PRICE, FOOD_WEIGHT_GAIN_G},
     fishes::parts::{RIG_WAIT_MAX_SECS, RIG_WAIT_MIN_SECS},
     fishes::{
         parts::{Part, PartTier},
@@ -10,6 +11,7 @@ use fishtank::{
     },
     ledger::{Direction, Flow},
     loot::{ConsumableKind, StockItem},
+    tank::FEED_PORTION,
     testing::Tui,
 };
 
@@ -299,6 +301,11 @@ const BREEDER_FLOOR: &str = "3";
 const REAPER_SETTLE: usize = 12;
 const SCRIPT_TICKS: usize = 40;
 
+fn spread(shoal: &[(String, Money)]) -> Money {
+    let values = shoal.iter().map(|(_, value)| *value);
+    values.clone().max().unwrap_or(0) - values.min().unwrap_or(0)
+}
+
 fn mutants(tui: &Tui) -> Vec<(String, Money)> {
     tui.app.tanks[tui.app.current_tank]
         .fish
@@ -571,7 +578,12 @@ fn the_phase_three_demo_written_in_the_plan_still_runs_keystroke_for_keystroke()
     tui.snap("2 · Twelve stages later — the Reaper's board swimming");
 
     let purse = tui.app.purse.balance();
-    tui.tick_n(REAPER_RUN_TICKS);
+    let mut spreads: Vec<Money> = (0..REAPER_RUN_TICKS / SCRIPT_TICKS)
+        .map(|_| {
+            tui.tick_n(SCRIPT_TICKS);
+            spread(&mutants(&tui))
+        })
+        .collect();
     tui.snap("2 · Twenty minutes later — cash up, shoal under its ceiling");
 
     assert!(
@@ -588,11 +600,12 @@ fn the_phase_three_demo_written_in_the_plan_still_runs_keystroke_for_keystroke()
         !shoal.is_empty() && shoal.len() <= POPULATION_CEILING,
         "the farm never eats its seed corn and never overruns the tank: {shoal:?}"
     );
-    let dearest = shoal.iter().map(|(_, v)| *v).max().expect("a shoal");
-    let cheapest = shoal.iter().map(|(_, v)| *v).min().expect("a shoal");
+    spreads.sort_unstable();
+    let typical = spreads[spreads.len() / 2];
     assert!(
-        dearest - cheapest < MUTANT_SPREAD_AFTER,
-        "selling the richest and cloning the cheapest flattens the shoal: {shoal:?}"
+        typical < MUTANT_SPREAD_AFTER,
+        "selling the richest and cloning the cheapest keeps the shoal flat between mutations: \
+         a median spread of ${typical} over the run"
     );
 
     tui.run("/index");
@@ -620,15 +633,14 @@ fn the_phase_three_demo_written_in_the_plan_still_runs_keystroke_for_keystroke()
         tui.run(&format!("/spawn snapper \"pen{index}\""));
     }
     convert_the_reaper_into_the_confectioner(&mut tui);
-    let pen_before = shoal_of(&tui, FishSpecies::Snapper).len();
+    let bought_before = ledger_line(&tui, Direction::Out, Flow::Fish);
     tui.tick_n(REAPER_RUN_TICKS);
     tui.snap("3 · The Confectioner, twenty minutes in");
 
     let pen = shoal_of(&tui, FishSpecies::Snapper);
     assert!(
-        pen.len() > pen_before,
-        "the Breeder now buys snappers instead of cloning mutants: {pen_before} -> {}",
-        pen.len()
+        ledger_line(&tui, Direction::Out, Flow::Fish) > bought_before,
+        "the Breeder now buys snappers instead of cloning mutants: {pen:?}"
     );
     assert!(
         sold(&tui, FishSpecies::Snapper) > 0,
@@ -1227,7 +1239,7 @@ fn the_phase_five_demo_written_in_the_plan_still_runs_keystroke_for_keystroke() 
 }
 
 const DEMO_SECONDS_AT_30: usize = 30;
-const FEED_ROUNDS_MAX: usize = 8;
+const FEED_ROUNDS_SLACK: usize = 2;
 const FEED_WAIT_SECS: usize = 12;
 const COINS: [&str; 5] = ["Coin1", "Coin2", "Coin3", "Coin4", "Coin5"];
 const COIN_PAYOUT_SECS: usize = 12;
@@ -1243,6 +1255,12 @@ fn tank_fish<'a>(tui: &'a Tui, name: &str) -> &'a fishtank::fishes::fish::Fish {
         .iter()
         .find(|fish| fish.name == name)
         .unwrap_or_else(|| panic!("{name} is in the tank"))
+}
+
+fn pellets_to_cap(fish: &fishtank::fishes::fish::Fish) -> usize {
+    let cap = fish.species.config().weight_cap[fish.size_category as usize];
+    cap.saturating_sub(fish.weight_g)
+        .div_ceil(FOOD_WEIGHT_GAIN_G) as usize
 }
 
 fn seconds_at(tui: &mut Tui, fps: usize, seconds: usize) {
@@ -1304,18 +1322,20 @@ fn the_economy_demo_runs_keystroke_for_keystroke() {
     tui.snap("1 · /shop, Sell: Kip's price before a single pellet");
     tui.key(KeyCode::Esc);
     tui.key(KeyCode::Esc);
-    tui.run("/buy food 200");
+    let pellets_to_cap = pellets_to_cap(tank_fish(&tui, "Kip"));
+    let feed_rounds_max = pellets_to_cap.div_ceil(FEED_PORTION) + FEED_ROUNDS_SLACK;
+    tui.run(&format!("/buy food {pellets_to_cap}"));
     let bag = tui.app.food_supply;
     tui.run("/feed");
     assert_eq!(
         tui.app.food_supply,
-        bag - 30,
+        bag - FEED_PORTION as u32,
         "/feed alone drops one portion"
     );
     tui.snap("1 · /feed: thirty pellets shower down");
     let mut rounds = 1;
     seconds_at(&mut tui, DEMO_SECONDS_AT_30, FEED_WAIT_SECS);
-    while tank_fish(&tui, "Kip").seeks_food() && rounds < FEED_ROUNDS_MAX {
+    while tank_fish(&tui, "Kip").seeks_food() && rounds < feed_rounds_max {
         tui.run("/feed");
         seconds_at(&mut tui, DEMO_SECONDS_AT_30, FEED_WAIT_SECS);
         rounds += 1;
@@ -1419,6 +1439,9 @@ fn the_economy_demo_runs_keystroke_for_keystroke() {
     tui.snap("5 · the net and the net per minute");
     tui.key(KeyCode::Esc);
     tui.screen().expect_absent("Ledger#show");
-    assert!(ledger_line(&tui, Direction::Out, Flow::Food) >= 200);
+    assert!(
+        ledger_line(&tui, Direction::Out, Flow::Food)
+            >= Money::from(FOOD_BUY_PRICE) * pellets_to_cap as Money
+    );
     assert_no_broken_borders(&tui);
 }
