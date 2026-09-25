@@ -19,3 +19,32 @@ jobs:
       - run: cargo build --all-targets
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --no-fail-fast
+      - name: It lets go when its window closes
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          FISHTANKS_NO_UPDATE_CHECK: "1"
+          TERM: xterm-256color
+        run: |
+          export HOME="$(mktemp -d)"
+          game="$PWD/target/debug/fishtanks"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            script -q /dev/null "$game" > /dev/null &
+          else
+            script -qec "$game" /dev/null > /dev/null &
+          fi
+          window=$!
+          sleep 4
+          pgrep -f "$game" > /dev/null
+          kill -KILL "$window"
+          for second in $(seq 1 15); do
+            pgrep -f "$game" > /dev/null || break
+            sleep 1
+          done
+          if pgrep -f "$game" > /dev/null; then
+            echo "fishtanks is still swimming after its window closed"
+            ps -o pid,stat,pcpu,command -p "$(pgrep -f "$game" | head -1)"
+            pkill -KILL -f "$game"
+            exit 1
+          fi
+          echo "fishtanks let go of its window"
