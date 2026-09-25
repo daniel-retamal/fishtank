@@ -1,6 +1,10 @@
 # Changelog
 
-## 1.0.0 (2026-09-25)
+## 1.0.1 - 2026-09-25
+
+- **`fishtanks update` works on Windows.** 1.0.0 updated itself by starting a PowerShell script, which Windows Defender blocks as a suspected trojan. It now downloads the new version and swaps itself in, with no script at all. If you have 1.0.0 on Windows, update once by running the install line again; from 1.0.1 on, `fishtanks update` does it.
+
+## 1.0.0 - 2026-09-25
 
 The first public release. An aquarium for your terminal, and a game under the water.
 
