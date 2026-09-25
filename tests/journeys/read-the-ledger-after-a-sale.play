@@ -1,0 +1,32 @@
+# JOURNEY · reading the ledger: every coin that moves lands on a line of /ledger (Ledger#show).
+# Buy a Merluza, sell it back, and read the statement: the fish on the expense side, its sale on the
+# revenue side, the net below. The stake the scene hands over is a godsend, a debug-mode line a player
+# never sees, so the statement shows only what the player did.
+
+clear
+include scenes/start-with-a-stake.play
+include scenes/buy-a-fish.play Merluza Ann
+run /shop
+key down
+key enter
+select Ann (Merluza)
+key enter
+expect Sell Ann for $
+key enter
+key esc
+key esc
+absent Sell
+
+run /ledger
+expect Ledger#show
+expect Revenue
+expect Fish sales
+expect Expenses
+expect $126
+absent Godsend
+snap the sale and the purchase each land on their own line
+key down 8
+expect Net
+snap the net is what the player made or lost
+key esc
+absent Ledger#show

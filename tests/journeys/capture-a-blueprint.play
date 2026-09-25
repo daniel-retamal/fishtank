@@ -1,0 +1,33 @@
+# JOURNEY · keep a circuit: buy a blank blueprint at the bench, wire a clock, capture it by name.
+# The blank is spent only when a name is given; the capture is what the Foundry will print from.
+
+clear
+include scenes/start-with-a-stake.play
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Blank Circuit Blueprint" Materials
+include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
+include scenes/take-a-fish.play botfish osc
+run /consume inverter coil
+key enter
+run /program "Osc"
+type ring
+key down
+type ring
+key enter
+absent listens
+tick 4
+
+run /consume blank circuit blueprint
+expect Name your
+expect ENTER capture
+snap the naming popup
+type ring clock
+snap the name typed
+key enter
+absent Name your
+absent ENTER capture
+
+run /inventory
+absent Blank Circuit
+snap the blank was spent on the capture
+key esc

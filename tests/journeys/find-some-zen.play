@@ -1,0 +1,18 @@
+# JOURNEY · zen: /zen hides the command bar, the stats and every label, and leaves the tank and its
+# fishes; the tank grows over the rows the bars gave up. Any key press brings them back, and that key
+# types nothing. Speech bubbles still show (tests/zen.rs).
+
+run /zen
+absent Fishtank
+snap zen: the tank and its fishes, nothing else
+key esc
+release esc
+expect Fishtank
+snap one key and the bars come back
+type /zen
+key enter
+release enter
+absent Fishtank
+key q
+expect Fishtank
+snap q wakes it too, and quits nothing

@@ -1,0 +1,39 @@
+# JOURNEY · the first circuit: install a part, wire a fish, read it back in /circuit.
+# One coiled botfish that hears its own channel is a clock; nothing else in the game makes one.
+
+clear
+include scenes/start-with-a-stake.play
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
+include scenes/take-a-fish.play botfish osc
+run /consume inverter coil
+expect Inverter Coil to the botfishes
+snap the install picker lists only botfish
+key enter
+absent to the botfishes
+
+run /program "Osc"
+expect listens
+type ring
+key down
+type ring
+snap the wiring panel with both wires typed
+key enter
+absent listens
+tick 4
+
+run /circuit
+expect Circuit#
+expect Osc
+expect ring
+snap the circuit table reads the wire back
+key tab
+expect [Osc]
+snap the schematic draws the loop
+key enter
+expect listens
+snap enter opens the wiring panel from the schematic
+key esc
+expect Circuit#
+key esc
+absent Circuit#

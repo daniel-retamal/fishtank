@@ -1,0 +1,296 @@
+# The FISHPUTING atlas: every overlay the epic added, drawn by the real App.
+# Performed by tests/screenplays.rs; the reel lands in <target>/tmp/reels/fishputing-atlas.html
+# Cues: size, clear, run, type, key <name> [times], tick, snap, expect, absent.
+
+clear
+# the bench was written against a 40,000 purse; a new game holds 50, so the rest is added here.
+run /add cash 39950
+
+# ── The shop with no Matrixtank: Robotics is listed but locked ──
+run /shop
+key enter
+expect Robotics
+snap Shop · Buy categories with no Matrixtank — Robotics is dimmed
+select Fishtank
+key down
+key enter
+expect Price/unit
+expect Fishtank
+absent Computer
+absent Inverter Coil
+snap Shop · ↓ stops on Fishtank, whose catalogue sells only the tanks you can buy
+key esc
+key esc
+key esc
+
+# ── The Robotics bench, once a Computer has grown its Matrixtank ──
+run /give computer
+run /consume computer
+type Zion
+key enter
+run /switch "Fishtank"
+run /shop
+key enter
+select Robotics
+key enter
+expect Fabric
+expect Peripherals
+absent Inverter Coil
+snap Shop · Robotics opens on its five tiers, by name
+select Fabric
+key enter
+expect Price/unit
+expect Inverter Coil
+snap Shop · the Fabric page: the two pieces of silicon
+key esc
+select Senses
+key enter
+expect Shoal Counter
+snap Shop · the Senses page, six ways to read the tank
+key esc
+select Hands
+key enter
+expect Command Module
+expect Angler Rig
+snap Shop · the Hands page: the parts that act on the tank
+key esc
+select Peripherals
+key enter
+expect Cochlea
+snap Shop · the Peripherals page: I/O and memory
+key esc
+select Materials
+key enter
+expect Blank Circuit Blueprint
+snap Shop · the Materials page: the wafer, the Fabricator and the blank
+select Blank Circuit Blueprint
+key enter
+expect Buy Blank Circuit Blueprint
+snap Shop · the counter opens at the centre of the tank, over the shop
+key esc
+key esc
+key esc
+key esc
+key esc
+
+# ── The workshop: one botfish per kind of panel ──
+run /spawn botfish "bare"
+run /spawn botfish "clock"
+run /spawn botfish "ledger"
+run /spawn botfish "geiger"
+run /spawn botfish "startle"
+run /spawn botfish "twin"
+run /spawn botfish "module"
+run /add tidal clock 1
+run /add ledger nerve 1
+run /add geiger coil 1
+run /add startle nerve 1
+run /add assay scale 1
+run /add shoal counter 1
+run /add command module 1
+run /add inverter coil 3
+run /give blank wafer
+
+run /inventory
+snap Inventory · parts and Blank Wafers in stock
+key esc
+
+run /consume inverter coil
+expect Inverter Coil to the botfishes (3)
+snap Consume · the install picker lists only botfish
+key esc
+
+run /consume tidal clock
+key down 1
+key enter
+run /consume ledger nerve
+key down 2
+key enter
+run /consume geiger coil
+key down 3
+key enter
+run /consume startle nerve
+key down 4
+key enter
+run /consume assay scale
+key down 5
+key enter
+run /consume shoal counter
+key down 5
+key enter
+run /consume command module
+key down 6
+key enter
+
+run /program "Bare"
+expect ├── program
+snap Panel · a bare botfish
+key esc
+run /program "Clock"
+snap Panel · Tidal Clock — pins, no config
+key esc
+run /program "Ledger"
+snap Panel · Ledger Nerve — one threshold
+key esc
+run /program "Geiger"
+snap Panel · Geiger Coil
+key esc
+run /program "Startle"
+snap Panel · Startle Nerve — five pulse pins
+key esc
+run /program "Twin"
+expect ├── Assay Scale
+expect ├── Shoal Counter
+expect (1/25)
+snap Panel · two configurable parts get one rule each, and the panel knows it overflows
+key down 24
+expect 8            >
+expect (25/25)
+snap Panel · scrolled to script line 8 — nothing is typed blind
+key esc
+run /program "Module"
+expect fire[1]
+snap Panel · Command Module — the fire In pin
+key esc
+
+run /program "Clock"
+key down 4
+type dusk
+key enter
+run /program "Twin"
+key down 14
+type wealth
+key enter
+run /program "Module"
+key down 2
+type dusk
+key enter
+tick 4
+
+run /circuit
+expect └ dawn ▸ dusk
+snap Circuit · every part's pins hang from their fish as a tree
+key down 5
+expect └ fire ◂ dusk
+expect (6/6)
+snap Circuit · scrolled to the Command Module, the counter says where you are
+key tab
+snap Circuit · the schematic follows part pins, not just drives
+key esc
+
+run /nets
+snap Nets · a sense fish is labelled with the channel its pin drives
+run /nets
+
+run /give blank circuit blueprint
+run /consume blank circuit blueprint
+expect Name your Circuit Blueprint
+snap Blueprint · consuming a blank asks for a name
+type workshop
+snap Blueprint · the name typed, ENTER captures every wired fish
+key enter
+absent Name your Circuit Blueprint
+
+# ── A board too deep to draw ──
+run /spawn botfish "c1"
+run /spawn botfish "c2"
+run /spawn botfish "c3"
+run /spawn botfish "c4"
+run /spawn botfish "c5"
+run /spawn botfish "c6"
+run /spawn botfish "c7"
+run /spawn botfish "c8"
+run /spawn botfish "c9"
+run /program "C1"
+type l0
+key down
+type l1
+key enter
+run /program "C2"
+type l1
+key down
+type l2
+key enter
+run /program "C3"
+type l2
+key down
+type l3
+key enter
+run /program "C4"
+type l3
+key down
+type l4
+key enter
+run /program "C5"
+type l4
+key down
+type l5
+key enter
+run /program "C6"
+type l5
+key down
+type l6
+key enter
+run /program "C7"
+type l6
+key down
+type l7
+key enter
+run /program "C8"
+type l7
+key down
+type l8
+key enter
+run /program "C9"
+type l8
+key down
+type l9
+key enter
+run /circuit
+key tab
+expect too big to draw
+snap Circuit · a nine-deep chain is refused, and the notice says why
+key esc
+
+# ── The same doors on a smaller terminal ──
+size 80 24
+run /circuit
+snap 80×24 · Circuit table
+key esc
+run /program "Twin"
+snap 80×24 · the two-part panel
+key esc
+run /shop
+key enter
+select Robotics
+key enter
+expect Fabric
+snap 80×24 · Robotics bench with its tier sections
+key enter
+snap 80×24 · the counter
+key esc
+key esc
+key esc
+key esc
+
+# ── A quarter screen: the Foundry must still say why P does nothing ──
+size 28 10
+run /give blank circuit blueprint
+run /consume blank circuit blueprint
+type atlas board
+key enter
+run /foundry
+expect print
+expect needs a
+absent pins
+snap 28×10 · the Foundry leads with the reason the print is refused
+key tab
+key down 8
+absent needs a
+snap 28×10 · TAB hands the whole panel over, reason included
+key tab
+key x
+expect exports
+snap 28×10 · X pulls the exports field back into view
+key esc
+key esc

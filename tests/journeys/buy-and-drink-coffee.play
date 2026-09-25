@@ -1,0 +1,32 @@
+# JOURNEY · the shop loop: buy something with the counter, own it, use it.
+# Performed by tests/journeys.rs at every size in JOURNEY_SIZES, 100×30 down to 40×14.
+# By hand: cargo run --example fishplay -- tests/journeys/buy-and-drink-coffee.play --size 40 14 --print
+
+clear
+include scenes/start-with-a-stake.play
+run /shop
+expect Buy
+snap the front counter
+key enter
+expect Coffee
+key down
+key enter
+expect Buy Coffee
+key right
+expect < 2 >
+snap the counter opens at the centre of the tank
+key enter
+absent Buy Coffee
+key esc
+key esc
+absent Sell
+
+run /inventory
+expect Coff
+expect │ 2
+snap the two coffees are the whole inventory, because a new game starts with none
+key esc
+
+run /consume coffee
+expect caffeinated
+snap the status bar says it worked

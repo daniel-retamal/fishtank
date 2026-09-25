@@ -1,0 +1,35 @@
+# JOURNEY · the first step of every circuit: get a botfish and confirm it can be wired.
+# A Legendary is caught on its banner, never bought (economy epic, 2026-09-24): the shop's fish page
+# sells no Botfish, Cashfish or Mutantfish, and the catch a journey cannot fish on cue is handed over
+# by the scene, named, the way a catch card names it.
+
+clear
+include scenes/start-with-a-stake.play
+run /shop
+key enter
+select Fishes
+key enter
+expect Price/unit
+absent Botfish
+absent Cashfish
+absent Mutantfish
+snap the fish catalogue sells no Legendary
+key esc
+key esc
+key esc
+absent Price/unit
+
+include scenes/take-a-fish.play botfish neo
+expect 40.0k
+snap the purse paid nothing for a fish nobody sells
+
+run /index
+expect Neo
+snap Neo joined the tank
+key esc
+
+run /program "Neo"
+expect listens
+expect trigger
+snap a taken botfish is wired like any other
+key esc

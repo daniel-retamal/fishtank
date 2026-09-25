@@ -1,0 +1,67 @@
+# JOURNEY · fish with an Angler Rig: a rail casts once, the player's one Bait goes down, a fish comes up.
+# Rod's coil makes it a rail on go, which is also its rig's cast: it rises once, from the cold first stage.
+# A rig never fishes quickly (economy epic): its line stays down RIG_WAIT_MIN_SECS to RIG_WAIT_MAX_SECS
+# (30 to 60 game seconds) and always lands a fish, so the play slows the world to one second a tick and
+# waits 100 ticks. caught is high for one stage only, so Bell, a bare botfish that hears caught and its
+# own output, latches it: Bell's dot lights in /circuit once the catch is in, and the tank holds three.
+# Bought: an Inverter Coil and an Angler Rig at the bench and one Bait at the counter; the Computer and
+# both botfish are found, never sold, so the scenes hand them over.
+# Rod's panel walks by count: listens, drives, threshold, cast, caught.
+
+clear
+include scenes/start-with-a-stake.play
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
+include scenes/buy-at-the-bench.play "Angler Rig" Hands
+include scenes/take-a-fish.play botfish rod
+include scenes/take-a-fish.play botfish bell
+
+run /shop
+key enter
+select Bait
+key enter
+expect < 1 >
+snap one bait on the counter
+key enter
+key esc
+key esc
+absent Price/unit
+
+run /consume inverter coil
+key enter
+run /consume angler rig
+expect Angler Rig to the botfishes
+snap the install picker offers the Angler Rig to Rod
+key enter
+absent to the botfishes
+
+run /program "Bell"
+type caught, held
+key down
+type held
+snap Bell hears caught and holds itself up
+key enter
+absent listens
+
+run /fps 1
+run /program "Rod"
+expect threshold
+key down
+type go
+key down 2
+type go
+key down
+type caught
+snap Rod is a rail on go, which casts its rig once
+key enter
+absent listens
+
+expect 2/50
+tick 100
+expect 3/50
+snap a fish came up and joined the tank
+run /circuit
+expect ●  Bell
+snap Bell caught the pulse the rig raised when something came up
+key esc
+absent Circuit#

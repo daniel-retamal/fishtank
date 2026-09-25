@@ -1,0 +1,33 @@
+# JOURNEY · the Tidal Clock, the sense that tells the time: the game opens at midnight, so a fish
+# wired to the clock's night flag is lit from the first stage. Its panel walks by count:
+# listens, drives, time, night, dawn.
+
+clear
+include scenes/start-with-a-stake.play
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Tidal Clock" Senses
+include scenes/take-a-fish.play botfish clock
+include scenes/take-a-fish.play botfish lamp
+
+run /consume tidal clock
+key enter
+absent to the botfishes
+
+run /program "Clock"
+expect night[1]
+key down 3
+type dark
+snap the clock's night flag is wired to dark
+key enter
+absent listens
+
+run /program "Lamp"
+type dark
+key enter
+
+tick 3
+run /circuit
+expect ●  Lamp
+snap it is the small hours, so the lamp is lit
+key esc
+absent Circuit#

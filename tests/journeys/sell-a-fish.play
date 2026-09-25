@@ -1,0 +1,23 @@
+# JOURNEY · selling: a fish the player owns leaves the tank for cash.
+# A new game starts with no items, so the sell list opens on the fishes: Adam, Lilith, Eva and Ann.
+
+clear
+include scenes/start-with-a-stake.play
+include scenes/buy-a-fish.play Merluza Ann
+run /shop
+key down
+key enter
+expect Ann (Merluza)
+select Ann (Merluza)
+key enter
+expect Sell Ann for $
+snap the sale is confirmed before anything is lost
+key enter
+absent Ann (Merluza)
+snap the fish is gone from the sell list
+key esc
+key esc
+absent Sell
+
+run /index
+absent Ann

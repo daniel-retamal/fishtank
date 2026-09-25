@@ -1,3 +1,6 @@
+use std::cell::Cell;
+use std::ops::Range;
+
 use rand::RngExt;
 use ratatui::{
     buffer::Buffer,
@@ -5,169 +8,153 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::Widget,
 };
-use unicode_width::UnicodeWidthChar;
 
-use crate::entities::fish::Fish;
-use crate::entities::species::FishSpecies;
+use crate::colors::{BLACK, STEEL, WHITE};
+use crate::fishes::fish::{Direction, Fish, LineSprite};
+use crate::fishes::unfish::{BALL_HEIGHT, SKULL_HEIGHT, UnfishKind};
+use crate::tanks::soul_wall::SoulWall;
+use crate::ui::fields::{self, FieldKind, FieldValue};
+use crate::ui::grid::{self, CELL_PAD, Grid, HEADER_ROWS, HeaderStyle};
+use crate::ui::hint_bar::HintBar;
+use crate::ui::hints::{HINT_CLOSE, HINT_ENTER_SHOW, HINT_NAV, HINT_SCROLL};
+use crate::ui::layout::{Screen, Scroll, Scrollbar};
+use crate::ui::modal::{Frame, Modal};
+use crate::ui::{render_fish_sprite, table, tank_view};
+
+pub const NAME_COLUMN_MAX_W: usize = 24;
+
+const TITLE: &str = " FishResource#index ";
+const HINT_COLUMNS: &str = "←→ cols";
+const NAME_COLUMN: usize = 0;
+const FIRST_PAGED_COLUMN: usize = 1;
+const RULE_W: u16 = 1;
+const MIN_NAME_W: u16 = 4;
+const MIN_PAGED_W: u16 = 3;
+const MIN_FANTASY_W: usize = 4;
+const BACKGROUND: Color = Color::Reset;
+const ALIVE: &str = "Alive";
+const DEAD: &str = "Dead";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum FantasyKind {
-    Iq,
-    ZodiacSign,
-    ChineseZodiac,
-    Tanganana,
-    HappinessLevel,
-    Claustrophobic,
-    AttrText,
-    AttrEnumBar,
-    AttrBoolean,
-    PickACard,
-    FavoriteColor,
-    FavoriteLetter,
-    FavoriteNumber,
-    TarotPrediction,
-    FavoriteQuote,
-    FavoriteTime,
-    Lonely,
-    Gmi,
-    ElOLaPr,
-    TheOrThePr,
-    Crush,
-    MarriedTo,
-    Hates,
+enum FixedColumn {
+    Name,
+    Species,
+    Display,
+    Weight,
+    Fishtank,
     Status,
-    Sin,
-    HasSeenTheSky,
-    Temperature,
-    Delicious,
-    Region,
-    Dni,
-    FavoriteSeason,
 }
 
-impl FantasyKind {
-    fn all() -> &'static [FantasyKind] {
-        use FantasyKind::*;
-        &[
-            Iq,
-            ZodiacSign,
-            ChineseZodiac,
-            Tanganana,
-            HappinessLevel,
-            Claustrophobic,
-            AttrText,
-            AttrEnumBar,
-            AttrBoolean,
-            PickACard,
-            FavoriteColor,
-            FavoriteLetter,
-            FavoriteNumber,
-            TarotPrediction,
-            FavoriteQuote,
-            FavoriteTime,
-            Lonely,
-            Gmi,
-            ElOLaPr,
-            TheOrThePr,
-            Crush,
-            MarriedTo,
-            Hates,
-            Status,
-            Sin,
-            HasSeenTheSky,
-            Temperature,
-            Delicious,
-            Region,
-            Dni,
-            FavoriteSeason,
-        ]
-    }
-
+impl FixedColumn {
     fn header(self) -> &'static str {
         match self {
-            FantasyKind::Iq => "IQ",
-            FantasyKind::ZodiacSign => "Zodiac Sign",
-            FantasyKind::ChineseZodiac => "Chinese Zodiac Sign",
-            FantasyKind::Tanganana => "Tangananica or Tanganana?",
-            FantasyKind::HappinessLevel => "Happiness Level",
-            FantasyKind::Claustrophobic => "Claustrophobic?",
-            FantasyKind::AttrText => "Attr text",
-            FantasyKind::AttrEnumBar => "Attr enum Bar",
-            FantasyKind::AttrBoolean => "Attr boolean",
-            FantasyKind::PickACard => "Pick a card",
-            FantasyKind::FavoriteColor => "Favorite Color",
-            FantasyKind::FavoriteLetter => "Favorite Letter",
-            FantasyKind::FavoriteNumber => "Favorite Number",
-            FantasyKind::TarotPrediction => "Tarot Prediction",
-            FantasyKind::FavoriteQuote => "Favorite Quote",
-            FantasyKind::FavoriteTime => "Favorite time",
-            FantasyKind::Lonely => "Lonely?",
-            FantasyKind::Gmi => "gmi?",
-            FantasyKind::ElOLaPr => "El o La PR?",
-            FantasyKind::TheOrThePr => "The or The PR?",
-            FantasyKind::Crush => "Crush",
-            FantasyKind::MarriedTo => "Married to",
-            FantasyKind::Hates => "Hates",
-            FantasyKind::Status => "Status",
-            FantasyKind::Sin => "Sin",
-            FantasyKind::HasSeenTheSky => "Has seen the sky?",
-            FantasyKind::Temperature => "Temperature (ºC)",
-            FantasyKind::Delicious => "Delicious?",
-            FantasyKind::Region => "Region",
-            FantasyKind::Dni => "DNI",
-            FantasyKind::FavoriteSeason => "Favorite Season",
+            FixedColumn::Name => "Name",
+            FixedColumn::Species => "Species",
+            FixedColumn::Display => "Display",
+            FixedColumn::Weight => "Weight",
+            FixedColumn::Fishtank => "Fishtank",
+            FixedColumn::Status => "Status",
         }
     }
 }
 
-struct FantasyCell {
-    text: String,
-    swatch: Option<Color>,
-}
-
 struct FantasyColumn {
-    kind: FantasyKind,
-    cells: Vec<FantasyCell>,
+    kind: FieldKind,
+    cells: Vec<FieldValue>,
     col_width: usize,
 }
 
 pub struct FishSnapshot {
     name: String,
     species_name: &'static str,
-    segments: Vec<(char, Color)>,
+    art: LineSprite,
     display_width: usize,
-    food_eaten: usize,
+    weight_g: u32,
+    tank_name: Option<String>,
+    display_height: u16,
+    is_unfish: bool,
+    dead: Option<Color>,
+}
+
+impl FishSnapshot {
+    fn status(&self) -> &'static str {
+        if self.dead.is_some() { DEAD } else { ALIVE }
+    }
 }
 
 pub struct IndexState {
     pub selected: usize,
-    pub scroll: usize,
-    pub col_scroll: usize,
+    scroll: Scroll,
+    col_scroll: Cell<usize>,
     snapshots: Vec<FishSnapshot>,
-    fixed_widths: [usize; 4],
+    fish_clones: Vec<Fish>,
+    fixed: Vec<FixedColumn>,
+    fixed_widths: Vec<usize>,
     fantasy_cols: Vec<FantasyColumn>,
+    animated_fish: Option<Fish>,
+}
+
+fn row_height(fish: &Fish, art: &LineSprite) -> u16 {
+    match fish.unfish_state.as_ref().map(|us| us.kind) {
+        Some(UnfishKind::Ball) => BALL_HEIGHT,
+        Some(UnfishKind::Skull) => SKULL_HEIGHT,
+        _ => art.rows.len() as u16,
+    }
+}
+
+fn still_art(fish: &Fish) -> LineSprite {
+    let mut art = display_clone(fish.clone()).line_sprite();
+    let body_row = art.body_row;
+    if let Some(body) = art.rows.get_mut(body_row) {
+        *body = fish.static_left_segments();
+    }
+    art
 }
 
 impl IndexState {
-    pub fn new(fish: &[Fish], all: bool) -> Self {
+    pub fn new(
+        fish_with_tanks: &[(&str, &Fish)],
+        souls: Option<(&str, &SoulWall)>,
+        all: bool,
+        show_tank_col: bool,
+    ) -> Self {
         let mut rng = rand::rng();
 
-        let snapshots: Vec<FishSnapshot> = fish
+        let living = fish_with_tanks
             .iter()
-            .map(|f| FishSnapshot {
-                name: f.name.clone(),
-                species_name: species_display_name(f.species),
-                segments: f.static_left_segments(),
-                display_width: f.display_width,
-                food_eaten: f.food_eaten,
+            .filter(|(_, f)| !f.is_invisible())
+            .map(|&(tank, fish)| (tank, fish, None));
+        let dead = souls
+            .into_iter()
+            .flat_map(|(tank, wall)| wall.all().map(move |fish| (tank, fish, Some(wall.color()))));
+        let filtered: Vec<(&str, &Fish, Option<Color>)> = living.chain(dead).collect();
+
+        let snapshots: Vec<FishSnapshot> = filtered
+            .iter()
+            .map(|&(tank_name, f, dead)| {
+                let art = still_art(f);
+                FishSnapshot {
+                    name: f.name.clone(),
+                    species_name: f.species.display_name(),
+                    display_width: f.display_width,
+                    weight_g: f.weight_g,
+                    tank_name: Some(tank_name.to_string()),
+                    display_height: row_height(f, &art),
+                    is_unfish: f.unfish_state.is_some(),
+                    dead,
+                    art,
+                }
             })
             .collect();
 
-        let chosen_kinds: Vec<FantasyKind> = if all {
-            FantasyKind::all().to_vec()
+        let fish_clones: Vec<Fish> = filtered.iter().map(|(_, f, _)| (*f).clone()).collect();
+        let fish_names: Vec<String> = filtered.iter().map(|(_, f, _)| f.name.clone()).collect();
+
+        let chosen_kinds: Vec<FieldKind> = if all {
+            FieldKind::all().to_vec()
         } else {
             let count = rng.random_range(0..=3usize);
-            let mut avail: Vec<FantasyKind> = FantasyKind::all().to_vec();
+            let mut avail: Vec<FieldKind> = FieldKind::all().to_vec();
             let mut chosen = Vec::new();
             for _ in 0..count.min(avail.len()) {
                 let idx = rng.random_range(0..avail.len());
@@ -176,19 +163,21 @@ impl IndexState {
             chosen
         };
 
-        let fish_names: Vec<String> = fish.iter().map(|f| f.name.clone()).collect();
-        let species_list: Vec<FishSpecies> = fish.iter().map(|f| f.species).collect();
-
         let fantasy_cols = chosen_kinds
             .into_iter()
             .map(|kind| {
-                let cells = gen_fantasy(kind, &fish_names, &species_list, &mut rng);
+                let cells: Vec<FieldValue> = fish_clones
+                    .iter()
+                    .map(|fish| fields::field_value(kind, fish, &fish_names, &mut rng))
+                    .collect();
                 let max_cell_w = cells
                     .iter()
-                    .map(|c| visual_width(&c.text))
+                    .map(|c| table::visual_width(&c.text))
                     .max()
                     .unwrap_or(0);
-                let col_width = max_cell_w.max(visual_width(kind.header())).max(4);
+                let col_width = max_cell_w
+                    .max(table::visual_width(kind.header()))
+                    .max(MIN_FANTASY_W);
                 FantasyColumn {
                     kind,
                     cells,
@@ -197,825 +186,382 @@ impl IndexState {
             })
             .collect::<Vec<_>>();
 
-        let max_name_w = snapshots
+        let mut fixed = vec![FixedColumn::Name];
+        if snapshots.iter().any(|s| s.dead.is_some()) {
+            fixed.push(FixedColumn::Status);
+        }
+        fixed.extend([
+            FixedColumn::Species,
+            FixedColumn::Display,
+            FixedColumn::Weight,
+        ]);
+        if show_tank_col {
+            fixed.push(FixedColumn::Fishtank);
+        }
+        let fixed_widths = fixed
             .iter()
-            .map(|s| s.name.len())
-            .max()
-            .unwrap_or(4)
-            .max("Name".len());
-        let max_species_w = snapshots
-            .iter()
-            .map(|s| s.species_name.len())
-            .max()
-            .unwrap_or(7)
-            .max("Species".len());
-        let max_display_w = snapshots
-            .iter()
-            .map(|s| s.display_width)
-            .max()
-            .unwrap_or(7)
-            .max("Display".len());
-        let max_food_w = snapshots
-            .iter()
-            .map(|s| s.food_eaten.to_string().len())
-            .max()
-            .unwrap_or(1)
-            .max("Food Eaten".len());
+            .map(|&column| {
+                let widest = snapshots
+                    .iter()
+                    .map(|s| fixed_cell_width(column, s))
+                    .max()
+                    .unwrap_or(0)
+                    .max(table::visual_width(column.header()));
+                if column == FixedColumn::Name {
+                    return widest.min(NAME_COLUMN_MAX_W);
+                }
+                widest
+            })
+            .collect();
 
-        let fixed_widths = [max_name_w, max_species_w, max_display_w, max_food_w];
+        let animated_fish = fish_clones.first().cloned().map(display_clone);
 
         Self {
             selected: 0,
-            scroll: 0,
-            col_scroll: 1,
+            scroll: Scroll::default(),
+            col_scroll: Cell::new(FIRST_PAGED_COLUMN),
             snapshots,
+            fish_clones,
+            fixed,
             fixed_widths,
             fantasy_cols,
+            animated_fish,
         }
+    }
+
+    pub fn tick_animation(&mut self, dt: f32) {
+        if let Some(ref mut fish) = self.animated_fish {
+            fish.tick_animation(dt);
+        }
+    }
+
+    fn select(&mut self, index: usize) {
+        if index == self.selected {
+            return;
+        }
+        self.selected = index;
+        self.animated_fish = self
+            .fish_clones
+            .get(self.selected)
+            .cloned()
+            .map(display_clone);
     }
 
     pub fn scroll_up(&mut self) {
-        if self.selected > 0 {
-            self.selected -= 1;
-            if self.selected < self.scroll {
-                self.scroll = self.selected;
-            }
+        self.select(self.selected.saturating_sub(1));
+    }
+
+    pub fn scroll_down(&mut self) {
+        if self.selected + 1 < self.snapshots.len() {
+            self.select(self.selected + 1);
         }
     }
 
-    pub fn scroll_down(&mut self, visible_rows: usize) {
-        if self.selected + 1 < self.snapshots.len() {
-            self.selected += 1;
-            if self.selected >= self.scroll + visible_rows {
-                self.scroll = self.selected + 1 - visible_rows;
-            }
-        }
+    pub fn selected_fish_name(&self) -> Option<&str> {
+        self.snapshots
+            .get(self.selected)
+            .filter(|s| s.dead.is_none())
+            .map(|s| s.name.as_str())
+    }
+
+    pub fn selected_tank_name(&self) -> &str {
+        self.snapshots
+            .get(self.selected)
+            .and_then(|s| s.tank_name.as_deref())
+            .unwrap_or("")
     }
 
     pub fn scroll_left(&mut self) {
-        if self.col_scroll > 1 {
-            self.col_scroll -= 1;
-        }
+        let start = self.col_scroll.get();
+        self.col_scroll
+            .set(start.saturating_sub(1).max(FIRST_PAGED_COLUMN));
     }
 
-    pub fn scroll_right(&mut self, terminal_width: u16) {
-        let widths = self.all_col_widths();
-        let total_inner_w: usize = widths.iter().sum::<usize>() + widths.len().saturating_sub(1);
-        let overlay_w = ((total_inner_w + 2) as u16).min(terminal_width);
-        let inner_w = overlay_w.saturating_sub(2) as usize;
-        let vis = self.visible_columns(inner_w);
-        let last_vis = vis.last().copied().unwrap_or(0);
-        if last_vis + 1 < widths.len() {
-            self.col_scroll += 1;
-        }
+    pub fn scroll_right(&mut self) {
+        let start = self.col_scroll.get();
+        let last = self.all_col_widths().len().saturating_sub(1);
+        self.col_scroll
+            .set((start + 1).min(last.max(FIRST_PAGED_COLUMN)));
     }
 
     fn all_col_widths(&self) -> Vec<usize> {
-        let mut w: Vec<usize> = self.fixed_widths.to_vec();
-        for fc in &self.fantasy_cols {
-            w.push(fc.col_width);
-        }
-        w
+        let fantasy = self.fantasy_cols.iter().map(|column| column.col_width);
+        self.fixed_widths
+            .iter()
+            .copied()
+            .chain(fantasy)
+            .map(|width| width + CELL_PAD as usize * 2)
+            .collect()
     }
 
-    fn visible_columns(&self, inner_w: usize) -> Vec<usize> {
-        let widths = self.all_col_widths();
-        if widths.is_empty() {
-            return vec![];
+    fn header(&self, column: usize) -> &str {
+        if let Some(fixed) = self.fixed.get(column) {
+            return fixed.header();
         }
-        let name_w = widths[0];
-        let mut vis = vec![0usize];
-        let mut used = name_w;
-        for i in self.col_scroll.max(1)..widths.len() {
-            let w = widths[i];
-            if used + 1 + w <= inner_w {
-                vis.push(i);
-                used += 1 + w;
-            } else {
-                break;
-            }
-        }
-        vis
+        self.fantasy_cols[column - self.fixed_widths.len()]
+            .kind
+            .header()
     }
+
+    fn page(&self, inner_w: u16) -> Page {
+        let widths = self.all_col_widths();
+        let total = widths.len();
+        let name_w = (widths[NAME_COLUMN] as u16)
+            .min(inner_w.saturating_sub(RULE_W + MIN_PAGED_W))
+            .max(MIN_NAME_W.min(inner_w));
+        let room = inner_w.saturating_sub(name_w + RULE_W);
+        let fits_from = |start: usize| {
+            let mut used = 0u16;
+            let mut end = start;
+            while end < total {
+                let needed = widths[end] as u16 + if end > start { RULE_W } else { 0 };
+                if used + needed > room {
+                    break;
+                }
+                used += needed;
+                end += 1;
+            }
+            end
+        };
+        let last_start = (FIRST_PAGED_COLUMN..total)
+            .find(|&start| fits_from(start) == total)
+            .unwrap_or(total.saturating_sub(1))
+            .max(FIRST_PAGED_COLUMN);
+        let start = self.col_scroll.get().clamp(FIRST_PAGED_COLUMN, last_start);
+        self.col_scroll.set(start);
+        let end = fits_from(start).max((start + 1).min(total));
+        let mut page_widths: Vec<u16> = vec![name_w];
+        page_widths.extend((start..end).map(|column| widths[column] as u16));
+        let used: u16 = page_widths.iter().sum::<u16>() + RULE_W * (page_widths.len() as u16 - 1);
+        let last = page_widths.len() - 1;
+        if used < inner_w {
+            page_widths[last] += inner_w - used;
+        } else if used > inner_w {
+            page_widths[last] = page_widths[last].saturating_sub(used - inner_w);
+        }
+        Page {
+            columns: std::iter::once(NAME_COLUMN).chain(start..end).collect(),
+            widths: page_widths,
+            more: start > FIRST_PAGED_COLUMN || end < total,
+            shown_up_to: end,
+            total,
+        }
+    }
+}
+
+struct Page {
+    columns: Vec<usize>,
+    widths: Vec<u16>,
+    more: bool,
+    shown_up_to: usize,
+    total: usize,
 }
 
 pub struct IndexOverlay<'a> {
     state: &'a IndexState,
+    screen: Screen,
 }
 
 impl<'a> IndexOverlay<'a> {
-    pub fn new(state: &'a IndexState) -> Self {
-        Self { state }
+    pub fn new(state: &'a IndexState, screen: Screen) -> Self {
+        Self { state, screen }
     }
 }
 
 impl Widget for IndexOverlay<'_> {
-    fn render(self, area: Rect, buf: &mut Buffer) {
+    fn render(self, _area: Rect, buf: &mut Buffer) {
         let state = self.state;
         let n = state.snapshots.len();
-
         let widths = state.all_col_widths();
-        let total_inner_w: usize = widths.iter().sum::<usize>() + widths.len().saturating_sub(1);
-        let overlay_w = ((total_inner_w + 2) as u16).min(area.width);
-        let visible_data_rows = n.min(area.height.saturating_sub(7) as usize).max(1);
-        let overlay_h = ((visible_data_rows + 6) as u16).min(area.height);
+        let natural_w = (widths.iter().sum::<usize>() + widths.len().saturating_sub(1)) as u16;
+        let heights: Vec<usize> = state
+            .snapshots
+            .iter()
+            .map(|snapshot| snapshot.display_height as usize)
+            .collect();
+        let expected_page = state.page(natural_w.min(self.screen.whole.width.saturating_sub(2)));
+        let frame = Frame {
+            title: TITLE,
+            border: WHITE,
+            background: BACKGROUND,
+        };
+        let content = (
+            natural_w,
+            heights.iter().sum::<usize>() as u16 + HEADER_ROWS,
+        );
+        let (modal, _) = Modal::open_fitting(buf, self.screen, &frame, content, |overflowing| {
+            let nav = if overflowing { HINT_SCROLL } else { HINT_NAV };
+            HintBar::new(HINT_CLOSE)
+                .counted(nav, overflowing.then_some((state.selected + 1, n)))
+                .action_if(
+                    expected_page.more,
+                    format!(
+                        "{HINT_COLUMNS} ({}/{})",
+                        expected_page.shown_up_to, expected_page.total
+                    ),
+                )
+                .action_if(n > 0, HINT_ENTER_SHOW)
+        });
 
-        let ox = area.x + area.width.saturating_sub(overlay_w) / 2;
-        let oy = area.y + area.height.saturating_sub(overlay_h) / 2;
-        let rect = Rect::new(ox, oy, overlay_w, overlay_h);
-
-        let bg = Color::Rgb(8, 12, 20);
-        for dy in 0..overlay_h {
-            for dx in 0..overlay_w {
-                let x = ox + dx;
-                let y = oy + dy;
-                if x < area.right() && y < area.bottom() {
-                    buf[(x, y)].reset();
-                    buf[(x, y)].set_bg(bg);
-                }
-            }
+        let page = state.page(modal.body.width);
+        let grid = Grid {
+            x: modal.body.x,
+            widths: page.widths.clone(),
+        };
+        let (header_y, data) = grid::split_header(modal.body);
+        if let Some(y) = header_y {
+            let headers: Vec<&str> = page.columns.iter().map(|&c| state.header(c)).collect();
+            let style = HeaderStyle {
+                text: Style::default()
+                    .fg(WHITE)
+                    .add_modifier(Modifier::BOLD)
+                    .bg(BACKGROUND),
+                rule: Style::default().fg(WHITE).bg(BACKGROUND),
+            };
+            grid::draw_header(buf, &grid, modal.rect, y, &headers, &style);
         }
 
-        let inner_x = ox + 1;
-        let inner_w = overlay_w.saturating_sub(2) as usize;
-        let vis_cols = state.visible_columns(inner_w);
-        let total_cols = state.fixed_widths.len() + state.fantasy_cols.len();
-        let last_vis = vis_cols.last().copied().unwrap_or(0);
-        let has_right_scroll = last_vis + 1 < total_cols;
-
-        draw_border(buf, rect, bg, has_right_scroll);
-        draw_header_row(buf, state, &vis_cols, inner_x, oy + 1, inner_w, bg);
-        draw_separator(buf, rect, state, &vis_cols, oy + 2, bg, has_right_scroll);
-
-        let data_start_y = oy + 3;
-        let data_end_y = oy + overlay_h - 3;
-
-        for row_y in data_start_y..=data_end_y {
-            let fish_idx = state.scroll + (row_y - data_start_y) as usize;
-            if fish_idx >= n {
+        let shown = state
+            .scroll
+            .follow(&heights, state.selected, data.height as usize);
+        let mut y = data.y;
+        for index in shown.clone() {
+            let height = (heights[index] as u16).min(data.bottom().saturating_sub(y));
+            if height == 0 {
                 break;
             }
-            let selected = fish_idx == state.selected;
-            draw_data_row(
-                buf, state, &vis_cols, fish_idx, inner_x, row_y, inner_w, selected, bg,
-            );
+            draw_data_row(buf, state, &page, &grid, index, y, height);
+            y += height;
         }
-
-        let footer_y = oy + overlay_h - 2;
-        let scrollable = n > visible_data_rows;
-        let h_scrollable = has_right_scroll || state.col_scroll > 1;
-        let col_hint = format!("({}/{})", last_vis + 1, total_cols);
-        let hint = match (scrollable, h_scrollable) {
-            (true, true) => format!(
-                " ↑↓ scroll ({}/{})   ←→ cols {}   ESC/q close",
-                state.selected + 1,
-                n,
-                col_hint
-            ),
-            (true, false) => format!(" ↑↓ scroll ({}/{})   ESC/q close", state.selected + 1, n),
-            (false, true) => format!(" ↑↓ navigate   ←→ cols {}   ESC/q close", col_hint),
-            (false, false) => " ↑↓ navigate   ESC/q close".to_string(),
-        };
-        buf.set_string(
-            inner_x,
-            footer_y,
-            truncate_str(&hint, inner_w),
-            Style::default().fg(Color::DarkGray).bg(bg),
+        if page.more {
+            open_right_edge(buf, modal.rect, header_y);
+            return;
+        }
+        let lines_before: usize = heights[..shown.start].iter().sum();
+        Scrollbar {
+            x: modal.scrollbar_x(),
+            top: data.y,
+            height: data.height,
+        }
+        .draw(
+            buf,
+            line_range(lines_before, &heights[shown], data.height),
+            heights.iter().sum(),
+            WHITE,
         );
     }
 }
 
-fn draw_border(buf: &mut Buffer, rect: Rect, bg: Color, has_right_scroll: bool) {
-    let x = rect.x;
-    let y = rect.y;
-    let w = rect.width;
-    let h = rect.height;
-    let right = x + w - 1;
-    let bottom = y + h - 1;
-    let border_style = Style::default().fg(Color::White).bg(bg);
-    let title_style = Style::default()
-        .fg(Color::White)
-        .add_modifier(Modifier::BOLD)
-        .bg(bg);
+fn line_range(before: usize, shown: &[usize], room: u16) -> Range<usize> {
+    let lines: usize = shown.iter().sum();
+    before..before + lines.min(room as usize)
+}
 
-    buf[(x, y)].set_char('┌').set_style(border_style);
-    buf[(x, bottom)].set_char('└').set_style(border_style);
-    for dy in 1..h - 1 {
-        buf[(x, y + dy)].set_char('│').set_style(border_style);
+fn open_right_edge(buf: &mut Buffer, rect: Rect, header_y: Option<u16>) {
+    let right = rect.right().saturating_sub(1);
+    let style = Style::default().fg(WHITE).bg(BACKGROUND);
+    buf[(right, rect.y)].set_char('─').set_style(style);
+    let bottom = rect.bottom().saturating_sub(1);
+    buf[(right, bottom)].set_char('─').set_style(style);
+    for y in rect.y + 1..bottom {
+        buf[(right, y)].set_char(' ').set_style(style);
     }
-
-    if has_right_scroll {
-        for dx in 1..w {
-            buf[(x + dx, y)].set_char('─').set_style(border_style);
-            buf[(x + dx, bottom)].set_char('─').set_style(border_style);
-        }
-    } else {
-        buf[(right, y)].set_char('┐').set_style(border_style);
-        buf[(right, bottom)].set_char('┘').set_style(border_style);
-        for dx in 1..w - 1 {
-            buf[(x + dx, y)].set_char('─').set_style(border_style);
-            buf[(x + dx, bottom)].set_char('─').set_style(border_style);
-        }
-        for dy in 1..h - 1 {
-            buf[(right, y + dy)].set_char('│').set_style(border_style);
-        }
-    }
-
-    let title = " FishResource#index ";
-    if (title.len() as u16 + 4) < w {
-        buf.set_string(x + 2, y, title, title_style);
+    if let Some(y) = header_y {
+        buf[(right, y + 1)].set_char('─').set_style(style);
     }
 }
 
-fn draw_separator(
-    buf: &mut Buffer,
-    rect: Rect,
-    state: &IndexState,
-    vis_cols: &[usize],
-    sep_y: u16,
-    bg: Color,
-    has_right_scroll: bool,
-) {
-    let x = rect.x;
-    let right = rect.x + rect.width - 1;
-    let border_style = Style::default().fg(Color::White).bg(bg);
-    let sep_style = Style::default().fg(Color::White).bg(bg);
-
-    buf[(x, sep_y)].set_char('├').set_style(border_style);
-    if has_right_scroll {
-        for dx in 1..rect.width {
-            buf[(x + dx, sep_y)].set_char('─').set_style(sep_style);
-        }
-    } else {
-        buf[(right, sep_y)].set_char('┤').set_style(border_style);
-        for dx in 1..rect.width - 1 {
-            buf[(x + dx, sep_y)].set_char('─').set_style(sep_style);
-        }
-    }
-
-    let widths = state.all_col_widths();
-    let mut cx = rect.x + 1;
-    for (i, &col_idx) in vis_cols.iter().enumerate() {
-        cx += widths[col_idx] as u16;
-        if i < vis_cols.len() - 1 {
-            buf[(cx, sep_y)].set_char('┼').set_style(border_style);
-            cx += 1;
-        }
-    }
-}
-
-fn draw_header_row(
-    buf: &mut Buffer,
-    state: &IndexState,
-    vis_cols: &[usize],
-    inner_x: u16,
-    row_y: u16,
-    inner_w: usize,
-    bg: Color,
-) {
-    let hdr_style = Style::default()
-        .fg(Color::White)
-        .add_modifier(Modifier::BOLD)
-        .bg(bg);
-    let sep_style = Style::default().fg(Color::White).bg(bg);
-    let widths = state.all_col_widths();
-    let fixed_headers = ["Name", "Species", "Display", "Food Eaten"];
-
-    let mut x = inner_x;
-    for (order, &col_idx) in vis_cols.iter().enumerate() {
-        let w = widths[col_idx];
-        let header: &str = if col_idx < 4 {
-            fixed_headers[col_idx]
-        } else {
-            state.fantasy_cols[col_idx - 4].kind.header()
-        };
-        let padded = pad_right(header, w);
-        let clipped = truncate_str(
-            &padded,
-            (inner_x + inner_w as u16).saturating_sub(x) as usize,
-        );
-        buf.set_string(x, row_y, &clipped, hdr_style);
-        x += w as u16;
-        if order < vis_cols.len() - 1 {
-            if x < inner_x + inner_w as u16 {
-                buf[(x, row_y)].set_char('│').set_style(sep_style);
-            }
-            x += 1;
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
 fn draw_data_row(
     buf: &mut Buffer,
     state: &IndexState,
-    vis_cols: &[usize],
-    fish_idx: usize,
-    inner_x: u16,
+    page: &Page,
+    grid: &Grid,
+    index: usize,
     row_y: u16,
-    inner_w: usize,
-    selected: bool,
-    base_bg: Color,
+    row_h: u16,
 ) {
-    let sel_bg = Color::Rgb(230, 228, 220);
-    let row_bg = if selected { sel_bg } else { base_bg };
-    let fg = if selected {
-        Color::Black
-    } else {
-        Color::Rgb(180, 190, 210)
+    let selected = index == state.selected;
+    let snap = &state.snapshots[index];
+    let row_bg = if selected { WHITE } else { BACKGROUND };
+    let fg = match (selected, snap.dead) {
+        (true, _) => BLACK,
+        (false, Some(soul)) => soul,
+        (false, None) => STEEL,
     };
-    let sep_style = Style::default().fg(Color::White).bg(row_bg);
-    let widths = state.all_col_widths();
-    let snap = &state.snapshots[fish_idx];
-    let right_x = inner_x + inner_w as u16;
+    let text = Style::default().fg(fg).bg(row_bg);
+    let text_y = row_y + row_h / 2;
+    let fixed_count = state.fixed_widths.len();
 
-    for dx in 0..inner_w as u16 {
-        if inner_x + dx < right_x {
-            buf[(inner_x + dx, row_y)].set_bg(row_bg);
+    for (position, &column) in page.columns.iter().enumerate() {
+        let block = grid.cell(position, row_y, row_h);
+        for y in block.top()..block.bottom() {
+            grid::put(buf, Rect::new(block.x, y, block.width, 1), "", text);
         }
-    }
-
-    let mut x = inner_x;
-    for (order, &col_idx) in vis_cols.iter().enumerate() {
-        let w = widths[col_idx];
-        let avail = right_x.saturating_sub(x) as usize;
-
-        match col_idx {
-            0 => put_text(buf, &snap.name, x, row_y, w.min(avail), fg, row_bg),
-            1 => put_text(buf, snap.species_name, x, row_y, w.min(avail), fg, row_bg),
-            2 => render_display_cell(buf, snap, x, row_y, w.min(avail), base_bg),
-            3 => {
-                let s = snap.food_eaten.to_string();
-                put_text(buf, &s, x, row_y, w.min(avail), fg, row_bg);
+        let cell = grid.cell(position, text_y, 1);
+        match state.fixed.get(column) {
+            Some(FixedColumn::Name) => grid::put(buf, cell, &snap.name, text),
+            Some(FixedColumn::Species) => grid::put(buf, cell, snap.species_name, text),
+            Some(FixedColumn::Display) => draw_art(buf, state, index, block),
+            Some(FixedColumn::Weight) => {
+                grid::put(buf, cell, &fields::format_weight(snap.weight_g), text)
             }
-            col_idx => {
-                let fc_idx = col_idx - 4;
-                if fc_idx < state.fantasy_cols.len() {
-                    let col = &state.fantasy_cols[fc_idx];
-                    let cell = &col.cells[fish_idx];
-                    if col.kind == FantasyKind::FavoriteColor {
-                        let swatch_bg = cell.swatch.unwrap_or(Color::Black);
-                        for dx in 0..w.min(avail) as u16 {
-                            if x + dx < right_x {
-                                buf[(x + dx, row_y)].set_char(' ').set_bg(swatch_bg);
-                            }
-                        }
-                    } else {
-                        put_text(buf, &cell.text, x, row_y, w.min(avail), fg, row_bg);
-                    }
-                }
+            Some(FixedColumn::Fishtank) => {
+                grid::put(buf, cell, snap.tank_name.as_deref().unwrap_or(""), text)
             }
-        }
-
-        x += w as u16;
-        if order < vis_cols.len() - 1 && x < right_x {
-            buf[(x, row_y)].set_char('│').set_style(sep_style);
-            x += 1;
-        }
-    }
-}
-
-fn render_display_cell(
-    buf: &mut Buffer,
-    snap: &FishSnapshot,
-    x: u16,
-    y: u16,
-    col_width: usize,
-    bg: Color,
-) {
-    for dx in 0..col_width as u16 {
-        buf[(x + dx, y)].set_char(' ').set_bg(bg);
-    }
-    let mut col = 0u16;
-    for (ch, color) in &snap.segments {
-        let cw = UnicodeWidthChar::width(*ch).unwrap_or(1) as u16;
-        if col + cw > col_width as u16 {
-            break;
-        }
-        buf[(x + col, y)].set_char(*ch).set_fg(*color).set_bg(bg);
-        col += cw;
-    }
-}
-
-fn put_text(buf: &mut Buffer, text: &str, x: u16, y: u16, width: usize, fg: Color, bg: Color) {
-    let style = Style::default().fg(fg).bg(bg);
-    let blank = " ".repeat(width);
-    buf.set_string(x, y, &blank, style);
-    let s = truncate_str(text, width);
-    buf.set_string(x, y, &s, style);
-}
-
-fn pad_right(s: &str, width: usize) -> String {
-    let vw = visual_width(s);
-    if vw >= width {
-        s.to_string()
-    } else {
-        format!("{}{}", s, " ".repeat(width - vw))
-    }
-}
-
-fn truncate_str(s: &str, width: usize) -> String {
-    let mut out = String::new();
-    let mut w = 0;
-    for ch in s.chars() {
-        let cw = UnicodeWidthChar::width(ch).unwrap_or(1);
-        if w + cw > width {
-            break;
-        }
-        out.push(ch);
-        w += cw;
-    }
-    out
-}
-
-fn visual_width(s: &str) -> usize {
-    s.chars()
-        .map(|c| UnicodeWidthChar::width(c).unwrap_or(1))
-        .sum()
-}
-
-fn species_display_name(s: FishSpecies) -> &'static str {
-    match s {
-        FishSpecies::Merluza => "Merluza",
-        FishSpecies::Betta => "Betta",
-        FishSpecies::Salmon => "Salmon",
-        FishSpecies::Chromis => "Chromis",
-        FishSpecies::Tang => "Tang",
-        FishSpecies::Koi => "Koi",
-        FishSpecies::Carpin => "Carpin",
-        FishSpecies::Turbofish => "Turbofish",
-        FishSpecies::Deadfish => "Deadfish",
-        FishSpecies::Anchoveta => "Anchoveta",
-        FishSpecies::Jellyfish => "Jellyfish",
-        FishSpecies::Goldenfish => "Goldenfish",
-        FishSpecies::Goldfish => "Goldfish",
-        FishSpecies::Snapper => "Snapper",
-        FishSpecies::Mutantfish => "Mutantfish",
-        FishSpecies::Nishiki => "Nishiki",
-        FishSpecies::Aka => "Aka",
-        FishSpecies::Kuro => "Kuro",
-    }
-}
-
-fn generate_rut(rng: &mut impl RngExt) -> String {
-    let body: u32 = rng.random_range(1_000_000..25_000_001);
-    let s = body.to_string();
-    let digits: Vec<u32> = s.chars().rev().map(|c| c as u32 - '0' as u32).collect();
-    let multipliers = [2u32, 3, 4, 5, 6, 7];
-    let sum: u32 = digits
-        .iter()
-        .enumerate()
-        .map(|(i, &d)| d * multipliers[i % multipliers.len()])
-        .sum();
-    let rem = 11 - (sum % 11);
-    let v = match rem {
-        11 => '0',
-        10 => 'K',
-        n => char::from_digit(n, 10).unwrap_or('0'),
-    };
-    match s.len() {
-        8 => format!("{}.{}.{}-{}", &s[..2], &s[2..5], &s[5..], v),
-        _ => format!("{}.{}.{}-{}", &s[..1], &s[1..4], &s[4..], v),
-    }
-}
-
-fn gen_fantasy(
-    kind: FantasyKind,
-    fish_names: &[String],
-    species: &[FishSpecies],
-    rng: &mut impl RngExt,
-) -> Vec<FantasyCell> {
-    let n = fish_names.len();
-    match kind {
-        FantasyKind::Iq => (0..n)
-            .map(|_| {
-                let v: i32 = match rng.random_range(0..100u32) {
-                    0 => -30,
-                    1 => 3000,
-                    _ => rng.random_range(55..=145i32),
+            Some(FixedColumn::Status) => grid::put(buf, cell, snap.status(), text),
+            None => {
+                let Some(col) = state.fantasy_cols.get(column - fixed_count) else {
+                    continue;
                 };
-                plain(v.to_string())
-            })
-            .collect(),
-
-        FantasyKind::ZodiacSign => {
-            const S: &[&str] = &[
-                "♈ Aries",
-                "♉ Taurus",
-                "♊ Gemini",
-                "♋ Cancer",
-                "♌ Leo",
-                "♍ Virgo",
-                "♎ Libra",
-                "♏ Scorpio",
-                "♐ Sagittarius",
-                "♑ Capricorn",
-                "♒ Aquarius",
-                "♓ Pisces",
-            ];
-            (0..n)
-                .map(|_| plain(S[rng.random_range(0..S.len())]))
-                .collect()
-        }
-
-        FantasyKind::ChineseZodiac => {
-            const S: &[&str] = &[
-                "鼠", "牛", "虎", "兔", "龍", "蛇", "馬", "羊", "猴", "雞", "狗", "豬",
-            ];
-            (0..n)
-                .map(|_| plain(S[rng.random_range(0..S.len())]))
-                .collect()
-        }
-
-        FantasyKind::Tanganana => (0..n)
-            .map(|_| {
-                plain(if rng.random::<bool>() {
-                    "Tangananica"
+                let value = &col.cells[index];
+                if col.kind == FieldKind::FavoriteColor {
+                    let swatch = Style::default().bg(value.swatch.unwrap_or(BLACK));
+                    grid::put(buf, cell, "", swatch);
                 } else {
-                    "Tanganana"
-                })
-            })
-            .collect(),
-
-        FantasyKind::HappinessLevel => (0..n)
-            .map(|_| plain(format!("{}%", rng.random_range(0..=100u32))))
-            .collect(),
-
-        FantasyKind::Claustrophobic => (0..n)
-            .map(|_| {
-                plain(if rng.random_range(0..10u32) == 0 {
-                    "Yes"
-                } else {
-                    "No"
-                })
-            })
-            .collect(),
-
-        FantasyKind::AttrText => (0..n).map(|_| plain("corge")).collect(),
-
-        FantasyKind::AttrEnumBar => (0..n).map(|_| plain("")).collect(),
-
-        FantasyKind::AttrBoolean => (0..n)
-            .map(|i| plain(if i % 2 == 0 { "Sí" } else { "No" }))
-            .collect(),
-
-        FantasyKind::PickACard => {
-            const RANKS: &[&str] = &[
-                "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K",
-            ];
-            const SUITS: &[&str] = &["♤", "♡", "♢", "♧"];
-            (0..n)
-                .map(|_| {
-                    plain(format!(
-                        "{}{}",
-                        RANKS[rng.random_range(0..RANKS.len())],
-                        SUITS[rng.random_range(0..SUITS.len())]
-                    ))
-                })
-                .collect()
-        }
-
-        FantasyKind::FavoriteColor => {
-            const COLORS: &[Color] = &[
-                Color::Red,
-                Color::Green,
-                Color::Blue,
-                Color::Yellow,
-                Color::Magenta,
-                Color::Cyan,
-                Color::LightRed,
-                Color::LightGreen,
-                Color::LightBlue,
-                Color::LightYellow,
-                Color::LightMagenta,
-                Color::LightCyan,
-                Color::Rgb(255, 100, 0),
-                Color::Rgb(100, 200, 0),
-                Color::Rgb(0, 180, 150),
-                Color::Rgb(180, 0, 200),
-                Color::Rgb(0, 140, 255),
-            ];
-            (0..n)
-                .map(|i| {
-                    let c = if species[i] == FishSpecies::Goldenfish {
-                        Color::Rgb(255, 215, 0)
-                    } else {
-                        COLORS[rng.random_range(0..COLORS.len())]
-                    };
-                    FantasyCell {
-                        text: "      ".to_string(),
-                        swatch: Some(c),
-                    }
-                })
-                .collect()
-        }
-
-        FantasyKind::FavoriteLetter => (0..n)
-            .map(|_| plain(char::from(b'A' + rng.random_range(0..26u8)).to_string()))
-            .collect(),
-
-        FantasyKind::FavoriteNumber => (0..n)
-            .map(|_| plain(rng.random::<i64>().to_string()))
-            .collect(),
-
-        FantasyKind::TarotPrediction => {
-            const CARDS: &[&str] = &[
-                "The Fool",
-                "The Magician",
-                "The High Priestess",
-                "The Empress",
-                "The Emperor",
-                "The Hierophant",
-                "The Lovers",
-                "The Chariot",
-                "Strength",
-                "The Hermit",
-                "Wheel of Fortune",
-                "Justice",
-                "The Hanged Man",
-                "Death",
-                "Temperance",
-                "The Devil",
-                "The Tower",
-                "The Star",
-                "The Moon",
-                "The Sun",
-                "Judgement",
-                "The World",
-            ];
-            (0..n)
-                .map(|i| match species[i] {
-                    FishSpecies::Mutantfish => plain(
-                        "The Tower (R), The Devil (R), Three of Swords (R)",
-                    ),
-                    FishSpecies::Goldenfish => plain("The Star, The Sun, The World"),
-                    _ => {
-                        let mut deck: Vec<&str> = CARDS.to_vec();
-                        let i1 = rng.random_range(0..deck.len());
-                        let c1 = deck.remove(i1);
-                        let i2 = rng.random_range(0..deck.len());
-                        let c2 = deck.remove(i2);
-                        let i3 = rng.random_range(0..deck.len());
-                        let c3 = deck.remove(i3);
-                        let r1 = if rng.random::<bool>() { " (R)" } else { "" };
-                        let r2 = if rng.random::<bool>() { " (R)" } else { "" };
-                        let r3 = if rng.random::<bool>() { " (R)" } else { "" };
-                        plain(format!("{}{}, {}{}, {}{}", c1, r1, c2, r2, c3, r3))
-                    }
-                })
-                .collect()
-        }
-
-        FantasyKind::FavoriteQuote => (0..n)
-            .map(|i| match species[i] {
-                FishSpecies::Mutantfish => plain("AAHHHHHHHHHH"),
-                FishSpecies::Goldenfish => plain("Gonna be, gonna be golden"),
-                _ => {
-                    let count = rng.random_range(2..=8u32);
-                    plain((0..count).map(|_| "glub").collect::<Vec<_>>().join(" "))
+                    grid::put(buf, cell, &value.text, text);
                 }
-            })
-            .collect(),
-
-        FantasyKind::FavoriteTime => (0..n)
-            .map(|_| {
-                plain(format!(
-                    "{:02}{:02}",
-                    rng.random_range(0..24u32),
-                    rng.random_range(0..60u32)
-                ))
-            })
-            .collect(),
-
-        FantasyKind::Lonely => (0..n)
-            .map(|_| {
-                plain(if rng.random_range(0..10u32) == 0 {
-                    "Yes"
-                } else {
-                    "No"
-                })
-            })
-            .collect(),
-
-        FantasyKind::Gmi => (0..n)
-            .map(|_| plain(if rng.random::<bool>() { "gmi" } else { "ngmi" }))
-            .collect(),
-
-        FantasyKind::ElOLaPr => (0..n).map(|_| plain("La PR")).collect(),
-
-        FantasyKind::TheOrThePr => (0..n).map(|_| plain("The PR")).collect(),
-
-        FantasyKind::Crush => (0..n)
-            .map(|_| plain(fish_names[rng.random_range(0..fish_names.len())].clone()))
-            .collect(),
-
-        FantasyKind::MarriedTo => (0..n)
-            .map(|_| plain(fish_names[rng.random_range(0..fish_names.len())].clone()))
-            .collect(),
-
-        FantasyKind::Hates => {
-            let target = rng.random_range(0..n);
-            (0..n)
-                .map(|i| {
-                    if i == target {
-                        plain("No one")
-                    } else {
-                        plain(fish_names[target].clone())
-                    }
-                })
-                .collect()
+            }
         }
+    }
+    grid.draw_rules(buf, row_y, row_h, Style::default().fg(WHITE).bg(row_bg));
+}
 
-        FantasyKind::Status => {
-            const S: &[&str] = &[
-                "Swimming",
-                "Pondering",
-                "Breathing",
-                "Prompting",
-                "Prooompting",
-                "Fishing",
-                "Dreaming",
-                "Feeling",
-                "Happy",
-                "Sad",
-                "Nauseous",
-                "Kicking Rocks",
-                "Giving the Time",
-                "Taking out the turn",
-                "Falling",
-                "Floating",
-            ];
-            (0..n)
-                .map(|_| plain(S[rng.random_range(0..S.len())]))
-                .collect()
+fn draw_art(buf: &mut Buffer, state: &IndexState, index: usize, block: Rect) {
+    for y in block.top()..block.bottom() {
+        for x in block.left()..block.right() {
+            buf[(x, y)].reset();
         }
-
-        FantasyKind::Sin => {
-            const SINS: &[&str] = &[
-                "Lust", "Gluttony", "Greed", "Sloth", "Wrath", "Envy", "Pride",
-            ];
-            (0..n)
-                .map(|i| match species[i] {
-                    FishSpecies::Mutantfish => plain("[REDACTED]"),
-                    FishSpecies::Goldenfish => plain(""),
-                    _ => plain(SINS[rng.random_range(0..SINS.len())]),
-                })
-                .collect()
+    }
+    let block = grid::inside(block);
+    let snap = &state.snapshots[index];
+    let animated = state
+        .animated_fish
+        .as_ref()
+        .filter(|_| index == state.selected);
+    if snap.is_unfish && snap.display_height > 1 {
+        if let Some(fish) = animated.or_else(|| state.fish_clones.get(index)) {
+            tank_view::render_multi_row_unfish_at(fish, block.x as i32, block.y as i32, block, buf);
         }
+        return;
+    }
+    let live = animated.map(Fish::line_sprite);
+    let art = live.as_ref().unwrap_or(&snap.art);
+    let body_y = block.y + art.body_row as u16;
+    render_fish_sprite(buf, art, block.x, body_y, block, BACKGROUND);
+}
 
-        FantasyKind::HasSeenTheSky => (0..n)
-            .map(|i| {
-                plain(if species[i] == FishSpecies::Goldenfish {
-                    "Yes"
-                } else {
-                    "No"
-                })
-            })
-            .collect(),
-
-        FantasyKind::Temperature => (0..n)
-            .map(|_| {
-                let t = 25.0f32 + rng.random_range(-14.0f32..14.0);
-                plain(format!("{:.1}°C", t))
-            })
-            .collect(),
-
-        FantasyKind::Delicious => (0..n)
-            .map(|i| match species[i] {
-                FishSpecies::Mutantfish => plain("NOOOOOOOOOO"),
-                FishSpecies::Goldenfish => plain("Yes."),
-                _ => plain(match rng.random_range(0..3u32) {
-                    0 => "Yes",
-                    1 => "No",
-                    _ => "Maybe",
-                }),
-            })
-            .collect(),
-
-        FantasyKind::Region => {
-            const R: &[&str] = &[
-                "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "RM",
-                "XIV", "XV",
-            ];
-            (0..n)
-                .map(|_| plain(R[rng.random_range(0..R.len())]))
-                .collect()
-        }
-
-        FantasyKind::Dni => (0..n).map(|_| plain(generate_rut(rng))).collect(),
-
-        FantasyKind::FavoriteSeason => {
-            const S: &[&str] = &["Winter", "Autumn", "Spring", "Summer"];
-            (0..n)
-                .map(|_| plain(S[rng.random_range(0..S.len())]))
-                .collect()
-        }
+fn fixed_cell_width(column: FixedColumn, snapshot: &FishSnapshot) -> usize {
+    match column {
+        FixedColumn::Name => table::visual_width(&snapshot.name),
+        FixedColumn::Species => table::visual_width(snapshot.species_name),
+        FixedColumn::Display => snapshot.display_width,
+        FixedColumn::Weight => fields::format_weight(snapshot.weight_g).len(),
+        FixedColumn::Fishtank => snapshot.tank_name.as_deref().map_or(0, table::visual_width),
+        FixedColumn::Status => table::visual_width(snapshot.status()),
     }
 }
 
-fn plain(s: impl Into<String>) -> FantasyCell {
-    FantasyCell {
-        text: s.into(),
-        swatch: None,
-    }
+fn display_clone(mut fish: Fish) -> Fish {
+    fish.facing = Direction::Left;
+    fish
 }

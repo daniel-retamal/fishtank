@@ -1,0 +1,42 @@
+# JOURNEY · the Assay Scale, the sense that weighs: point it at the heaviest botfish, measure weight
+# instead of worth, and it raises over past its threshold. Its panel walks by count:
+# listens, drives, target, measure, threshold, weight, value, over, under.
+
+clear
+include scenes/start-with-a-stake.play
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Assay Scale" Senses
+include scenes/take-a-fish.play botfish scale
+include scenes/take-a-fish.play botfish fat
+
+run /consume assay scale
+key enter
+absent to the botfishes
+
+run /program "Scale"
+expect measure
+key down 2
+key backspace 9
+type heaviest botfish
+key down
+key backspace 5
+type weight
+key down
+key backspace 4
+type 1
+key down 3
+type heavy
+snap the scale weighs the heaviest botfish against one gram
+key enter
+absent listens
+
+run /program "Fat"
+type heavy
+key enter
+
+tick 3
+run /circuit
+expect ●  Fat
+snap every botfish weighs more than a gram, so Fat is lit
+key esc
+absent Circuit#

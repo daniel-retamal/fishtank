@@ -1,0 +1,63 @@
+# JOURNEY · build a board twice: capture a latch, buy a Fabricator, print a second latch that keeps its own memory.
+# Print spends the Fabricator, a wafer per fish and every part; the blueprint survives and the copy's insides are namespaced.
+
+clear
+include scenes/start-with-a-stake.play
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
+include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
+include scenes/buy-at-the-bench.play "Blank Circuit Blueprint" Materials
+include scenes/take-a-fish.play botfish q
+include scenes/take-a-fish.play botfish qn
+run /consume inverter coil
+key enter
+key down
+key enter
+run /program "Q"
+type r, qn
+key down
+type q
+key enter
+run /program "Qn"
+type s, q
+key down
+type qn
+key enter
+absent listens
+
+run /consume blank circuit blueprint
+type latch
+key enter
+absent Name your
+
+run /foundry
+expect ─ Foundry
+expect P print
+expect needs a
+snap print says why it cannot run yet
+key p
+expect ─ Foundry
+key esc
+absent ─ Foundry
+
+include scenes/buy-at-the-bench.play Fabricator Materials
+
+run /consume fabricator
+expect ─ Foundry
+expect Blank Wafer
+snap consuming the Fabricator opens the Foundry on a ready print
+key p
+absent ─ Foundry
+snap the printed latch swims in
+
+run /circuit
+expect Latch1
+snap the copy is in the circuit
+key esc
+
+run /inventory
+# a new game starts with no items, so the blueprint is the inventory's first row.
+expect Latch (Circuit
+absent Fabricator
+snap the blueprint survives and the Fabricator is spent
+key esc

@@ -1,0 +1,58 @@
+# Alienation's thing: an alien calls the mothership, and it answers with a companion.
+# Performed by tests/screenplays.rs; the reel lands in <target>/tmp/reels/an-alien-calls-home.html
+
+clear
+run /spawn merluza "Zed"
+run /mutate "Zed" alienation
+run /startcallhome
+expect GLORP VLERP!
+snap Zed calls home, and the mothership descends
+tick 30
+snap The beam is open on the way down, the companion asleep inside it
+tick 40
+snap At the floor, the beam holds
+tick 65
+snap The beam retracts; the companion waits, eyes still shut
+tick 30
+snap The beam is home: the companion opens its eyes and swims
+tick 400
+snap A companion has landed: an alien fish, or a cow
+
+clear
+run /spawn merluza "Xul"
+run /mutate "Xul" alienation
+run /startcallhome
+run /startcallhome
+expect GLORP VLERP!
+tick 75
+snap Two calls, two UFOs, two companions
+tick 400
+
+clear
+run /give honey cow
+run /mutate "Vaquita" alienation
+run /startcallhome
+expect GLORP VLERP!
+snap An alien cow calls home too
+tick 460
+
+clear
+run /give blueberry milk
+run /give honey milk
+run /give matcha milk
+run /give milk
+run /inventory
+expect Blueberry Milk
+expect Honey Milk
+expect Matcha Milk
+snap The three new fishing milks in the inventory
+key esc
+run /consume blueberry milk
+run /consume honey milk
+run /consume matcha milk
+run /consume milk
+expect visual-calculus
+expect volition
+expect reaction-speed
+expect physical-instrument
+snap One glass of each: four buffs, one milk apiece

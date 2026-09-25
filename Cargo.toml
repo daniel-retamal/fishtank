@@ -6,6 +6,15 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.102"
 crossterm = "0.29.0"
+dirs = "7.0.0"
 rand = "0.10.1"
-ratatui = "0.30.0"
+ratatui = { version = "0.30.0", features = ["serde"] }
+ron = "0.12.2"
+serde = { version = "1.0.229", features = ["derive"] }
 unicode-width = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
+
+[target.'cfg(unix)'.dependencies]
+signal-hook = "0.3"

@@ -1,0 +1,15 @@
+# SCENE · connect to the Robotics bench the way a player does: a Computer is FOUND, never bought (§19),
+# so take the one the sea gave you, grow a Matrixtank with it, and go home.
+# A new tank switches you into it. A journey plays as a player, so the one find it cannot fish on
+# cue is handed over in debug mode, which is switched straight back off.
+
+run !debugmode
+run /give computer
+run !debugmode
+run /consume computer
+expect Name your
+snap the Computer names the tank it grows
+type Zion
+key enter
+run /switch "Fishtank"
+absent Zion

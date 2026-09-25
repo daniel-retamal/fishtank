@@ -1,0 +1,15 @@
+# JOURNEY · feeding: /feed is the whole command. It drops one portion (FEED_PORTION, 30 pellets, one for
+# every column of the shower), or whatever is left in the bag. A new game holds 60 food, so two portions
+# empty it, and a third /feed finds nothing to drop.
+
+clear
+run /feed
+expect 30  fish
+snap one portion left the bag and falls into the tank
+tick 30
+run /feed
+expect 0  fish
+snap the second portion emptied the bag
+run /feed
+expect 0  fish
+absent 30  fish

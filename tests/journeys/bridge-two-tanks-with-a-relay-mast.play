@@ -1,0 +1,52 @@
+# JOURNEY · bridge two tanks with a Relay Mast: a rail decided in the Fishtank is believed in Zion.
+# Tx's coil makes it a rail on x; its Mast carries x to channel y of the tank Zion. Rx, a bare botfish
+# bought into Zion, listens to y, so its dot in Zion's /circuit lights only if the crossing works.
+# Spent: Computer $8000 + Inverter Coil $496 + Relay Mast $7700 + two botfish $15400 = $31596 of the
+# 40,000 stake (scenes/start-with-a-stake.play).
+# Tx's panel walks by count: listens, drives, tank, channel, in, out.
+
+clear
+include scenes/start-with-a-stake.play
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
+include scenes/buy-at-the-bench.play "Relay Mast" Peripherals
+include scenes/take-a-fish.play botfish tx
+run /switch "Zion"
+include scenes/take-a-fish.play botfish rx
+run /switch "Fishtank"
+
+run /consume inverter coil
+key enter
+run /consume relay mast
+expect Relay Mast to the botfishes
+snap the install picker offers the Relay Mast to Tx
+key enter
+absent to the botfishes
+
+run /program "Tx"
+expect channel
+key down
+type x
+key down
+type Zion
+key down
+type y
+key down
+type x
+snap Tx is a rail on x and its Mast is aimed at y in Zion
+key enter
+absent listens
+
+run /switch "Zion"
+run /program "Rx"
+type y
+snap Rx listens to y in its own tank
+key enter
+absent listens
+
+tick 4
+run /circuit
+expect ●  Rx
+snap Rx lights in Zion on a level decided in the Fishtank
+key esc
+absent Circuit#

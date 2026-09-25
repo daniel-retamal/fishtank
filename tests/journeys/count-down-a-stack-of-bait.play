@@ -1,0 +1,54 @@
+# JOURNEY · bait by use: a Bait is a stack of CASTS_PER_BUFF (5) casts, spent by every cast it helps,
+# a human's or a rig's, and never by the clock. The player buys three Baits, drinks one into a buff,
+# and lets an Angler Rig fish for it: the rig is Rod's coil listening to its own output, so its cast
+# rises every other stage and it spends one Bait from the bag per cast, 30 to 60 game seconds apart.
+# The status bar shows the stack and what is left of it; after a few landed casts it has counted down.
+# Rod's panel walks by count: listens, drives, threshold, cast.
+
+clear
+include scenes/start-with-a-stake.play
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
+include scenes/buy-at-the-bench.play "Angler Rig" Hands
+include scenes/take-a-fish.play botfish rod
+
+run /shop
+key enter
+select Bait
+key enter
+key right 2
+expect < 3 >
+key enter
+key esc
+key esc
+absent Price/unit
+
+run /consume bait
+expect baiting
+expect 5
+snap one Bait is one stack of five casts
+tick 300
+expect 5 casts
+snap a paused rod spends nothing, however long the buff sits
+
+run /consume inverter coil
+key enter
+run /consume angler rig
+key enter
+absent to the botfishes
+
+run /fps 1
+run /program "Rod"
+expect threshold
+type go
+key down
+type go
+key down 2
+type go
+key enter
+absent listens
+
+tick 130
+absent 5 casts
+expect baiting
+snap the rig's landed casts counted the stack down

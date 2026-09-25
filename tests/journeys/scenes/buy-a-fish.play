@@ -1,0 +1,20 @@
+# SCENE · buy one fish and name it on the spot: $1 is the species row, $2 the name.
+# A botfish is bought, never caught (§19), so every circuit starts here.
+
+run /shop
+key enter
+select Fishes
+key enter
+expect Price/unit
+select $1
+snap the fish catalogue with $1 marked
+key enter
+expect Name it
+type $2
+snap $1 is named on the spot
+key enter
+absent Name it
+key esc
+key esc
+key esc
+absent Price/unit

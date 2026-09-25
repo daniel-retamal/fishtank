@@ -1,0 +1,38 @@
+# JOURNEY · the Shoal Counter, the sense that counts: a fish that lights while the tank holds
+# more botfish than its threshold. over is count > threshold, which is why §12.3 needs two counters.
+# Its panel walks by count: listens, drives, target, threshold, count, full, empty, over, under.
+
+clear
+include scenes/start-with-a-stake.play
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Shoal Counter" Senses
+include scenes/take-a-fish.play botfish counter
+include scenes/take-a-fish.play botfish crowd
+
+run /consume shoal counter
+key enter
+absent to the botfishes
+
+run /program "Counter"
+expect threshold
+key down 2
+type botfish
+key down
+key backspace 2
+type 1
+key down 4
+type crowd
+snap the counter is set to count botfish and raise crowd past one
+key enter
+absent listens
+
+run /program "Crowd"
+type crowd
+key enter
+
+tick 3
+run /circuit
+expect ●  Crowd
+snap two botfish are more than one, so Crowd is lit
+key esc
+absent Circuit#

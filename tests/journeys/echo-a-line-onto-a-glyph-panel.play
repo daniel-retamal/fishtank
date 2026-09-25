@@ -1,0 +1,75 @@
+# JOURNEY · type a line and read it back off a Glyph Panel: a Cochlea clocks it out, a second fish writes it.
+# The ear rings on its own coil until done; the panel's fish is a bare delay on the clock, so each write
+# reads the byte its strobe put on the bus a stage earlier. Specify the input, then run: the clock is wired last.
+# The install picker marks its row with style, not '>', so the panel's fish is walked to by count (Ear, then Lcd).
+
+clear
+include scenes/start-with-a-stake.play
+include scenes/grow-a-matrixtank.play
+include scenes/buy-at-the-bench.play "Inverter Coil" Fabric
+include scenes/buy-at-the-bench.play Cochlea Peripherals
+include scenes/buy-at-the-bench.play "Glyph Panel" Peripherals
+include scenes/take-a-fish.play botfish ear
+include scenes/take-a-fish.play botfish lcd
+
+run /consume inverter coil
+key enter
+run /consume cochlea
+key enter
+run /consume glyph panel
+expect Glyph Panel to the botfishes
+key down
+snap the install picker offers the Glyph Panel to the second botfish
+key enter
+absent to the botfishes
+
+run /freeze "Lcd"
+run /nudge "Lcd" 200 20
+run /nudge "Lcd" -15 0
+
+run /program "Lcd"
+expect width
+type clk
+key down
+type wr
+key down 3
+type kbd
+key down
+type wr
+snap the panel's fish delays the clock onto its own write
+key enter
+absent listens
+
+run hi
+
+run /program "Ear"
+expect char[8]
+type clk, fin
+key down
+type clk
+key down
+type kbd
+key down
+type clk
+key down 2
+type fin
+snap the ear wired last, so its clock starts on a line that is already waiting
+key enter
+absent listens
+
+tick 20
+expect / hi
+snap the typed line reads back off the panel
+run /circuit
+expect ○  Ear
+tick 1
+expect ○  Ear
+key esc
+absent Circuit#
+
+run yo
+tick 20
+expect / hiyo
+snap a second line restarts the clock and lands after the first
+tick 40
+expect / hiyo

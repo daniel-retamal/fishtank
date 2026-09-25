@@ -1,0 +1,29 @@
+# JOURNEY · growing the aquarium: buy a tank, name it, switch to it and back.
+
+clear
+include scenes/start-with-a-stake.play
+run /shop
+key enter
+select Fishtank
+key enter
+expect Price/unit
+snap the tank catalogue
+key enter
+type Annex
+snap the naming popup
+key enter
+key esc
+key esc
+key esc
+absent Price/unit
+
+run /fishtanks
+expect Annex
+snap the new tank is listed
+key esc
+
+run /switch "Annex"
+expect Annex
+snap the status bar names the tank you are in
+run /switch "Fishtank"
+absent Annex
