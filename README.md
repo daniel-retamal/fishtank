@@ -26,7 +26,7 @@
     <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-1f6feb" /></a>
   </p>
 
-  <img src="https://raw.githubusercontent.com/daniel-retamal/fishtanks/main/.github/assets/fishtank.gif" alt="The Fishtank: four goldfishes, a nishiki, an aka and a kuro among the kelp" width="900" />
+  <img src="https://raw.githubusercontent.com/daniel-retamal/fishtanks/main/.github/assets/fishtank.gif" alt="The Fishtank: three goldfishes, a nishiki, an aka and a kuro among the kelp" width="900" />
 
 </div>
 
