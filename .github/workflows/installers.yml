@@ -10,7 +10,7 @@ on:
     types: [completed]
 jobs:
   install:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     strategy:
       fail-fast: false
       matrix:
@@ -40,6 +40,13 @@ jobs:
           fishtanks --version
           fishtanks --help
           fishtanks update
+      - name: Homebrew installs it too
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          brew install daniel-retamal/tap/fishtanks
+          "$(brew --prefix)/bin/fishtanks" --version
+          "$(brew --prefix)/bin/fishtanks" update
       - name: It opens a tank and saves it when told to close
         if: runner.os == 'Linux'
         shell: bash
