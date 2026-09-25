@@ -2,7 +2,7 @@ use std::path::Path;
 
 use fishtank::cli::{Invocation, NAME};
 use fishtank::testing::Tui;
-use fishtank::update::{Route, Stamp, UPDATE_LABEL, Watch, release_in, retired};
+use fishtank::update::{Archive, Route, Stamp, UPDATE_LABEL, Watch, release_in, retired};
 use semver::Version;
 
 const DAY_SECS: u64 = 24 * 60 * 60;
@@ -93,15 +93,50 @@ fn each_copy_is_told_how_it_updates() {
     let linuxbrew = Path::new("/home/linuxbrew/.linuxbrew/bin/fishtanks");
     let cargo = Path::new(r"C:\Users\Nemo\.cargo\bin\fishtanks.exe");
     let installed = Path::new("/home/nemo/.local/bin/fishtanks");
-    assert_eq!(Route::of(brew, true), Route::Homebrew);
-    assert_eq!(Route::of(linuxbrew, false), Route::Homebrew);
-    assert_eq!(Route::of(cargo, false), Route::Cargo);
-    assert_eq!(Route::of(installed, true), Route::Installer);
-    assert_eq!(Route::of(installed, false), Route::Unknown);
-    assert_eq!(Route::Installer.advice(), None);
+    let unpacked = Path::new(r"D:\games\fishtanks.exe");
+    assert_eq!(Route::of(brew), Route::Homebrew);
+    assert_eq!(Route::of(linuxbrew), Route::Homebrew);
+    assert_eq!(Route::of(cargo), Route::Cargo);
+    assert_eq!(Route::of(installed), Route::Itself);
+    assert_eq!(Route::of(unpacked), Route::Itself);
+    assert_eq!(Route::Itself.advice(), None);
     assert!(Route::Homebrew.advice().unwrap().contains("brew upgrade"));
     assert!(Route::Cargo.advice().unwrap().contains("cargo install"));
-    assert!(Route::Unknown.advice().unwrap().contains("releases/latest"));
+}
+
+#[test]
+fn an_update_downloads_the_archive_the_release_built_for_this_system() {
+    let windows = Archive::for_system("windows", "x86_64").unwrap();
+    assert_eq!(windows.file_name(), "fishtanks-x86_64-pc-windows-msvc.zip");
+    assert_eq!(windows.binary_inside(), Path::new("fishtanks.exe"));
+    assert_eq!(
+        windows.url(&version("1.2.3")),
+        "https://github.com/daniel-retamal/fishtanks/releases/download/v1.2.3/fishtanks-x86_64-pc-windows-msvc.zip"
+    );
+    let mac = Archive::for_system("macos", "aarch64").unwrap();
+    assert_eq!(mac.file_name(), "fishtanks-aarch64-apple-darwin.tar.xz");
+    assert_eq!(
+        mac.binary_inside(),
+        Path::new("fishtanks-aarch64-apple-darwin").join("fishtanks")
+    );
+    let linux = Archive::for_system("linux", "x86_64").unwrap();
+    assert_eq!(
+        linux.file_name(),
+        "fishtanks-x86_64-unknown-linux-musl.tar.xz"
+    );
+    assert_eq!(Archive::for_system("freebsd", "x86_64"), None);
+    assert_eq!(Archive::for_system("linux", "riscv64"), None);
+}
+
+#[test]
+fn an_update_never_runs_a_script() {
+    let source = include_str!("../src/update.rs");
+    for word in ["powershell", "iex", "ExecutionPolicy", "| sh"] {
+        assert!(
+            !source.contains(word),
+            "src/update.rs mentions `{word}`: Windows Defender reads a program that pipes a download into a shell as a trojan (Trojan:Win32/Commando.A!ml, 2026-09-25)"
+        );
+    }
 }
 
 #[test]
