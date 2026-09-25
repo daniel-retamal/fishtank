@@ -39,7 +39,7 @@ pub fn release_in(headers: &str) -> Option<Version> {
     Version::parse(tag.strip_prefix(TAG_PREFIX).unwrap_or(tag)).ok()
 }
 
-fn latest_release() -> Option<Version> {
+fn ask_github() -> Option<String> {
     let output = Command::new("curl")
         .args(["-sI", "--max-time", PROBE_TIMEOUT_SECS])
         .arg(format!("{REPOSITORY}/releases/latest"))
@@ -47,7 +47,12 @@ fn latest_release() -> Option<Version> {
         .stderr(Stdio::null())
         .output()
         .ok()?;
-    release_in(&String::from_utf8_lossy(&output.stdout))
+    let headers = String::from_utf8_lossy(&output.stdout).into_owned();
+    (!headers.trim().is_empty()).then_some(headers)
+}
+
+fn latest_release() -> Option<Version> {
+    release_in(&ask_github()?)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -251,9 +256,13 @@ pub fn run() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     let running = running();
-    let Some(latest) = latest_release() else {
+    let Some(headers) = ask_github() else {
         eprintln!("{NAME} could not reach GitHub to look for a newer version.");
         return ExitCode::FAILURE;
+    };
+    let Some(latest) = release_in(&headers) else {
+        println!("No {NAME} release has been published yet, so {running} is the newest there is.");
+        return ExitCode::SUCCESS;
     };
     if latest <= running {
         println!("{NAME} {running} is the newest there is.");
