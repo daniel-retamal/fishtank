@@ -5,6 +5,7 @@ edition = "2024"
 description = "An aquarium for your terminal: ASCII fishes, fishing, a shop, mutations, heaven, hell and computers made of fish."
 license = "MIT"
 repository = "https://github.com/daniel-retamal/fishtank"
+homepage = "https://retam.al/fishtanks"
 readme = "README.md"
 keywords = ["aquarium", "game", "terminal", "ascii", "tui"]
 categories = ["games", "command-line-utilities"]
@@ -28,3 +29,7 @@ windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3"
+
+[profile.dist]
+inherits = "release"
+lto = "thin"
