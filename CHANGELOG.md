@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.0.3 - 2026-09-25
 
+- **Closing the window really closes the game on macOS and Linux.** Before, a game whose terminal window was closed could keep running unseen, using a whole processor core, and the next `fishtanks` said it was "already swimming in another window". If that happens to you on 1.0.2 or older, run `pkill -9 fishtanks` once, then update.
 - **`fishtanks update` gives Homebrew players the whole command**: `brew update && brew upgrade fishtanks`. Homebrew refreshes its list of versions only about once a day, so `brew upgrade` on its own can miss a release from the same day.
 
 ## 1.0.2 - 2026-09-25
