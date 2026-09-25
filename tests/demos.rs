@@ -1282,12 +1282,12 @@ fn hurry_the_coins(tui: &mut Tui, fps: usize) -> Money {
 
 fn land_one_cast(tui: &mut Tui) {
     tui.run("/fish --no-fight");
-    tui.key(KeyCode::Down);
     let card = |tui: &mut Tui| {
         let screen = tui.screen();
         screen.contains("ENTER capture") || screen.contains("ESC/q close")
     };
     for _ in 0..REEL_TICKS {
+        tui.key(KeyCode::Down);
         tui.tick_n(1);
         if tui.app.fishing_state().is_none() {
             break;

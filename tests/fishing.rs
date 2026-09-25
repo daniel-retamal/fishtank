@@ -2,6 +2,7 @@ use std::path::Path;
 
 use crossterm::event::KeyCode;
 use fishtank::testing::Tui;
+use fishtank::ui::input_action::Releases;
 
 const CAST_TICKS: usize = 30 * 90;
 const CASTS: usize = 6;
@@ -10,16 +11,38 @@ const DEADBAND: f32 = 0.04;
 const REEL_ZONE: f32 = 0.3;
 const CENTRE: f32 = 0.5;
 const CATCH_CARD_HINTS: [&str; 2] = ["ENTER capture", "ESC/q close"];
-const LATCHED_REEL_HINT: &str = "↑ stop";
-const HELD_REEL_HINT: &str = "↓ reel";
+const REEL_HINT: &str = "↓ reel";
 const TWO_SECONDS: usize = 60;
 const WHOLE_HINT_COLS: u16 = 80;
 const FILM_SIZES: [(u16, u16); 5] = [(100, 30), (80, 24), (60, 18), (40, 14), (28, 10)];
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Terminal {
-    Releasing,
-    PressOnly,
+enum Emulator {
+    Windows,
+    Kitty,
+    AppleTerminal,
+}
+
+impl Emulator {
+    const ALL: [Emulator; 3] = [Emulator::Windows, Emulator::Kitty, Emulator::AppleTerminal];
+
+    fn open(self, tui: &mut Tui) {
+        if self == Emulator::Kitty {
+            tui.app.expect_key_releases(Releases::BeyondText);
+        }
+    }
+
+    fn releases(self, code: KeyCode) -> bool {
+        match self {
+            Emulator::Windows => true,
+            Emulator::Kitty => !matches!(code, KeyCode::Char(_) | KeyCode::Enter),
+            Emulator::AppleTerminal => false,
+        }
+    }
+
+    fn repeats_every_held_key(self) -> bool {
+        self == Emulator::Windows
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -33,7 +56,7 @@ const WINDOWS_CADENCE: Cadence = Cadence {
     repeat: 1,
 };
 
-const PRESS_ONLY_CADENCES: [Cadence; 4] = [
+const MAC_CADENCES: [Cadence; 4] = [
     Cadence {
         first_repeat: 7,
         repeat: 1,
@@ -53,26 +76,28 @@ const PRESS_ONLY_CADENCES: [Cadence; 4] = [
 ];
 
 struct Hand {
-    terminal: Terminal,
+    terminal: Emulator,
     cadence: Cadence,
     held: Vec<(KeyCode, u32)>,
-    reeling: bool,
 }
 
 impl Hand {
-    fn new(terminal: Terminal, cadence: Cadence) -> Self {
+    fn new(terminal: Emulator, cadence: Cadence) -> Self {
         Self {
             terminal,
             cadence,
             held: Vec::new(),
-            reeling: false,
         }
     }
 
     fn run(&mut self, tui: &mut Tui, line: &str) {
         tui.run(line);
-        if self.terminal == Terminal::Releasing {
-            tui.release(KeyCode::Enter);
+        self.lift(tui, KeyCode::Enter);
+    }
+
+    fn lift(&mut self, tui: &mut Tui, code: KeyCode) {
+        if self.terminal.releases(code) {
+            tui.release(code);
         }
     }
 
@@ -85,33 +110,15 @@ impl Hand {
             }
             (Some(i), false) => {
                 self.held.remove(i);
-                if self.terminal == Terminal::Releasing {
-                    tui.release(code);
-                }
+                self.lift(tui, code);
             }
             _ => {}
         }
     }
 
-    fn reel(&mut self, tui: &mut Tui, want: bool) {
-        if self.terminal == Terminal::Releasing {
-            self.hold(tui, KeyCode::Down, want);
-            return;
-        }
-        if want == self.reeling {
-            return;
-        }
-        self.reeling = want;
-        self.held.clear();
-        tui.key(if want { KeyCode::Down } else { KeyCode::Up });
-    }
-
     fn let_go(&mut self, tui: &mut Tui) {
-        self.reeling = false;
         for (code, _) in std::mem::take(&mut self.held) {
-            if self.terminal == Terminal::Releasing {
-                tui.release(code);
-            }
+            self.lift(tui, code);
         }
     }
 
@@ -121,13 +128,11 @@ impl Hand {
     }
 
     fn repeating(&self) -> &[(KeyCode, u32)] {
-        match self.terminal {
-            Terminal::Releasing => &self.held,
-            Terminal::PressOnly => {
-                let last = self.held.len().saturating_sub(1);
-                &self.held[last..]
-            }
+        if self.terminal.repeats_every_held_key() {
+            return &self.held;
         }
+        let last = self.held.len().saturating_sub(1);
+        &self.held[last..]
     }
 
     fn tick(&mut self, tui: &mut Tui) {
@@ -147,12 +152,18 @@ impl Hand {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Style {
+    ReelWhileSteering,
+    OneKeyAtATime,
+}
+
 fn card_shown(tui: &mut Tui) -> bool {
     let screen = tui.screen();
     CATCH_CARD_HINTS.iter().any(|hint| screen.contains(hint))
 }
 
-fn reel_like_a_player(tui: &mut Tui, hand: &mut Hand) -> bool {
+fn reel_like_a_player(tui: &mut Tui, hand: &mut Hand, style: Style) -> bool {
     hand.run(tui, "/fish");
     for _ in 0..CAST_TICKS {
         let Some(state) = tui.app.fishing_state() else {
@@ -160,29 +171,38 @@ fn reel_like_a_player(tui: &mut Tui, hand: &mut Hand) -> bool {
             return card_shown(tui);
         };
         if state.is_catching() {
-            if state.is_biting() {
-                hand.reel(tui, true);
-            }
+            let biting = state.is_biting();
+            hand.hold(tui, KeyCode::Down, biting);
             hand.tick(tui);
             continue;
         }
         let ahead = state.fish_pos + state.fish_velocity * LOOKAHEAD_STEPS;
-        let reel = (ahead - CENTRE).abs() * 2.0 < REEL_ZONE;
-        hand.reel(tui, reel);
-        hand.hold(tui, KeyCode::Left, ahead > CENTRE + DEADBAND);
-        hand.hold(tui, KeyCode::Right, ahead < CENTRE - DEADBAND);
+        let left = ahead > CENTRE + DEADBAND;
+        let right = ahead < CENTRE - DEADBAND;
+        let mut reel = (ahead - CENTRE).abs() * 2.0 < REEL_ZONE;
+        if style == Style::OneKeyAtATime {
+            reel &= !left && !right;
+            hand.hold(tui, KeyCode::Left, left);
+            hand.hold(tui, KeyCode::Right, right);
+            hand.hold(tui, KeyCode::Down, reel);
+        } else {
+            hand.hold(tui, KeyCode::Down, reel);
+            hand.hold(tui, KeyCode::Left, left);
+            hand.hold(tui, KeyCode::Right, right);
+        }
         hand.tick(tui);
     }
     panic!("a cast outlasted {CAST_TICKS} ticks");
 }
 
-fn landed_casts(terminal: Terminal, cadence: Cadence) -> usize {
+fn landed_casts(terminal: Emulator, cadence: Cadence, style: Style) -> usize {
     let mut tui = Tui::new();
     tui.clear_tank();
+    terminal.open(&mut tui);
     let mut hand = Hand::new(terminal, cadence);
     let mut landed = 0;
     for cast in 0..CASTS {
-        if !reel_like_a_player(&mut tui, &mut hand) {
+        if !reel_like_a_player(&mut tui, &mut hand, style) {
             continue;
         }
         landed += 1;
@@ -204,7 +224,7 @@ fn hook_a_fish(tui: &mut Tui) {
     tui.key(KeyCode::Down);
     let state = tui.app.fishing_state().expect("the fish is hooked");
     assert!(!state.is_catching(), "↓ on a bite hooks the fish");
-    assert!(state.is_reeling, "and starts the reel");
+    assert!(state.is_reeling, "and reels while ↓ is down");
 }
 
 fn reeling(tui: &Tui) -> bool {
@@ -212,15 +232,18 @@ fn reeling(tui: &Tui) -> bool {
 }
 
 #[test]
-fn a_player_lands_every_cast_through_a_terminal_that_sends_releases() {
-    assert_eq!(landed_casts(Terminal::Releasing, WINDOWS_CADENCE), CASTS);
+fn a_player_reeling_while_steering_lands_every_cast_on_windows() {
+    assert_eq!(
+        landed_casts(Emulator::Windows, WINDOWS_CADENCE, Style::ReelWhileSteering),
+        CASTS
+    );
 }
 
 #[test]
-fn a_player_lands_every_cast_through_a_terminal_that_never_sends_a_release() {
-    for cadence in PRESS_ONLY_CADENCES {
+fn a_mac_terminal_that_reports_arrow_releases_plays_exactly_like_windows() {
+    for cadence in MAC_CADENCES {
         assert_eq!(
-            landed_casts(Terminal::PressOnly, cadence),
+            landed_casts(Emulator::Kitty, cadence, Style::ReelWhileSteering),
             CASTS,
             "{cadence:?}"
         );
@@ -228,20 +251,38 @@ fn a_player_lands_every_cast_through_a_terminal_that_never_sends_a_release() {
 }
 
 #[test]
-fn a_terminal_that_never_sends_a_release_latches_the_reel_until_up() {
+fn a_player_on_terminal_app_lands_every_cast_one_key_at_a_time() {
+    for cadence in MAC_CADENCES {
+        assert_eq!(
+            landed_casts(Emulator::AppleTerminal, cadence, Style::OneKeyAtATime),
+            CASTS,
+            "{cadence:?}"
+        );
+    }
+}
+
+#[test]
+fn the_down_that_hooks_the_fish_on_terminal_app_stops_reeling_like_a_tap() {
     let mut tui = Tui::new();
     tui.clear_tank();
     hook_a_fish(&mut tui);
-    tui.screen().expect_find(LATCHED_REEL_HINT);
+    tui.tick_n(TWO_SECONDS / 4);
+    assert!(
+        !reeling(&tui),
+        "half a second after a tap with no repeat, the reel has stopped"
+    );
+}
 
-    tui.tick_n(TWO_SECONDS);
-    assert!(reeling(&tui), "the reel holds with no repeat");
-    tui.key(KeyCode::Up);
-    assert!(!reeling(&tui), "↑ stops it");
-    tui.tick_n(TWO_SECONDS);
-    assert!(!reeling(&tui), "and it stays stopped");
-    tui.key(KeyCode::Down);
-    assert!(reeling(&tui), "↓ starts it again");
+#[test]
+fn holding_down_on_terminal_app_reels_through_its_repeats() {
+    let mut tui = Tui::new();
+    tui.clear_tank();
+    hook_a_fish(&mut tui);
+    for _ in 0..TWO_SECONDS {
+        tui.key(KeyCode::Down);
+        tui.tick_n(1);
+        assert!(reeling(&tui), "a repeating ↓ is a held ↓");
+    }
 }
 
 #[test]
@@ -254,28 +295,31 @@ fn a_steering_key_with_no_repeat_lets_go_on_its_own() {
     tui.tick_n(TWO_SECONDS);
     let state = tui.app.fishing_state().expect("no escape");
     assert!(!state.is_pushing_right, "a key that stops repeating is up");
-    assert!(state.is_reeling, "and the reel is not a held key");
 }
 
 #[test]
-fn a_terminal_that_sends_releases_reels_only_while_down_is_held() {
-    let mut tui = Tui::new();
-    tui.clear_tank();
-    tui.release(KeyCode::Enter);
-    hook_a_fish(&mut tui);
-    let screen = tui.screen();
-    screen.expect_find(HELD_REEL_HINT);
-    screen.expect_absent(LATCHED_REEL_HINT);
-
-    tui.tick_n(TWO_SECONDS);
-    assert!(reeling(&tui), "held with no repeat");
-    tui.release(KeyCode::Down);
-    assert!(!reeling(&tui), "let go at once");
+fn a_terminal_that_reports_releases_reels_while_down_is_held_and_steered_with() {
+    for terminal in [Emulator::Windows, Emulator::Kitty] {
+        let mut tui = Tui::new();
+        tui.clear_tank();
+        terminal.open(&mut tui);
+        if terminal == Emulator::Windows {
+            tui.release(KeyCode::Enter);
+        }
+        hook_a_fish(&mut tui);
+        tui.key(KeyCode::Right);
+        tui.tick_n(TWO_SECONDS);
+        let state = tui.app.fishing_state().expect("no escape");
+        assert!(state.is_reeling, "{terminal:?}: held with no repeat");
+        assert!(state.is_pushing_right, "{terminal:?}: while steering");
+        tui.release(KeyCode::Down);
+        assert!(!reeling(&tui), "{terminal:?}: let go at once");
+    }
 }
 
 #[test]
-fn the_reel_says_how_to_stop_it_at_every_size() {
-    for terminal in [Terminal::Releasing, Terminal::PressOnly] {
+fn the_reel_says_how_to_reel_at_every_size() {
+    for terminal in Emulator::ALL {
         for (cols, rows) in FILM_SIZES {
             let mut tui = Tui::with_size(cols, rows);
             tui.film(
@@ -283,21 +327,12 @@ fn the_reel_says_how_to_stop_it_at_every_size() {
                 &format!("fishing-{terminal:?}-{cols}x{rows}"),
             );
             tui.clear_tank();
-            if terminal == Terminal::Releasing {
-                tui.release(KeyCode::Enter);
-            }
+            terminal.open(&mut tui);
             hook_a_fish(&mut tui);
             tui.tick_n(1);
             tui.snap(&format!("{terminal:?}: the reel and its hints"));
-            if cols < WHOLE_HINT_COLS {
-                continue;
-            }
-            let screen = tui.screen();
-            screen.expect_find(HELD_REEL_HINT);
-            if terminal == Terminal::PressOnly {
-                screen.expect_find(LATCHED_REEL_HINT);
-            } else {
-                screen.expect_absent(LATCHED_REEL_HINT);
+            if cols >= WHOLE_HINT_COLS {
+                tui.screen().expect_find(REEL_HINT);
             }
         }
     }

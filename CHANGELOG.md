@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.4 - 2026-09-25
+
+- **Fishing on macOS and Linux plays like Windows.** Hold ↓ to reel and ←→ to steer, everywhere; the ↑ key that stopped the reel is gone, and hooking a fish no longer starts reeling on its own. In a terminal that reports key releases (Ghostty, kitty, WezTerm, Alacritty, iTerm2 with the kitty keyboard protocol) it is exactly the Windows game, reeling while you steer included. macOS's built-in Terminal tells programs only about the last key held, so there reel between steers.
+
 ## 1.0.3 - 2026-09-25
 
 - **Closing the window really closes the game on macOS and Linux.** Before, a game whose terminal window was closed could keep running unseen, using a whole processor core, and the next `fishtanks` said it was "already swimming in another window". If that happens to you on 1.0.2 or older, run `pkill -9 fishtanks` once, then update.

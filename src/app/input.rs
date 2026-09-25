@@ -485,9 +485,6 @@ impl App {
             return;
         }
         self.hold_the_rod();
-        if let Some(s) = self.fishing_state_mut() {
-            s.press(held.code);
-        }
     }
 
     fn hold_the_rod(&mut self) {

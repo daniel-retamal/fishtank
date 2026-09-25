@@ -159,12 +159,12 @@ const KEEPER: &str = "Kept";
 
 fn land_a_cast(tui: &mut Tui) {
     tui.run("/fish --no-fight");
-    tui.key(KeyCode::Down);
     let card = |tui: &mut Tui| {
         let screen = tui.screen();
         CATCH_CARD_HINTS.iter().any(|hint| screen.contains(hint))
     };
     for _ in 0..REEL_TICKS {
+        tui.key(KeyCode::Down);
         tui.tick_n(1);
         if tui.app.fishing_state().is_none() {
             break;
