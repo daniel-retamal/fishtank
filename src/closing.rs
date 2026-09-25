@@ -1,7 +1,10 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 
 static CLOSING: LazyLock<Arc<AtomicBool>> = LazyLock::new(|| Arc::new(AtomicBool::new(false)));
+
+const FAREWELL_GRACE: Duration = Duration::from_millis(4_500);
 
 pub fn listen() {
     LazyLock::force(&CLOSING);
@@ -16,7 +19,6 @@ pub fn requested() -> bool {
 mod platform {
     use std::sync::atomic::Ordering;
     use std::thread;
-    use std::time::Duration;
 
     use windows_sys::Win32::System::Console::{
         CTRL_CLOSE_EVENT, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT, SetConsoleCtrlHandler,
@@ -26,7 +28,6 @@ mod platform {
     const HANDLED: BOOL = 1;
     const PASSED_ON: BOOL = 0;
     const ADD_HANDLER: BOOL = 1;
-    const FAREWELL_GRACE: Duration = Duration::from_millis(4_500);
 
     unsafe extern "system" fn on_console_event(event: u32) -> BOOL {
         if !matches!(
@@ -36,7 +37,7 @@ mod platform {
             return PASSED_ON;
         }
         super::CLOSING.store(true, Ordering::SeqCst);
-        thread::sleep(FAREWELL_GRACE);
+        thread::sleep(super::FAREWELL_GRACE);
         HANDLED
     }
 
@@ -49,14 +50,27 @@ mod platform {
 
 #[cfg(unix)]
 mod platform {
-    use std::sync::Arc;
+    use std::process;
+    use std::sync::atomic::Ordering;
+    use std::thread;
 
     use signal_hook::consts::{SIGHUP, SIGTERM};
+    use signal_hook::iterator::Signals;
+
+    const FAREWELL_OVERDUE: i32 = 1;
 
     pub fn listen() {
-        for signal in [SIGHUP, SIGTERM] {
-            let _ = signal_hook::flag::register(signal, Arc::clone(&super::CLOSING));
-        }
+        let Ok(mut signals) = Signals::new([SIGHUP, SIGTERM]) else {
+            return;
+        };
+        thread::spawn(move || {
+            if signals.forever().next().is_none() {
+                return;
+            }
+            super::CLOSING.store(true, Ordering::SeqCst);
+            thread::sleep(super::FAREWELL_GRACE);
+            process::exit(FAREWELL_OVERDUE);
+        });
     }
 }
 

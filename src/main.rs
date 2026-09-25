@@ -1,11 +1,14 @@
+use std::fmt::Display;
+use std::io::{self, Write};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use crossterm::{event, terminal};
+use crossterm::terminal;
 use fishtank::app::App;
 use fishtank::cli::Invocation;
 use fishtank::closing;
+use fishtank::terminal_events::{Heard, TerminalEvents};
 use fishtank::update::{self, Watch};
 use fishtank::vault::Vault;
 
@@ -45,34 +48,45 @@ fn main() -> ExitCode {
     let mut terminal = ratatui::init();
     let result = run(&mut terminal, &mut app, &mut watch);
     let saved = app.persist_and_wait();
-    ratatui::restore();
+    if let Err(error) = ratatui::try_restore() {
+        warn(format!("fishtank could not tidy the terminal: {error}"));
+    }
     if let Err(error) = saved {
-        eprintln!("fishtank could not write its water down: {error}");
+        warn(format!("fishtank could not write its water down: {error}"));
     }
     if let Some(news) = watch.news() {
-        println!("{news}");
+        let _ = writeln!(io::stdout(), "{news}");
     }
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("{error}");
+            warn(error);
             ExitCode::FAILURE
         }
     }
 }
 
+fn warn(message: impl Display) {
+    let _ = writeln!(io::stderr(), "{message}");
+}
+
 fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App, watch: &mut Watch) -> Result<()> {
+    let events = TerminalEvents::listen();
     let mut last_tick = Instant::now();
 
     loop {
         let tick_duration = Duration::from_secs_f32(1.0 / app.settings.fps);
         let timeout = tick_duration.saturating_sub(last_tick.elapsed());
 
-        if event::poll(timeout)? {
-            app.handle_input(event::read()?);
-            while event::poll(Duration::ZERO)? {
-                app.handle_input(event::read()?);
+        let mut heard = Some(events.wait(timeout));
+        while let Some(news) = heard {
+            match news {
+                Heard::Event(event) => app.handle_input(event),
+                Heard::Quiet => break,
+                Heard::Gone(None) => return Ok(()),
+                Heard::Gone(Some(error)) => return Err(error.into()),
             }
+            heard = events.waiting();
         }
 
         if last_tick.elapsed() >= tick_duration {
