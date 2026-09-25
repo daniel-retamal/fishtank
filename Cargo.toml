@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "An aquarium for your terminal: ASCII fishes, fishing, a shop, mutations, heaven, hell and computers made of fish."
 license = "MIT"
-repository = "https://github.com/daniel-retamal/fishtank"
+repository = "https://github.com/daniel-retamal/fishtanks"
 homepage = "https://retam.al/fishtanks"
 readme = "README.md"
 keywords = ["aquarium", "game", "terminal", "ascii", "tui"]
@@ -21,6 +21,7 @@ dirs = "7.0.0"
 rand = "0.10.1"
 ratatui = { version = "0.30.0", features = ["serde"] }
 ron = "0.12.2"
+semver = "1"
 serde = { version = "1.0.229", features = ["derive"] }
 unicode-width = "0.2"
 

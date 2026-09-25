@@ -413,6 +413,7 @@ dependencies = [
  "rand 0.10.1",
  "ratatui",
  "ron",
+ "semver",
  "serde",
  "signal-hook",
  "unicode-width",
