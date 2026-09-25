@@ -1,3 +1,4 @@
+use crossterm::event::KeyCode;
 use rand::RngExt;
 use ratatui::{
     buffer::Buffer,
@@ -12,7 +13,7 @@ use crate::consumable::{
     PHYSICAL_INSTRUMENT_ALPHA, REACTION_SPEED_ALPHA, VISUAL_CALCULUS_ALPHA, VOLITION_ALPHA,
 };
 use crate::settings::DEFAULT_FPS;
-use crate::ui::{hints::HINT_CLOSE, table};
+use crate::ui::{hints::HINT_CLOSE, input_action::HeldKeys, table};
 use crate::util::{Metronome, hyperbolic_scale};
 
 const FISH_FORCE: f32 = 0.022;
@@ -63,7 +64,8 @@ const WAVE_SPAWN_MIN_SECS: f32 = 0.08;
 const WAVE_COLOR: Color = CYAN;
 const INITIAL_WAVE_COUNT: u32 = 6;
 
-const REEL_FOOTER_LEFT: &str = " ←→ control the fish  ↓ reel";
+const REEL_FOOTER_LEFT: &str = " ←→ steer  ↓ reel";
+const LATCHED_REEL_FOOTER_LEFT: &str = " ←→ steer  ↓ reel  ↑ stop";
 const CATCH_FOOTER_LEFT: &str = " ↓ catch once fish bites";
 
 const ART_FRAMES: [[&str; 6]; 5] = [
@@ -163,6 +165,7 @@ pub struct FishingState {
     pub game_over: bool,
     pub captured: bool,
     pub is_reeling: bool,
+    latched_reel: bool,
     pub is_pushing_left: bool,
     pub is_pushing_right: bool,
     pub no_escape: bool,
@@ -196,6 +199,7 @@ impl FishingState {
             game_over: false,
             captured: false,
             is_reeling: false,
+            latched_reel: false,
             is_pushing_left: false,
             is_pushing_right: false,
             no_escape: false,
@@ -215,6 +219,34 @@ impl FishingState {
 
     pub fn start_reeling(&mut self) {
         self.phase = FishPhase::Reel;
+    }
+
+    pub fn hold(&mut self, keys: &HeldKeys) {
+        self.is_pushing_left = keys.is_down(KeyCode::Left);
+        self.is_pushing_right = keys.is_down(KeyCode::Right);
+        self.latched_reel = !keys.reports_releases();
+        if !self.latched_reel {
+            self.is_reeling = !self.is_catching() && keys.is_down(KeyCode::Down);
+        }
+    }
+
+    pub fn press(&mut self, code: KeyCode) {
+        if !self.latched_reel || self.is_catching() {
+            return;
+        }
+        match code {
+            KeyCode::Down => self.is_reeling = true,
+            KeyCode::Up => self.is_reeling = false,
+            _ => {}
+        }
+    }
+
+    fn reel_footer(&self) -> &'static str {
+        if self.latched_reel {
+            LATCHED_REEL_FOOTER_LEFT
+        } else {
+            REEL_FOOTER_LEFT
+        }
     }
 
     pub fn tick(
@@ -835,7 +867,7 @@ fn draw_reel_panels(buf: &mut Buffer, geom: &FishingGeometry, state: &FishingSta
         geom.inner_x,
         sep2_y + 1,
         geom.inner_w,
-        REEL_FOOTER_LEFT,
+        state.reel_footer(),
     );
 }
 

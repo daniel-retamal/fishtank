@@ -30,6 +30,7 @@ use crate::{
         fishtanks_overlay::{FishtanksOverlay, FishtanksState},
         foundry_overlay::{FoundryOverlay, FoundryState, Quotes},
         index_overlay::{IndexOverlay, IndexState},
+        input_action::HeldKeys,
         inventory_overlay::{InventoryOverlay, InventoryState},
         layout::Screen,
         ledger_overlay::{LedgerOverlay, LedgerState},
@@ -121,6 +122,7 @@ pub struct App {
     pub running: bool,
     history: CommandHistory,
     active_overlay: Option<Overlay>,
+    held_keys: HeldKeys,
     terminal_height: u16,
     terminal_width: u16,
     pub graveyard: Graveyard,
@@ -189,7 +191,7 @@ impl App {
         }
     }
 
-    fn fishing_state(&self) -> Option<&FishingState> {
+    pub fn fishing_state(&self) -> Option<&FishingState> {
         match &self.active_overlay {
             Some(Overlay::Fishing(s)) => Some(s),
             _ => None,
@@ -333,11 +335,13 @@ impl App {
 
     fn set_overlay(&mut self, overlay: Overlay) {
         self.leave_console();
+        self.held_keys.let_go();
         self.active_overlay = Some(overlay);
     }
 
     fn close_overlay(&mut self) {
         self.leave_console();
+        self.held_keys.let_go();
         self.active_overlay = None;
     }
 
@@ -585,7 +589,8 @@ impl App {
         let coffee = self.coffee_stacks();
         let milk = self.milk_buffs();
         let geom = FishingGeometry::from_area(self.tank_area());
-        if let Some(s) = self.fishing_state_mut() {
+        if let Some(Overlay::Fishing(s)) = &mut self.active_overlay {
+            s.hold(&self.held_keys);
             s.tick(fps, coffee, milk, geom);
         }
         let (game_over, captured) = match self.fishing_state() {
@@ -649,10 +654,12 @@ impl App {
     }
 
     pub fn tick(&mut self) {
+        let lifted = self.held_keys.tick(1.0 / self.settings.fps);
         if matches!(self.active_overlay, Some(Overlay::Fishing(_))) {
             self.tick_fishing();
             return;
         }
+        self.lift_console_keys(lifted);
         match &mut self.active_overlay {
             Some(Overlay::Catch(catch)) => {
                 catch.tick(self.settings.fps);

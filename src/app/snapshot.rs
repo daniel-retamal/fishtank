@@ -13,6 +13,7 @@ use crate::loot::{LootKind, StockItem};
 use crate::settings::Settings;
 use crate::tank::{Blueprint, DayClock, Tank, TankKind, TankRecord};
 use crate::ui::catch_overlay::CatchState;
+use crate::ui::input_action::HeldKeys;
 use crate::ui::line_editor::{CommandHistory, LineEditor};
 use crate::util::sample_exponential;
 use crate::vault::CryptSeal;
@@ -158,6 +159,7 @@ impl App {
             running: _,
             history,
             active_overlay,
+            held_keys: _,
             terminal_height: _,
             terminal_width: _,
             graveyard,
@@ -237,6 +239,7 @@ impl App {
             running: true,
             history: save.history,
             active_overlay: None,
+            held_keys: HeldKeys::default(),
             terminal_height: height,
             terminal_width: width,
             graveyard: Graveyard::of(save.graveyard),

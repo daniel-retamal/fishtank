@@ -1287,15 +1287,13 @@ fn land_one_cast(tui: &mut Tui) {
         let screen = tui.screen();
         screen.contains("ENTER capture") || screen.contains("ESC/q close")
     };
-    let mut shown = false;
     for _ in 0..REEL_TICKS {
         tui.tick_n(1);
-        if card(tui) {
-            shown = true;
+        if tui.app.fishing_state().is_none() {
             break;
         }
     }
-    assert!(shown, "holding the reel with --no-fight lands the cast");
+    assert!(card(tui), "holding the reel with --no-fight lands the cast");
     tui.release(KeyCode::Down);
     tui.type_text("Bo");
     tui.key(KeyCode::Enter);

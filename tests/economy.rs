@@ -166,7 +166,7 @@ fn land_a_cast(tui: &mut Tui) {
     };
     for _ in 0..REEL_TICKS {
         tui.tick_n(1);
-        if card(tui) {
+        if tui.app.fishing_state().is_none() {
             break;
         }
     }
