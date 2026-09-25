@@ -193,7 +193,7 @@ impl Route {
         match self {
             Route::Itself => None,
             Route::Homebrew => Some(format!(
-                "This {NAME} came from Homebrew. Update it with: brew upgrade {NAME}"
+                "This {NAME} came from Homebrew. Update it with: brew update && brew upgrade {NAME}"
             )),
             Route::Cargo => Some(format!(
                 "This {NAME} was built by cargo. Update it with: cargo install {NAME}"

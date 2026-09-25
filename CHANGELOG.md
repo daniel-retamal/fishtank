@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **`fishtanks update` gives Homebrew players the whole command**: `brew update && brew upgrade fishtanks`. Homebrew refreshes its list of versions only about once a day, so `brew upgrade` on its own can miss a release from the same day.
+
 ## 1.0.2 - 2026-09-25
 
 - **Fishing works on macOS and Linux.** Those terminals never tell a program that a key was let go, so the reel kept reeling after you lifted ↓ and the bar emptied in a blink. Now ↓ starts the reel and ↑ stops it there (the bottom of the fishing window says so), and steering follows your keys as they repeat. On Windows nothing changes: hold ↓ to reel.

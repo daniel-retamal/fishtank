@@ -76,7 +76,7 @@ fishtanks
 
 ### Updating
 
-`fishtanks` tells you when a newer version is out. Run your install line again, or `brew upgrade fishtanks` if you used Homebrew. Your game carries over.
+`fishtanks` tells you when a newer version is out. Run your install line again, or `brew update && brew upgrade fishtanks` if you used Homebrew. Your game carries over.
 
 ### What you need
 
