@@ -79,6 +79,7 @@ impl Blessing {
 impl App {
     pub fn handle_input(&mut self, event: Event) {
         self.note_input(&event);
+        self.held_keys.hear(&event);
         if let Event::Resize(w, h) = event {
             self.terminal_height = h;
             self.terminal_width = w;
@@ -453,14 +454,8 @@ impl App {
     fn handle_fishing_input(&mut self, event: Event) {
         let Some(held) = hold(&event) else { return };
         if !held.down {
-            if let Some(s) = self.fishing_state_mut() {
-                match held.code {
-                    KeyCode::Left => s.is_pushing_left = false,
-                    KeyCode::Right => s.is_pushing_right = false,
-                    KeyCode::Down => s.is_reeling = false,
-                    _ => {}
-                }
-            }
+            self.held_keys.release(held.code);
+            self.hold_the_rod();
             return;
         }
         if held.quits {
@@ -471,31 +466,33 @@ impl App {
             self.close_overlay();
             return;
         }
+        self.held_keys.press(held.code);
         let mut catch_failed = false;
         if let Some(s) = self.fishing_state_mut()
             && !s.game_over
             && !s.captured
+            && s.is_catching()
+            && held.code == KeyCode::Down
         {
-            if s.is_catching() {
-                if held.code == KeyCode::Down {
-                    if s.is_biting() {
-                        s.start_reeling();
-                        s.is_reeling = true;
-                    } else {
-                        catch_failed = true;
-                    }
-                }
+            if s.is_biting() {
+                s.start_reeling();
             } else {
-                match held.code {
-                    KeyCode::Left => s.is_pushing_left = true,
-                    KeyCode::Right => s.is_pushing_right = true,
-                    KeyCode::Down => s.is_reeling = true,
-                    _ => {}
-                }
+                catch_failed = true;
             }
         }
         if catch_failed {
             self.close_overlay();
+            return;
+        }
+        self.hold_the_rod();
+        if let Some(s) = self.fishing_state_mut() {
+            s.press(held.code);
+        }
+    }
+
+    fn hold_the_rod(&mut self) {
+        if let Some(Overlay::Fishing(s)) = &mut self.active_overlay {
+            s.hold(&self.held_keys);
         }
     }
 

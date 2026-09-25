@@ -75,13 +75,29 @@ impl App {
             self.close_overlay();
             return;
         }
-        let Some(key) = key_name(held.code) else {
+        if held.down {
+            let lifted = self.held_keys.press(held.code);
+            self.lift_console_keys(lifted);
+        } else {
+            self.held_keys.release(held.code);
+        }
+        self.console_key(held.code, held.down);
+    }
+
+    pub(super) fn lift_console_keys(&mut self, lifted: Vec<KeyCode>) {
+        for code in lifted {
+            self.console_key(code, false);
+        }
+    }
+
+    fn console_key(&mut self, code: KeyCode, down: bool) {
+        let Some(key) = key_name(code) else {
             return;
         };
         let Some(Overlay::Console(state)) = &mut self.active_overlay else {
             return;
         };
-        let changed = if held.down {
+        let changed = if down {
             state.press(&key)
         } else {
             state.release(&key)
@@ -91,7 +107,7 @@ impl App {
         }
         let fish = state.fish.clone();
         if let Some(bot) = self.console_bot_mut(&fish) {
-            bot.key(&key, held.down);
+            bot.key(&key, down);
         }
     }
 
