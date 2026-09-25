@@ -1,6 +1,7 @@
 pub mod abduction;
 pub mod app;
 pub mod cheats;
+pub mod cli;
 pub mod closing;
 pub mod colors;
 pub mod commands;

@@ -1,7 +1,17 @@
 [package]
-name = "fishtank"
+name = "fishtanks"
 version = "0.1.0"
 edition = "2024"
+description = "An aquarium for your terminal: ASCII fishes, fishing, a shop, mutations, heaven, hell and computers made of fish."
+license = "MIT"
+repository = "https://github.com/daniel-retamal/fishtank"
+readme = "README.md"
+keywords = ["aquarium", "game", "terminal", "ascii", "tui"]
+categories = ["games", "command-line-utilities"]
+exclude = ["tests/", ".github/"]
+
+[lib]
+name = "fishtank"
 
 [dependencies]
 anyhow = "1.0.102"

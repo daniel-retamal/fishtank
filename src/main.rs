@@ -3,14 +3,25 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::{event, terminal};
-use fishtank::app::{App, Launch};
+use fishtank::app::App;
+use fishtank::cli::Invocation;
 use fishtank::closing;
 use fishtank::vault::Vault;
 
 const FALLBACK_SIZE: (u16, u16) = (80, 24);
 
 fn main() -> ExitCode {
-    let launch = Launch::from_args(std::env::args());
+    let launch = match Invocation::from_args(std::env::args()) {
+        Invocation::Play(launch) => launch,
+        Invocation::Help => {
+            println!("{}", Invocation::help());
+            return ExitCode::SUCCESS;
+        }
+        Invocation::Version => {
+            println!("{}", Invocation::version());
+            return ExitCode::SUCCESS;
+        }
+    };
     let vault = match Vault::open(launch) {
         Ok(vault) => vault,
         Err(error) => {
