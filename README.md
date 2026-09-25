@@ -21,7 +21,7 @@
   </p>
 
   <p>
-    <a href="https://github.com/daniel-retamal/fishtank/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/daniel-retamal/fishtank?label=release&color=1f6feb" /></a>
+    <a href="https://github.com/daniel-retamal/fishtanks/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/daniel-retamal/fishtanks?label=release&color=1f6feb" /></a>
     <a href="#install"><img alt="macOS, Linux and Windows" src="https://img.shields.io/badge/macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-1f6feb" /></a>
     <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-1f6feb" /></a>
   </p>
@@ -69,7 +69,7 @@ fishtanks
 <details>
 <summary>Other ways to get it</summary>
 
-- **Download it yourself.** Every [release](https://github.com/daniel-retamal/fishtank/releases/latest) has a build for each system: unpack it and run `fishtanks` from wherever you put it.
+- **Download it yourself.** Every [release](https://github.com/daniel-retamal/fishtanks/releases/latest) has a build for each system: unpack it and run `fishtanks` from wherever you put it.
 - **With Rust.** `cargo install fishtanks` builds it from source.
 
 </details>
