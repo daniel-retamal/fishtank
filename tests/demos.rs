@@ -13,6 +13,7 @@ use fishtank::{
     loot::{ConsumableKind, StockItem},
     tank::FEED_PORTION,
     testing::Tui,
+    ui::fishing_overlay::Temper,
 };
 
 const REEL_DIR: &str = env!("CARGO_TARGET_TMPDIR");
@@ -1442,4 +1443,58 @@ fn the_economy_demo_runs_keystroke_for_keystroke() {
             >= Money::from(FOOD_BUY_PRICE) * pellets_to_cap as Money
     );
     assert_no_broken_borders(&tui);
+}
+
+const BITE_TICKS: usize = 30 * 90;
+const FIGHT_TICKS: usize = 60;
+const HEAVEN_NAME: &str = "Heaventank";
+
+fn strike(tui: &mut Tui, flag: &str) {
+    tui.run(&format!("/fish --no-escape {flag}"));
+    for _ in 0..BITE_TICKS {
+        if tui.app.fishing_state().is_some_and(|s| s.is_biting()) {
+            break;
+        }
+        tui.tick_n(1);
+    }
+    tui.key(KeyCode::Down);
+    tui.tick_n(FIGHT_TICKS);
+}
+
+#[test]
+fn the_normal_legendary_and_pearl_demo_runs_keystroke_for_keystroke() {
+    let mut tui = filmed("demo-fish-tempers-and-the-pearl");
+
+    strike(&mut tui, "--normal");
+    let state = tui.app.fishing_state().expect("the fish is on the line");
+    assert_eq!(state.temper(), Temper::Normal);
+    tui.snap("a Normal fish two seconds in: green water in the middle, red at the sides");
+    tui.key(KeyCode::Esc);
+
+    strike(&mut tui, "--legendary");
+    let state = tui.app.fishing_state().expect("the fish is on the line");
+    assert_eq!(state.temper(), Temper::Legendary);
+    tui.snap("a Legendary fish two seconds in");
+    tui.key(KeyCode::Esc);
+
+    tui.run("/spawn salmon \"Ann\"");
+    tui.run("/sell fish \"Ann\"");
+    tui.run("/fishtanks");
+    tui.screen().expect_absent(HEAVEN_NAME);
+    tui.snap("a sale opens no heaven");
+    tui.key(KeyCode::Esc);
+
+    tui.run("/give pearl of great price");
+    tui.run("/consume pearl of great price");
+    tui.screen().expect_find("Name your");
+    tui.type_text(HEAVEN_NAME);
+    tui.key(KeyCode::Enter);
+    tui.run("/names");
+    tui.tick_n(FIGHT_TICKS);
+    let wall = &tui.app.tanks[tui.app.current_tank];
+    assert_eq!(wall.name, HEAVEN_NAME, "a grown tank switches you into it");
+    assert!(wall.souls().iter().any(|soul| soul.name == "Ann"));
+    tui.snap("the pearl grew Heaven and Ann was waiting for it");
+    tui.run("/give pearl of great price");
+    assert_eq!(tui.app.inventory.get(&StockItem::GOLDEN_PEARL), None);
 }
