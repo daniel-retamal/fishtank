@@ -2,6 +2,7 @@ use std::path::Path;
 
 use crossterm::event::{Event, KeyCode};
 use fishtank::testing::Tui;
+use fishtank::ui::fishing_overlay::Temper;
 
 const CAST_TICKS: usize = 30 * 90;
 const CASTS: usize = 6;
@@ -179,7 +180,7 @@ fn card_shown(tui: &mut Tui) -> bool {
 }
 
 fn reel_like_a_player(tui: &mut Tui, hand: &mut Hand, style: Style) -> bool {
-    hand.run(tui, "/fish");
+    hand.run(tui, "/fish --legendary");
     for _ in 0..CAST_TICKS {
         let Some(state) = tui.app.fishing_state() else {
             hand.let_go(tui);
@@ -380,4 +381,50 @@ fn a_window_that_loses_focus_lets_go_of_every_key() {
     let state = tui.app.fishing_state().expect("no escape");
     assert!(!state.is_reeling, "the key-up went to another window");
     assert!(!state.is_pushing_right);
+}
+
+#[test]
+fn the_reel_shows_where_it_is_safe_to_reel_behind_the_control() {
+    for temper in ["--normal", "--legendary"] {
+        for (cols, rows) in FILM_SIZES {
+            let mut tui = Tui::with_size(cols, rows);
+            tui.film(
+                Path::new(env!("CARGO_TARGET_TMPDIR")),
+                &format!("fishing-zones{temper}-{cols}x{rows}"),
+            );
+            tui.clear_tank();
+            tui.run(&format!("/fish --no-escape {temper}"));
+            for _ in 0..CAST_TICKS {
+                if tui.app.fishing_state().is_some_and(|s| s.is_biting()) {
+                    break;
+                }
+                tui.tick_n(1);
+            }
+            tui.key(KeyCode::Down);
+            tui.tick_n(TWO_SECONDS);
+            tui.snap(&format!("{temper}: the water behind the control"));
+        }
+    }
+}
+
+#[test]
+fn the_debug_flags_choose_how_the_hooked_fish_fights() {
+    for (flag, temper) in [
+        ("--normal", Temper::Normal),
+        ("--legendary", Temper::Legendary),
+    ] {
+        let mut tui = Tui::new();
+        tui.clear_tank();
+        tui.run(&format!("/fish --no-fight {flag}"));
+        let state = tui.app.fishing_state().expect("fishing");
+        assert!(!state.is_catching(), "--no-fight hooks at once");
+        assert_eq!(state.temper(), temper, "{flag}");
+    }
+}
+
+#[test]
+fn a_player_cannot_choose_how_a_fish_fights() {
+    let mut tui = Tui::as_player(80, 24);
+    tui.run("/fish --legendary");
+    assert!(tui.app.fishing_state().is_none(), "a debug flag is refused");
 }

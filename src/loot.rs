@@ -1070,6 +1070,19 @@ pub enum LootKind {
     Item(ItemKind),
 }
 
+impl LootKind {
+    pub fn rarity(&self) -> Rarity {
+        match self {
+            LootKind::Fish(species) => species.config().rarity,
+            LootKind::Cash(cash) => cash.rarity(),
+            LootKind::Food(_) => Rarity::Common,
+            LootKind::Item(item) => {
+                StockItem::from_item(item).map_or(Rarity::Common, StockItem::rarity)
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 enum PoolSlot {
     Species(FishSpecies),

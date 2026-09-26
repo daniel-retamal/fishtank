@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use crossterm::event::KeyCode;
 use rand::RngExt;
 use ratatui::{
@@ -8,20 +10,19 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthChar;
 
-use crate::colors::{CYAN, DARK_GRAY, LIGHT_GREEN, LIGHT_RED, LIGHT_YELLOW, RED, WHITE};
+use crate::colors::{CYAN, DARK_GRAY, GREEN, LIGHT_GREEN, LIGHT_RED, LIGHT_YELLOW, RED, WHITE};
 use crate::consumable::{
     PHYSICAL_INSTRUMENT_ALPHA, REACTION_SPEED_ALPHA, VISUAL_CALCULUS_ALPHA, VOLITION_ALPHA,
 };
+use crate::economy::Rarity;
+use crate::loot::LootKind;
 use crate::settings::DEFAULT_FPS;
 use crate::ui::{hints::HINT_CLOSE, input_action::HeldKeys, table};
 use crate::util::{Metronome, hyperbolic_scale};
 
-const FISH_FORCE: f32 = 0.022;
 const DAMPING: f32 = 0.95;
 const PLAYER_FORCE: f32 = 0.028;
 const MAX_VELOCITY: f32 = 0.05;
-const TARGET_DURATION_MIN: f32 = 20.0;
-const TARGET_DURATION_MAX: f32 = 50.0;
 const REEL_RATE: f32 = 0.009;
 const COFFEE_REEL_RATE_PER_STACK: f32 = 0.002;
 const WALL_BOUNCE: f32 = -0.5;
@@ -33,6 +34,13 @@ pub const COMPLETION_START: f32 = 0.2;
 const REEL_PENALTY_THRESHOLD: f32 = 0.45;
 const BASE_GRACE_SECS: f32 = 1.0;
 const MAX_GRACE_SECS: f32 = 11.0;
+const OPENING_GRACE_SECS: f32 = 2.0;
+const STRETCHED_BAND: f32 = COMPLETION_START;
+const BOTTOM_STRETCH: f32 = 2.0;
+const LOSS_FLOOR: f32 = STRETCHED_BAND * (1.0 - BOTTOM_STRETCH);
+const CONTROL_COLOR: Color = WHITE;
+const SAFE_WATER: Color = GREEN;
+const DANGER_WATER: Color = RED;
 const COMPLETION_WARN: f32 = 0.5;
 const OVERLAY_FILL: f32 = 0.75;
 const COMP_WIDTH: u16 = 3;
@@ -119,6 +127,97 @@ const CATCH_BITE_FRAME: [&str; 6] = [
     "             ⎹  ",
 ];
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Temper {
+    #[default]
+    Normal,
+    Legendary,
+}
+
+#[derive(Clone, Copy)]
+enum Pull {
+    Snap(f32),
+    Spring(f32),
+}
+
+impl Pull {
+    fn towards(self, target: f32, pos: f32) -> f32 {
+        match self {
+            Pull::Snap(force) => (target - pos).signum() * force,
+            Pull::Spring(stiffness) => (target - pos) * stiffness,
+        }
+    }
+}
+
+struct Temperament {
+    pull: Pull,
+    dart_after_home: f64,
+    dart_after_dart: f64,
+    home: Range<f32>,
+    home_steps: Range<f32>,
+    dart_reach: Range<f32>,
+    dart_steps: Range<f32>,
+}
+
+impl Temper {
+    pub fn legendary_chance(rarity: Rarity) -> f64 {
+        Rarity::Legendary.catch_weight() as f64 / rarity.catch_weight() as f64
+    }
+
+    pub fn roll(rarity: Rarity, rng: &mut impl RngExt) -> Self {
+        if rng.random_bool(Self::legendary_chance(rarity).min(1.0)) {
+            return Temper::Legendary;
+        }
+        Temper::Normal
+    }
+
+    fn temperament(self) -> Temperament {
+        match self {
+            Temper::Normal => Temperament {
+                pull: Pull::Spring(0.006),
+                dart_after_home: 1.0,
+                dart_after_dart: 0.0,
+                home: 0.44..0.56,
+                home_steps: 30.0..60.0,
+                dart_reach: 0.12..0.25,
+                dart_steps: 18.0..36.0,
+            },
+            Temper::Legendary => Temperament {
+                pull: Pull::Snap(0.022),
+                dart_after_home: 0.7,
+                dart_after_dart: 0.7,
+                home: 0.30..0.70,
+                home_steps: 20.0..50.0,
+                dart_reach: 0.05..0.20,
+                dart_steps: 20.0..50.0,
+            },
+        }
+    }
+
+    fn next_target(self, darting: bool, rng: &mut impl RngExt) -> (bool, f32, f32) {
+        let temperament = self.temperament();
+        let chance = if darting {
+            temperament.dart_after_dart
+        } else {
+            temperament.dart_after_home
+        };
+        if !rng.random_bool(chance) {
+            return (
+                false,
+                rng.random_range(temperament.home),
+                rng.random_range(temperament.home_steps),
+            );
+        }
+        let reach = rng.random_range(temperament.dart_reach);
+        let target = if rng.random::<bool>() {
+            reach
+        } else {
+            1.0 - reach
+        };
+        (true, target, rng.random_range(temperament.dart_steps))
+    }
+}
+
 struct OceanWave {
     x: f32,
     row: u16,
@@ -170,6 +269,11 @@ pub struct FishingState {
     pub no_fight: bool,
     pub reel_punish_timer: u32,
     pub reel_anim_tick: u32,
+    pub forced_temper: Option<Temper>,
+    temper: Temper,
+    darting: bool,
+    hooked: Option<LootKind>,
+    reel_steps: u32,
 }
 
 impl Default for FishingState {
@@ -203,6 +307,11 @@ impl FishingState {
             no_fight: false,
             reel_punish_timer: 0,
             reel_anim_tick: 0,
+            forced_temper: None,
+            temper: Temper::default(),
+            darting: false,
+            hooked: None,
+            reel_steps: 0,
         }
     }
 
@@ -214,8 +323,36 @@ impl FishingState {
         matches!(&self.phase, FishPhase::Catch(c) if c.biting)
     }
 
-    pub fn start_reeling(&mut self) {
+    fn start_reeling(&mut self) {
         self.phase = FishPhase::Reel;
+    }
+
+    pub fn hook(&mut self, catch: LootKind) {
+        self.temper = self
+            .forced_temper
+            .unwrap_or_else(|| Temper::roll(catch.rarity(), &mut rand::rng()));
+        self.hooked = Some(catch);
+        self.start_reeling();
+    }
+
+    pub fn take_catch(&mut self) -> Option<LootKind> {
+        self.hooked.take()
+    }
+
+    pub fn temper(&self) -> Temper {
+        self.temper
+    }
+
+    pub fn shown_completion(&self) -> f32 {
+        if self.completion >= STRETCHED_BAND {
+            return self.completion;
+        }
+        STRETCHED_BAND - (STRETCHED_BAND - self.completion) / BOTTOM_STRETCH
+    }
+
+    fn opening_penalty(&self) -> f32 {
+        let opened = (self.reel_steps as f32 * REEL_STEP_SECS / OPENING_GRACE_SECS).min(1.0);
+        1.0 + (BAD_REEL_PENALTY - 1.0) * opened
     }
 
     pub fn hold(&mut self, keys: &HeldKeys) {
@@ -310,24 +447,16 @@ impl FishingState {
     fn tick_reel(&mut self, coffee_stacks: u32, milk: MilkBuffs) {
         let safe_zone = milk.safe_zone();
         let grace_secs = milk.grace_secs();
-        let fish_force = FISH_FORCE * milk.fish_force_mult();
+        let pull = self.temper.temperament().pull;
 
         if !self.no_fight {
             self.target_timer -= 1.0;
             if self.target_timer <= 0.0 {
-                let mut rng = rand::rng();
-                let r = rng.random::<f32>();
-                self.target_pos = if r < 0.35 {
-                    rng.random_range(0.05..0.20f32)
-                } else if r < 0.70 {
-                    rng.random_range(0.80..0.95f32)
-                } else {
-                    rng.random_range(0.30..0.70f32)
-                };
-                self.target_timer = rng.random_range(TARGET_DURATION_MIN..TARGET_DURATION_MAX);
+                (self.darting, self.target_pos, self.target_timer) =
+                    self.temper.next_target(self.darting, &mut rand::rng());
             }
-            let dx = self.target_pos - self.fish_pos;
-            self.fish_velocity += dx.signum() * fish_force;
+            self.fish_velocity +=
+                pull.towards(self.target_pos, self.fish_pos) * milk.fish_force_mult();
         }
 
         if self.is_pushing_left {
@@ -353,7 +482,7 @@ impl FishingState {
         let reel_rate = REEL_RATE + COFFEE_REEL_RATE_PER_STACK * coffee_stacks as f32;
         if self.is_reeling {
             if reel_punish {
-                self.completion -= drain * BAD_REEL_PENALTY;
+                self.completion -= drain * self.opening_penalty();
             } else {
                 self.completion += reel_rate;
             }
@@ -373,9 +502,10 @@ impl FishingState {
             0
         };
 
-        self.completion = self.completion.clamp(0.0, 1.0);
+        self.completion = self.completion.clamp(LOSS_FLOOR, 1.0);
+        self.reel_steps = self.reel_steps.saturating_add(1);
 
-        if self.completion <= DANGER_THRESHOLD {
+        if self.shown_completion() <= DANGER_THRESHOLD {
             self.danger_timer += 1.0;
             if self.danger_timer >= DEFAULT_FPS * grace_secs && !self.no_escape {
                 self.game_over = true;
@@ -865,19 +995,20 @@ fn draw_comp_row(buf: &mut Buffer, x: u16, y: u16, row: u16, art_h: u16, state: 
     let in_danger = state.danger_timer > 0.0;
     let danger_flash = flash_on(state.danger_timer as u32);
 
-    let empty_rows = (art_h as f32 * (1.0 - state.completion)) as u16;
+    let shown = state.shown_completion();
+    let empty_rows = (art_h as f32 * (1.0 - shown)) as u16;
     let filled = row >= empty_rows;
 
     let (content, fg) = if state.captured {
         ("███", LIGHT_YELLOW)
     } else if filled {
-        let c = if state.completion <= DANGER_THRESHOLD {
+        let c = if shown <= DANGER_THRESHOLD {
             if in_danger && danger_flash {
                 LIGHT_RED
             } else {
                 RED
             }
-        } else if state.completion < COMPLETION_WARN {
+        } else if shown < COMPLETION_WARN {
             LIGHT_YELLOW
         } else {
             LIGHT_GREEN
@@ -897,20 +1028,15 @@ fn draw_control_bar(buf: &mut Buffer, x: u16, y: u16, inner_w: u16, state: &Fish
     let indicator_w = ((inner_w as f32 * INDICATOR_FRACTION) as u16).max(1) | 1;
     let movable = inner_w.saturating_sub(2 + indicator_w);
     let indicator_col = (state.fish_pos * movable as f32) as u16;
-
-    let offset = (state.fish_pos - 0.5).abs() * 2.0;
-    let indicator_color = if state.captured {
+    let control_color = if state.captured {
         LIGHT_YELLOW
-    } else if offset > state.safe_zone {
-        LIGHT_RED
     } else {
-        LIGHT_GREEN
+        CONTROL_COLOR
     };
 
     let bracket_style = Style::default().fg(DARK_GRAY).bg(BACKGROUND);
-    let line_style = Style::default().fg(DARK_GRAY).bg(BACKGROUND);
     let indicator_style = Style::default()
-        .fg(indicator_color)
+        .fg(control_color)
         .add_modifier(Modifier::BOLD)
         .bg(BACKGROUND);
 
@@ -924,10 +1050,25 @@ fn draw_control_bar(buf: &mut Buffer, x: u16, y: u16, inner_w: u16, state: &Fish
     for dx in 1..inner_w - 1 {
         if dx >= ind_start && dx < ind_end {
             buf[(x + dx, y)].set_char('█').set_style(indicator_style);
-        } else {
-            buf[(x + dx, y)].set_char('─').set_style(line_style);
+            continue;
         }
+        let water = water_color(dx, indicator_w, movable, state.safe_zone);
+        buf[(x + dx, y)]
+            .set_char('─')
+            .set_style(Style::default().fg(water).bg(BACKGROUND));
     }
+}
+
+fn water_color(dx: u16, indicator_w: u16, movable: u16, safe_zone: f32) -> Color {
+    let col = dx as f32 - 1.0 - (indicator_w / 2) as f32;
+    if movable == 0 || col < 0.0 || col > movable as f32 {
+        return DANGER_WATER;
+    }
+    let pos = ((col + 0.5) / movable as f32).min(1.0);
+    if (pos - 0.5).abs() * 2.0 > safe_zone {
+        return DANGER_WATER;
+    }
+    SAFE_WATER
 }
 
 fn draw_footer(buf: &mut Buffer, x: u16, y: u16, inner_w: u16, left: &str) {
@@ -1079,5 +1220,206 @@ mod cast_cycle_tests {
         let reel = (1.0 - COMPLETION_START) / REEL_RATE / DEFAULT_FPS;
         let cycle = bite_wait + reel + CARD_READ_SECS;
         assert_eq!(CASTS_PER_BUFF, (BAIT_DURATION / cycle).round() as u32);
+    }
+}
+
+#[cfg(test)]
+mod temper_tests {
+    use std::collections::VecDeque;
+
+    use super::*;
+
+    const FIGHTS: usize = 200;
+    const REACTION_STEPS: usize = 8;
+    const PATIENT_REEL_ZONE: f32 = 0.3;
+    const FIGHT_STEPS: usize = 30 * 120;
+    const ROLLS: usize = 20_000;
+    const CHANCE_SLACK: f64 = 0.02;
+
+    fn patient_angler_lands(temper: Temper) -> bool {
+        let mut state = FishingState {
+            forced_temper: Some(temper),
+            ..FishingState::default()
+        };
+        state.hook(LootKind::Food(1));
+        let mut seen: VecDeque<f32> = VecDeque::new();
+        for _ in 0..FIGHT_STEPS {
+            seen.push_back(state.fish_pos);
+            if seen.len() > REACTION_STEPS {
+                seen.pop_front();
+            }
+            state.is_reeling = (seen[0] - 0.5).abs() * 2.0 < PATIENT_REEL_ZONE;
+            state.tick(DEFAULT_FPS, 0, MilkBuffs::default(), None);
+            if state.captured || state.game_over {
+                return state.captured;
+            }
+        }
+        false
+    }
+
+    fn landed(temper: Temper) -> usize {
+        (0..FIGHTS).filter(|_| patient_angler_lands(temper)).count()
+    }
+
+    #[test]
+    fn a_legendary_catch_always_fights_like_a_legendary() {
+        let mut rng = rand::rng();
+        assert!((0..ROLLS).all(|_| Temper::roll(Rarity::Legendary, &mut rng) == Temper::Legendary));
+    }
+
+    #[test]
+    fn a_common_catch_rarely_fights_like_a_legendary_and_a_rare_one_more_often() {
+        let mut rng = rand::rng();
+        for rarity in [Rarity::Common, Rarity::Rare] {
+            let legendary = (0..ROLLS)
+                .filter(|_| Temper::roll(rarity, &mut rng) == Temper::Legendary)
+                .count() as f64
+                / ROLLS as f64;
+            let expected = Temper::legendary_chance(rarity);
+            assert!((legendary - expected).abs() < CHANCE_SLACK, "{legendary}");
+        }
+        assert!(Temper::legendary_chance(Rarity::Common) < Temper::legendary_chance(Rarity::Rare));
+        assert!(Temper::legendary_chance(Rarity::Rare) < 1.0);
+    }
+
+    #[test]
+    fn a_patient_angler_who_reels_on_green_lands_a_normal_fish_and_rarely_a_legendary_one() {
+        assert!(
+            landed(Temper::Normal) * 10 >= FIGHTS * 9,
+            "a normal fish is fair"
+        );
+        assert!(
+            landed(Temper::Legendary) * 5 <= FIGHTS,
+            "a legendary fish needs steering"
+        );
+    }
+
+    #[test]
+    fn a_normal_fish_glides_where_a_legendary_one_snaps() {
+        let top_speed = |temper: Temper| {
+            let mut state = FishingState {
+                forced_temper: Some(temper),
+                ..FishingState::default()
+            };
+            state.hook(LootKind::Food(1));
+            state.no_escape = true;
+            (0..FIGHT_STEPS)
+                .map(|_| {
+                    state.tick(DEFAULT_FPS, 0, MilkBuffs::default(), None);
+                    state.fish_velocity.abs()
+                })
+                .sum::<f32>()
+                / FIGHT_STEPS as f32
+        };
+        assert!(top_speed(Temper::Normal) * 2.0 < top_speed(Temper::Legendary));
+    }
+
+    #[test]
+    fn the_bottom_of_the_bar_holds_twice_its_height() {
+        let mut state = FishingState {
+            completion: LOSS_FLOOR,
+            ..FishingState::default()
+        };
+        assert_eq!(state.shown_completion(), 0.0);
+        state.completion = STRETCHED_BAND;
+        assert_eq!(state.shown_completion(), STRETCHED_BAND);
+        state.completion = 0.0;
+        assert!((state.shown_completion() - STRETCHED_BAND / BOTTOM_STRETCH).abs() < 1e-6);
+        state.completion = 0.6;
+        assert_eq!(
+            state.shown_completion(),
+            0.6,
+            "the top of the bar is unchanged"
+        );
+    }
+
+    #[test]
+    fn a_fish_at_the_wall_takes_twice_as_long_to_reach_danger() {
+        let mut state = FishingState {
+            no_fight: true,
+            ..FishingState::default()
+        };
+        state.hook(LootKind::Food(1));
+        state.fish_pos = 0.0;
+        let mut steps = 0;
+        while state.danger_timer == 0.0 {
+            state.tick(DEFAULT_FPS, 0, MilkBuffs::default(), None);
+            steps += 1;
+        }
+        let unstretched = (COMPLETION_START - DANGER_THRESHOLD) / EDGE_DRAIN_RATE;
+        let stretched = (COMPLETION_START - DANGER_THRESHOLD) * BOTTOM_STRETCH / EDGE_DRAIN_RATE;
+        assert!(steps as f32 > unstretched * 1.9, "{steps}");
+        assert!((steps as f32 - stretched).abs() <= 2.0, "{steps}");
+    }
+
+    #[test]
+    fn a_bad_reel_costs_only_the_drain_at_the_strike_and_its_full_penalty_after_the_opening() {
+        let mut state = FishingState::default();
+        state.hook(LootKind::Food(1));
+        assert_eq!(state.opening_penalty(), 1.0);
+        let opening_steps = (OPENING_GRACE_SECS / REEL_STEP_SECS).round() as u32;
+        state.reel_steps = opening_steps / 2;
+        assert!((state.opening_penalty() - (1.0 + BAD_REEL_PENALTY) / 2.0).abs() < 1e-3);
+        state.reel_steps = opening_steps;
+        assert_eq!(state.opening_penalty(), BAD_REEL_PENALTY);
+    }
+}
+
+#[cfg(test)]
+mod water_tests {
+    use super::*;
+
+    const BAR_W: u16 = 60;
+
+    fn water(state: &FishingState) -> Vec<Color> {
+        let area = Rect::new(0, 0, BAR_W, 1);
+        let mut buf = Buffer::empty(area);
+        draw_control_bar(&mut buf, 0, 0, BAR_W, state);
+        (1..BAR_W - 1)
+            .filter(|&x| buf[(x, 0)].symbol() == "─")
+            .map(|x| buf[(x, 0)].fg)
+            .collect()
+    }
+
+    fn safe_cells(state: &FishingState) -> usize {
+        water(state).iter().filter(|&&c| c == SAFE_WATER).count()
+    }
+
+    #[test]
+    fn the_water_is_green_in_the_middle_red_at_the_sides_and_the_control_keeps_its_colour() {
+        let mut state = FishingState::default();
+        for pos in [0.0, 0.5, 1.0] {
+            state.fish_pos = pos;
+            let cells = water(&state);
+            assert!(cells.iter().all(|&c| c == SAFE_WATER || c == DANGER_WATER));
+            let area = Rect::new(0, 0, BAR_W, 1);
+            let mut buf = Buffer::empty(area);
+            draw_control_bar(&mut buf, 0, 0, BAR_W, &state);
+            let control: Vec<Color> = (0..BAR_W)
+                .filter(|&x| buf[(x, 0)].symbol() == "█")
+                .map(|x| buf[(x, 0)].fg)
+                .collect();
+            assert!(!control.is_empty() && control.iter().all(|&c| c == CONTROL_COLOR));
+        }
+        state.fish_pos = 0.0;
+        let cells = water(&state);
+        assert_eq!(*cells.last().unwrap(), DANGER_WATER);
+        state.fish_pos = 1.0;
+        let cells = water(&state);
+        assert_eq!(cells[0], DANGER_WATER);
+        assert!(cells.contains(&SAFE_WATER));
+    }
+
+    #[test]
+    fn a_wider_safe_zone_is_more_green_water() {
+        let plain = FishingState::default();
+        let calculated = FishingState::new(
+            MilkBuffs {
+                visual_calculus: 10,
+                ..MilkBuffs::default()
+            },
+            &mut rand::rng(),
+        );
+        assert!(safe_cells(&calculated) > safe_cells(&plain));
     }
 }

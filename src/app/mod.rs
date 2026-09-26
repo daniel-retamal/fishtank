@@ -605,7 +605,8 @@ impl App {
             return;
         }
         let mut rng = rand::rng();
-        let loot = self.roll_catch(self.current_tank, &mut rng);
+        let hooked = self.fishing_state_mut().and_then(FishingState::take_catch);
+        let loot = hooked.unwrap_or_else(|| self.roll_catch(self.current_tank, &mut rng));
         self.spend_a_cast(Caster::Angler);
         let card = self.counted(CatchState::new(loot, &mut rng));
         self.set_overlay(Overlay::Catch(card));

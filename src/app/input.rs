@@ -472,24 +472,27 @@ impl App {
             return;
         }
         self.held_keys.press(held.code);
-        let mut catch_failed = false;
-        if let Some(s) = self.fishing_state_mut()
-            && !s.game_over
-            && !s.captured
-            && s.is_catching()
-            && held.code == KeyCode::Down
-        {
-            if s.is_biting() {
-                s.start_reeling();
-            } else {
-                catch_failed = true;
+        let strike = self.fishing_state().and_then(|s| {
+            let striking =
+                !s.game_over && !s.captured && s.is_catching() && held.code == KeyCode::Down;
+            striking.then(|| s.is_biting())
+        });
+        match strike {
+            Some(true) => self.hook_the_catch(),
+            Some(false) => {
+                self.close_overlay();
+                return;
             }
-        }
-        if catch_failed {
-            self.close_overlay();
-            return;
+            None => {}
         }
         self.hold_the_rod();
+    }
+
+    fn hook_the_catch(&mut self) {
+        let catch = self.roll_catch(self.current_tank, &mut rand::rng());
+        if let Some(s) = self.fishing_state_mut() {
+            s.hook(catch);
+        }
     }
 
     fn hold_the_rod(&mut self) {
@@ -2706,15 +2709,17 @@ impl App {
             commands::Action::Fish {
                 no_escape,
                 no_fight,
+                temper,
             } => {
                 let milk = self.milk_buffs();
                 let mut state = FishingState::new(milk, &mut rand::rng());
                 state.no_escape = no_escape || self.cheats.no_escape;
                 state.no_fight = no_fight;
-                if no_fight {
-                    state.start_reeling();
-                }
+                state.forced_temper = temper;
                 self.set_overlay(Overlay::Fishing(state));
+                if no_fight {
+                    self.hook_the_catch();
+                }
                 true
             }
             commands::Action::Switch(tank_name) => {
