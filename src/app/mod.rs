@@ -30,7 +30,7 @@ use crate::{
         fishtanks_overlay::{FishtanksOverlay, FishtanksState},
         foundry_overlay::{FoundryOverlay, FoundryState, Quotes},
         index_overlay::{IndexOverlay, IndexState},
-        input_action::{HeldKeys, Releases},
+        input_action::HeldKeys,
         inventory_overlay::{InventoryOverlay, InventoryState},
         layout::Screen,
         ledger_overlay::{LedgerOverlay, LedgerState},
@@ -189,10 +189,6 @@ impl App {
             Some(Overlay::Inventory(s)) => Some(s),
             _ => None,
         }
-    }
-
-    pub fn expect_key_releases(&mut self, releases: Releases) {
-        self.held_keys.expect(releases);
     }
 
     pub fn fishing_state(&self) -> Option<&FishingState> {

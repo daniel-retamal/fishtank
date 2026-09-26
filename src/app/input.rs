@@ -80,6 +80,11 @@ impl App {
     pub fn handle_input(&mut self, event: Event) {
         self.note_input(&event);
         self.held_keys.hear(&event);
+        if matches!(event, Event::FocusLost) {
+            let lifted = self.held_keys.let_go();
+            self.lift_console_keys(lifted);
+            self.hold_the_rod();
+        }
         if let Event::Resize(w, h) = event {
             self.terminal_height = h;
             self.terminal_width = w;
