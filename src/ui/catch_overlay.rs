@@ -15,7 +15,8 @@ use crate::fishes::fish::{Direction, Fish};
 use crate::loot::{
     ConsumableKind, ItemKind, JunkSprite, LootKind, bait_sprite_rows, blank_blueprint_sprite_rows,
     blank_wafer_sprite_rows, coffee_sprite_rows, computer_sprite_rows, demoncore_sprite_rows,
-    fabricator_sprite_rows, milk_sprite_rows, part_sprite_rows, void_seed_sprite_rows,
+    fabricator_sprite_rows, golden_pearl_sprite_rows, milk_sprite_rows, part_sprite_rows,
+    void_seed_sprite_rows,
 };
 use crate::ui::{
     hint_bar::HintBar,
@@ -151,7 +152,7 @@ impl CatchState {
                 self.anim_phase = !self.anim_phase;
             }
         }
-        if is_demoncore(&self.loot) {
+        if glistens(&self.loot) {
             self.glisten_phase =
                 (self.glisten_phase + dt * DEMON_CORE_GLISTEN_SPEED).rem_euclid(TAU);
         }
@@ -528,6 +529,15 @@ fn overlay_title(loot: &LootKind) -> String {
     format!(" {catch} to the Fishtank! ")
 }
 
+fn glistens(loot: &LootKind) -> bool {
+    matches!(
+        loot,
+        LootKind::Item(ItemKind::Consumable(
+            ConsumableKind::DemonCore | ConsumableKind::GoldenPearl
+        ))
+    )
+}
+
 fn is_demoncore(loot: &LootKind) -> bool {
     matches!(
         loot,
@@ -735,6 +745,7 @@ fn consumable_rows(kind: ConsumableKind, state: &CatchState) -> Option<Vec<Vec<(
         ConsumableKind::Fabricator => fabricator_sprite_rows(),
         ConsumableKind::BlankBlueprint => blank_blueprint_sprite_rows(),
         ConsumableKind::VoidSeed => void_seed_sprite_rows(),
+        ConsumableKind::GoldenPearl => golden_pearl_sprite_rows(state.glisten_phase),
         ConsumableKind::Necronomicon => return None,
     })
 }

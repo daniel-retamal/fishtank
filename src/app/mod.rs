@@ -542,7 +542,8 @@ impl App {
             ConsumableKind::Necronomicon
             | ConsumableKind::DemonCore
             | ConsumableKind::Computer
-            | ConsumableKind::VoidSeed => unreachable!("a tank's item opens the naming popup"),
+            | ConsumableKind::VoidSeed
+            | ConsumableKind::GoldenPearl => unreachable!("a tank's item opens the naming popup"),
             ConsumableKind::BlankBlueprint => {
                 if !self.tank().fish.iter().any(|f| f.is_wired()) {
                     return false;

@@ -303,6 +303,7 @@ pub enum ConsumableKind {
     DemonCore,
     Computer,
     VoidSeed,
+    GoldenPearl,
     BlankWafer,
     Part(Part),
     Fabricator,
@@ -319,6 +320,7 @@ impl ConsumableKind {
         v.push(ConsumableKind::DemonCore);
         v.push(ConsumableKind::Computer);
         v.push(ConsumableKind::VoidSeed);
+        v.push(ConsumableKind::GoldenPearl);
         for &part in Part::ALL {
             v.push(ConsumableKind::Part(part));
         }
@@ -381,6 +383,7 @@ impl ConsumableKind {
             ConsumableKind::DemonCore => DEMON_CORE_NAME,
             ConsumableKind::Computer => COMPUTER_NAME,
             ConsumableKind::VoidSeed => VOID_SEED_NAME,
+            ConsumableKind::GoldenPearl => GOLDEN_PEARL_NAME,
             ConsumableKind::BlankWafer => BLANK_WAFER_NAME,
             ConsumableKind::Part(part) => part.display_name(),
             ConsumableKind::Fabricator => FABRICATOR_NAME,
@@ -394,6 +397,7 @@ impl ConsumableKind {
             ConsumableKind::DemonCore => Some(TankKind::Rad),
             ConsumableKind::Computer => Some(TankKind::Matrix),
             ConsumableKind::VoidSeed => Some(TankKind::Void),
+            ConsumableKind::GoldenPearl => Some(TankKind::Heaven),
             _ => None,
         }
     }
@@ -434,6 +438,7 @@ impl ConsumableKind {
             ConsumableKind::DemonCore => DEMON_CORE_PANEL_INNER_W,
             ConsumableKind::Computer => computer_art().panel_inner_w(),
             ConsumableKind::VoidSeed => void_seed_art().panel_inner_w(),
+            ConsumableKind::GoldenPearl => golden_pearl_art().panel_inner_w(),
             ConsumableKind::BlankWafer => blank_wafer_art().panel_inner_w(),
             ConsumableKind::Part(part) => part_art(part).panel_inner_w(),
             ConsumableKind::Fabricator => fabricator_art().panel_inner_w(),
@@ -450,6 +455,7 @@ impl ConsumableKind {
             ConsumableKind::DemonCore => DEMON_CORE_HOOK_COL,
             ConsumableKind::Computer => computer_art().hook_col(),
             ConsumableKind::VoidSeed => void_seed_art().hook_col(),
+            ConsumableKind::GoldenPearl => golden_pearl_art().hook_col(),
             ConsumableKind::BlankWafer => blank_wafer_art().hook_col(),
             ConsumableKind::Part(part) => part_art(part).hook_col(),
             ConsumableKind::Fabricator => fabricator_art().hook_col(),
@@ -466,6 +472,7 @@ impl ConsumableKind {
             ConsumableKind::DemonCore => DEMON_CORE_HOOK_ROW,
             ConsumableKind::Computer => computer_art().hook_row(),
             ConsumableKind::VoidSeed => void_seed_art().hook_row(),
+            ConsumableKind::GoldenPearl => golden_pearl_art().hook_row(),
             ConsumableKind::BlankWafer => blank_wafer_art().hook_row(),
             ConsumableKind::Part(part) => part_art(part).hook_row(),
             ConsumableKind::Fabricator => fabricator_art().hook_row(),
@@ -482,6 +489,7 @@ impl ConsumableKind {
             | ConsumableKind::DemonCore
             | ConsumableKind::Computer
             | ConsumableKind::VoidSeed
+            | ConsumableKind::GoldenPearl
             | ConsumableKind::BlankWafer
             | ConsumableKind::Part(_)
             | ConsumableKind::Fabricator
@@ -498,6 +506,7 @@ impl ConsumableKind {
             | ConsumableKind::DemonCore
             | ConsumableKind::Computer
             | ConsumableKind::VoidSeed
+            | ConsumableKind::GoldenPearl
             | ConsumableKind::BlankWafer
             | ConsumableKind::Part(_)
             | ConsumableKind::Fabricator
@@ -520,7 +529,8 @@ impl ConsumableKind {
             | ConsumableKind::Necronomicon
             | ConsumableKind::DemonCore
             | ConsumableKind::Computer
-            | ConsumableKind::VoidSeed => 0,
+            | ConsumableKind::VoidSeed
+            | ConsumableKind::GoldenPearl => 0,
         }
     }
 
@@ -543,7 +553,8 @@ impl ConsumableKind {
             ConsumableKind::Necronomicon
             | ConsumableKind::DemonCore
             | ConsumableKind::Computer
-            | ConsumableKind::VoidSeed => 0,
+            | ConsumableKind::VoidSeed
+            | ConsumableKind::GoldenPearl => 0,
         }
     }
 
@@ -560,6 +571,7 @@ impl ConsumableKind {
             ConsumableKind::DemonCore => DEMON_CORE_DESCRIPTION,
             ConsumableKind::Computer => COMPUTER_DESCRIPTION,
             ConsumableKind::VoidSeed => VOID_SEED_DESCRIPTION,
+            ConsumableKind::GoldenPearl => GOLDEN_PEARL_DESCRIPTION,
             ConsumableKind::BlankWafer => BLANK_WAFER_DESCRIPTION,
             ConsumableKind::Part(part) => part.description(),
             ConsumableKind::Fabricator => FABRICATOR_DESCRIPTION,
@@ -572,7 +584,8 @@ impl ConsumableKind {
             ConsumableKind::Necronomicon
             | ConsumableKind::DemonCore
             | ConsumableKind::Computer
-            | ConsumableKind::VoidSeed => Rarity::Legendary,
+            | ConsumableKind::VoidSeed
+            | ConsumableKind::GoldenPearl => Rarity::Legendary,
             ConsumableKind::Part(part) => part.rarity(),
             ConsumableKind::Fabricator => Rarity::Rare,
             _ => Rarity::Common,
@@ -834,6 +847,33 @@ pub fn void_seed_sprite_rows() -> Vec<Vec<(char, Color)>> {
     void_seed_art().rows(WHITE)
 }
 
+const GOLDEN_PEARL_NAME: &str = "Pearl of Great Price";
+const GOLDEN_PEARL_DESCRIPTION: &str = "The merchant sold everything he had for this one. Each gate of the city is a single pearl, and this one fell. Opens a Gate to Heaven, The Heaventank. The dead get a wall of their own";
+const GOLDEN_PEARL_SPRITE_LINES: &[&str] = &[
+    r#"   .-""-."#,
+    r"  / o    \",
+    r" |  '     |",
+    r"  \      /",
+    r"   `-..-'",
+];
+const GOLDEN_PEARL_HOOK_ROW: u16 = (GOLDEN_PEARL_SPRITE_LINES.len() / 2) as u16;
+
+fn golden_pearl_art() -> HookedArt {
+    HookedArt::new(GOLDEN_PEARL_SPRITE_LINES, GOLDEN_PEARL_HOOK_ROW)
+}
+
+pub fn golden_pearl_sprite_rows(glisten_phase: f32) -> Vec<Vec<(char, Color)>> {
+    let mut rows = golden_pearl_art().rows(GOLD);
+    apply_glisten(
+        &mut rows,
+        glisten_phase,
+        GlisteningMode::Wave,
+        GOLD,
+        GOLD_BRIGHT,
+    );
+    rows
+}
+
 const BLANK_BLUEPRINT_SPRITE_LINES: &[&str] = &[
     r"+--+--+--+-.",
     r"|  |  |  |  \",
@@ -1020,6 +1060,7 @@ impl StockItem {
     pub const DEMON_CORE: StockItem = StockItem::Consumable(ConsumableKind::DemonCore);
     pub const COMPUTER: StockItem = StockItem::Consumable(ConsumableKind::Computer);
     pub const VOID_SEED: StockItem = StockItem::Consumable(ConsumableKind::VoidSeed);
+    pub const GOLDEN_PEARL: StockItem = StockItem::Consumable(ConsumableKind::GoldenPearl);
 
     pub fn display_name(self) -> &'static str {
         match self {
